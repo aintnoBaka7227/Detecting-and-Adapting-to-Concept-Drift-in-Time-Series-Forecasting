@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.DS_Store
+
+# Raw/processed AEMO data is large and not meant to live in git.
+# Keep the folders (via .gitkeep), ignore their contents.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/synthetic/*
+!data/synthetic/.gitkeep
+
+reports/figures/*
+!reports/figures/.gitkeep
