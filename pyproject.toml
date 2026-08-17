@@ -10,6 +10,7 @@ dependencies = [
     "river>=0.21",
     "matplotlib>=3.8",
     "streamlit>=1.35",
+    "nemosis>=3.8.1",
 ]
 
 [project.optional-dependencies]
