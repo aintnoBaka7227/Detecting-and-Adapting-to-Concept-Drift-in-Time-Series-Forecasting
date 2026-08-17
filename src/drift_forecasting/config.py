@@ -1,10 +1,4 @@
-"""Single source of truth for paths, regions and the train/calibration/test split.
-
-Fixed in Sprint 1 (Step 1) and frozen after Checkpoint 1 — every rolling-MAE
-number, detector metric and coverage table downstream depends on these
-boundaries never moving. If a split needs to change, it changes here and
-only here, and everyone re-runs from Step 3.
-"""
+"""Single source of truth for paths, regions and dataset boundaries."""
 
 from pathlib import Path
 
@@ -16,24 +10,29 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 SYNTHETIC_DATA_DIR = DATA_DIR / "synthetic"
 REPORTS_DIR = ROOT_DIR / "reports"
 
-# Raw AEMO files downloaded/cached by NEMOSIS.
+# NEMOSIS cache for raw AEMO MMS files.
 NEMOSIS_CACHE = RAW_DATA_DIR / "nemosis_cache"
 
 REGIONS = ("SA1", "NSW1")
 
-# Half-hourly trading-data period.
-# Stop before the NEM five-minute settlement transition in October 2021.
-AEMO_START = "2018/01/01 00:00:00"
-AEMO_END = "2021/09/30 23:59:59"
+# Native 30-minute trading-data period.
+AEMO_30MIN_START = "2018/01/01 00:00:00"
+AEMO_30MIN_END = "2021/09/30 23:59:59"
 
-# See drift-project-briefing, Step 1. Test end date is open — consume
-# in time order only, never slice past "now" in the simulated stream.
+# Native 5-minute dispatch-data period.
+AEMO_5MIN_START = "2021/10/01 00:00:00"
+AEMO_5MIN_END = "2023/12/31 23:59:59"
+
+# Train / calibration / test split.
 SPLIT = {
     "train": ("2018-01-01", "2019-12-31"),
     "calibration": ("2020-01-01", "2020-02-29"),
     "test": ("2020-03-01", None),
 }
 
-SEASON_LENGTH = 48  # half-hourly intervals per day
+# Used later by forecasting models if the modelling data is standardised
+# to half-hourly intervals.
+SEASON_LENGTH = 48
+
 ROLLING_WINDOW_DAYS = 7
 INTERVAL_COVERAGE_TARGET = 0.90
