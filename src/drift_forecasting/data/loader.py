@@ -27,6 +27,27 @@ from drift_forecasting.config import (
 )
 
 
+def _report_unmatched_merge_rows(
+    merged: pd.DataFrame,
+    label: str,
+) -> None:
+    """Print how many rows an outer merge kept that lack a demand or price value.
+
+    An inner merge would have silently dropped these instead. Reporting
+    them keeps the loader honest about "no cleaning is performed here" -
+    the rows are kept, not fixed.
+    """
+
+    missing_demand = merged["TOTALDEMAND"].isna().sum()
+    missing_price = merged["RRP"].isna().sum()
+
+    if missing_demand or missing_price:
+        print(
+            f"{label}: {missing_demand} rows missing TOTALDEMAND, "
+            f"{missing_price} rows missing RRP after merge."
+        )
+
+
 def load_aemo_demand(
     region: str,
     raw_dir: Path = RAW_DATA_DIR,
@@ -121,7 +142,12 @@ def load_aemo_demand(
         trading_demand,
         trading_price,
         on=["SETTLEMENTDATE", "REGIONID"],
-        how="inner",
+        how="outer",
+    )
+
+    _report_unmatched_merge_rows(
+        data_30min,
+        label="30-minute demand/price",
     )
 
     data_30min = (
@@ -179,7 +205,12 @@ def load_aemo_demand(
         dispatch_demand,
         dispatch_price,
         on=["SETTLEMENTDATE", "REGIONID"],
-        how="inner",
+        how="outer",
+    )
+
+    _report_unmatched_merge_rows(
+        data_5min,
+        label="5-minute demand/price",
     )
 
     data_5min = (
