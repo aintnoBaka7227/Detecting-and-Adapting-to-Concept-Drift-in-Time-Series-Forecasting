@@ -10,9 +10,6 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 SYNTHETIC_DATA_DIR = DATA_DIR / "synthetic"
 REPORTS_DIR = ROOT_DIR / "reports"
 
-# NEMOSIS cache for raw AEMO MMS files.
-NEMOSIS_CACHE = RAW_DATA_DIR / "nemosis_cache"
-
 REGIONS = ("SA1", "NSW1")
 
 # Native 30-minute trading-data period.

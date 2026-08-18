@@ -1,62 +1,31 @@
-"""Data-quality checks and fixes: DST gaps, duplicate intervals, missing intervals.
-
-Every fix applied here must be recorded in the data-quality note that is
-the Step 1 deliverable — this is where those fixes actually happen, so
-keep the note in sync with what this function does.
-"""
-
-from pathlib import Path
+"""Check and safely clean AEMO NSW1 and SA1 native-frequency datasets."""
 
 import pandas as pd
 
+from drift_forecasting.config import PROCESSED_DATA_DIR, RAW_DATA_DIR
+
 
 REQUIRED_COLUMNS = {
+    "REGION",
     "SETTLEMENTDATE",
-    "REGIONID",
     "TOTALDEMAND",
     "RRP",
+    "PERIODTYPE",
 }
 
+# AEMO changed from 30-minute to 5-minute settlement on 1 October 2021.
 FIVE_MINUTE_START = pd.Timestamp("2021-10-01")
 
 
 def clean_demand_series(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a cleaned copy of `df` with data-quality issues checked.
-
-    Checks:
-    - required columns and data types
-    - timestamp parsing and chronological order
-    - duplicate observations
-    - missing values
-    - missing/unexpected intervals
-    - 30-minute / 5-minute frequency
-    - basic demand and price outliers
-
-    Only safe fixes are applied automatically:
-    - invalid timestamps are removed
-    - exact duplicate rows are removed
-    - conflicting duplicate timestamps (same SETTLEMENTDATE + REGIONID,
-      differing RRP and/or TOTALDEMAND) are resolved by keeping the
-      first-appearing row and dropping the rest
-    - rows are sorted chronologically
-
-    Missing values, unusual gaps and outliers are reported rather than
-    automatically modified.
-
-    Must only use information available at or before each row's own
-    timestamp — no full-series statistics — or the Step 7 leakage audit
-    will fail on this function.
-    """
+    """Run data-quality checks and safely clean one AEMO regional dataset."""
 
     data = df.copy()
 
     print("=== AEMO Data Quality Check ===")
     print(f"Rows before cleaning: {len(data)}")
 
-    # -----------------------------------------------------
-    # 1. Validate structure
-    # -----------------------------------------------------
-
+    # 1. Check that the dataset contains all columns expected from loader.py.
     missing_columns = REQUIRED_COLUMNS - set(data.columns)
 
     if missing_columns:
@@ -64,22 +33,22 @@ def clean_demand_series(df: pd.DataFrame) -> pd.DataFrame:
             f"Missing required columns: {sorted(missing_columns)}"
         )
 
+    # Convert demand and price to numeric so invalid values become NaN
+    # and can be identified in the missing-value check.
     data["TOTALDEMAND"] = pd.to_numeric(
         data["TOTALDEMAND"],
         errors="coerce",
     )
-
     data["RRP"] = pd.to_numeric(
         data["RRP"],
         errors="coerce",
     )
 
-    print(f"Regions: {sorted(data['REGIONID'].dropna().unique())}")
+    print(f"Regions: {sorted(data['REGION'].dropna().unique())}")
 
-    # -----------------------------------------------------
-    # 2. Validate timestamps
-    # -----------------------------------------------------
+    print()
 
+    # 2. Check timestamp quality and chronological order.
     data["SETTLEMENTDATE"] = pd.to_datetime(
         data["SETTLEMENTDATE"],
         errors="coerce",
@@ -89,29 +58,19 @@ def clean_demand_series(df: pd.DataFrame) -> pd.DataFrame:
 
     print(f"Invalid timestamps: {invalid_timestamps}")
 
-    if invalid_timestamps:
-        data = data.dropna(
-            subset=["SETTLEMENTDATE"]
-        )
+    # Invalid timestamps cannot be placed correctly in the time series.
+    data = (
+        data
+        .dropna(subset=["SETTLEMENTDATE"])
+        .reset_index(drop=True)
+    )
 
-    data = data.reset_index(drop=True)
+    # Check the original ordering before sorting the dataset.
+    out_of_order = (
+        data["SETTLEMENTDATE"].diff() < pd.Timedelta(0)
+    ).sum()
 
-    # Report any place where the raw arrival order goes backwards in time,
-    # before the unconditional sort below silently fixes it.
-    out_of_order = data["SETTLEMENTDATE"].diff() < pd.Timedelta(0)
-    n_out_of_order = out_of_order.sum()
-
-    print(f"Out-of-order timestamps: {n_out_of_order}")
-
-    if n_out_of_order:
-        print("Out-of-order sections (row index: previous -> current):")
-
-        for idx in data.index[out_of_order][:10]:
-            print(
-                f"  row {idx}: "
-                f"{data.loc[idx - 1, 'SETTLEMENTDATE']} -> "
-                f"{data.loc[idx, 'SETTLEMENTDATE']}"
-            )
+    print(f"Out-of-order timestamps: {out_of_order}")
 
     data = (
         data
@@ -119,198 +78,138 @@ def clean_demand_series(df: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
 
-    if not data.empty:
-        print(
-            "Date range:",
-            data["SETTLEMENTDATE"].min(),
-            "to",
-            data["SETTLEMENTDATE"].max(),
-        )
-
-    # -----------------------------------------------------
-    # 3. Check duplicates
-    # -----------------------------------------------------
-
-    exact_duplicates = data.duplicated(
-        keep="first"
-    )
-
     print(
-        f"Exact duplicate rows: {exact_duplicates.sum()}"
+        "Date range:",
+        data["SETTLEMENTDATE"].min(),
+        "to",
+        data["SETTLEMENTDATE"].max(),
     )
 
-    # Exact duplicate rows contain no additional information,
-    # so keeping the first occurrence is safe.
+    print()
+
+    # 3. Check for exact duplicate rows and repeated timestamps.
+    exact_duplicates = data.duplicated().sum()
+
+    print(f"Exact duplicate rows: {exact_duplicates}")
+
+    # Exact duplicates contain no additional information.
     data = (
         data
-        .loc[~exact_duplicates]
+        .drop_duplicates()
         .reset_index(drop=True)
     )
 
-    # After exact duplicates are removed, any remaining rows
-    # with the same timestamp + region must contain conflicting
-    # demand and/or price values.
-    duplicate_intervals = data.duplicated(
-        subset=["SETTLEMENTDATE", "REGIONID"],
+    # After removing exact duplicates, repeated timestamps indicate that
+    # different values exist for the same region and settlement interval.
+    conflicting_duplicates = data.duplicated(
+        subset=["SETTLEMENTDATE", "REGION"],
         keep=False,
     )
 
-    conflicting_duplicates = data.loc[
-        duplicate_intervals,
-        [
-            "SETTLEMENTDATE",
-            "REGIONID",
-            "TOTALDEMAND",
-            "RRP",
-        ],
-    ].copy()
-
     print(
         "Conflicting duplicate timestamp rows:",
-        len(conflicting_duplicates),
+        conflicting_duplicates.sum(),
     )
 
-    if not conflicting_duplicates.empty:
-        issues_dir = Path("data/processed/quality_issues")
-
-        issues_dir.mkdir(
-            parents=True,
-            exist_ok=True,
+    # Keep one observation for each region and settlement interval.
+    data = (
+        data
+        .drop_duplicates(
+            subset=["SETTLEMENTDATE", "REGION"],
+            keep="first",
         )
+        .reset_index(drop=True)
+    )
 
-        # Tag the file with the region(s) present so cleaning a second
-        # region does not overwrite the first region's report.
-        region_tag = "_".join(
-            sorted(data["REGIONID"].dropna().unique())
-        ) or "unknown"
+    print()
 
-        output_file = (
-            issues_dir
-            / f"conflicting_duplicate_timestamps_{region_tag}.csv"
-        )
+    # 4. Check for missing values in the columns used by the project.
+    print("Missing values:")
 
-        conflicting_duplicates.to_csv(
-            output_file,
-            index=False,
-        )
+    print(
+        data[
+            [
+                "REGION",
+                "SETTLEMENTDATE",
+                "TOTALDEMAND",
+                "RRP",
+                "PERIODTYPE",
+            ]
+        ].isna().sum()
+    )
 
-        print(
-            f"Conflicting duplicates saved to: {output_file}"
-        )
+    print()
 
-        # The conflicting rows are kept in their original (chronological)
-        # order, so the first occurrence per timestamp+region is the
-        # earliest-published value. Later republications of the same
-        # interval (e.g. a revised RRP) are dropped rather than averaged
-        # or chosen arbitrarily.
-        rows_before = len(data)
-
-        data = (
-            data
-            .drop_duplicates(
-                subset=["SETTLEMENTDATE", "REGIONID"],
-                keep="first",
-            )
-            .reset_index(drop=True)
-        )
-
-        print(
-            "Rows dropped keeping first-appearing value: "
-            f"{rows_before - len(data)}"
-        )
-
-    # -----------------------------------------------------
-    # 4. Check missing values
-    # -----------------------------------------------------
-
-    missing_values = data[
-        [
-            "SETTLEMENTDATE",
-            "REGIONID",
-            "TOTALDEMAND",
-            "RRP",
-        ]
-    ].isna().sum()
-
-    print("\nMissing values:")
-    print(missing_values)
-
-    # Do not interpolate/backfill missing observations here.
-    # They are reported so the treatment can be documented.
-
-    # -----------------------------------------------------
-    # 5. Validate frequency / missing intervals
-    # -----------------------------------------------------
-
+    # 5. Check whether observations follow the expected AEMO frequency.
+    # Before October 2021 the data should be 30-minute intervals.
     before_5ms = data[
         data["SETTLEMENTDATE"] < FIVE_MINUTE_START
     ]
 
+    # From October 2021 onward the data should be 5-minute intervals.
     after_5ms = data[
         data["SETTLEMENTDATE"] >= FIVE_MINUTE_START
     ]
 
-    print("\n30-minute period:")
+    print("30-minute period:")
+
     _check_frequency(
         before_5ms,
         expected_interval=pd.Timedelta(minutes=30),
     )
 
-    print("\n5-minute period:")
+    print()
+
+    print("5-minute period:")
+
     _check_frequency(
         after_5ms,
         expected_interval=pd.Timedelta(minutes=5),
     )
 
-    # before_5ms/after_5ms are checked independently above, so a gap
-    # straddling the cutover itself would otherwise go unreported.
-    if not before_5ms.empty and not after_5ms.empty:
-        boundary_gap = (
-            after_5ms["SETTLEMENTDATE"].min()
-            - before_5ms["SETTLEMENTDATE"].max()
-        )
-        print(f"\nBoundary gap (30-min -> 5-min): {boundary_gap}")
+    print()
 
-    # -----------------------------------------------------
-    # 6. Check basic outliers / logical validity
-    # -----------------------------------------------------
+    # 6. Check which AEMO period types are present in the combined dataset.
+    print("PERIODTYPE values:")
+    print(data["PERIODTYPE"].value_counts(dropna=False))
 
+    print()
+
+    # 7. Check basic logical ranges for electricity demand and price.
+    # Negative demand is suspicious, while negative or extreme RRP values
+    # may be genuine electricity-market observations and are not removed.
     negative_demand = (
         data["TOTALDEMAND"] < 0
     ).sum()
 
     print(
-        f"\nNegative TOTALDEMAND values: {negative_demand}"
+        f"Negative TOTALDEMAND values: {negative_demand}"
     )
 
-    if not data.empty:
-        print(
-            f"TOTALDEMAND range: "
-            f"{data['TOTALDEMAND'].min()} "
-            f"to {data['TOTALDEMAND'].max()}"
-        )
+    print(
+        f"TOTALDEMAND range: "
+        f"{data['TOTALDEMAND'].min()} "
+        f"to {data['TOTALDEMAND'].max()}"
+    )
 
-        print(
-            f"RRP range: "
-            f"{data['RRP'].min()} "
-            f"to {data['RRP'].max()}"
-        )
+    print(
+        f"RRP range: "
+        f"{data['RRP'].min()} "
+        f"to {data['RRP'].max()}"
+    )
 
-    # Do not remove extreme RRP values automatically.
-    # Electricity-market price spikes may be genuine observations.
+    print()
 
-    # -----------------------------------------------------
-    # 7. Final validation
-    # -----------------------------------------------------
-
+    # 8. Final check that the cleaned dataset is chronologically ordered.
     data = (
         data
         .sort_values("SETTLEMENTDATE")
         .reset_index(drop=True)
     )
 
-    print("\n=== Final Quality Check ===")
+    print("=== Final Quality Check ===")
     print(f"Rows after cleaning: {len(data)}")
+
     print(
         "Sorted by time:",
         data["SETTLEMENTDATE"].is_monotonic_increasing,
@@ -319,26 +218,36 @@ def clean_demand_series(df: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
+def _check_frequency(
+    df: pd.DataFrame,
+    expected_interval: pd.Timedelta,
+) -> None:
+    """Check for gaps that do not match the expected sampling frequency."""
+
+    timestamps = (
+        df["SETTLEMENTDATE"]
+        .drop_duplicates()
+        .sort_values()
+    )
+
+    # Calculate the time difference between consecutive observations.
+    differences = timestamps.diff().dropna()
+
+    # Any difference other than the expected interval represents either
+    # a missing interval or another irregularity in the time series.
+    unexpected = differences[
+        differences != expected_interval
+    ]
+
+    print(f"Expected interval: {expected_interval}")
+    print(f"Unexpected intervals: {len(unexpected)}")
+
+    if not unexpected.empty:
+        print("Examples:")
+        print(unexpected.head(10))
+
 def resample_to_30min(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert native AEMO data to 30-minute intervals.
-
-    Expects `df` to already be cleaned (e.g. via `clean_demand_series`):
-    conflicting/duplicate timestamps are not resolved here, they are
-    averaged in along with everything else in the bin.
-
-    Aggregates with a trailing mean per 30-minute window (`label="right",
-    closed="right"`), matching AEMO's own interval-ending SETTLEMENTDATE
-    convention, so each bin only ever averages observations at or before
-    its own label - no future information crosses the boundary.
-
-    Grouped by REGIONID first: resampling the whole frame at once would
-    blend different regions' demand/price together into a single value
-    per timestamp.
-
-    A 30-minute bin with no native observations becomes a row of NaN
-    rather than being silently skipped - missing intervals stay visible
-    downstream instead of disappearing.
-    """
+    """Standardise the full dataset to 30-minute intervals."""
 
     data = df.copy()
 
@@ -349,7 +258,7 @@ def resample_to_30min(df: pd.DataFrame) -> pd.DataFrame:
     data = (
         data
         .set_index("SETTLEMENTDATE")
-        .groupby("REGIONID")
+        .groupby("REGION")
         .resample(
             "30min",
             label="right",
@@ -367,65 +276,45 @@ def resample_to_30min(df: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
-def _check_frequency(
-    df: pd.DataFrame,
-    expected_interval: pd.Timedelta,
-) -> None:
-    """Report missing or unexpected time intervals."""
-
-    if df.empty:
-        print("No observations.")
-        return
-
-    timestamps = (
-        df["SETTLEMENTDATE"]
-        .drop_duplicates()
-        .sort_values()
-    )
-
-    differences = timestamps.diff().dropna()
-
-    unexpected = differences[
-        differences != expected_interval
-    ]
-
-    print(f"Expected interval: {expected_interval}")
-    print(f"Unexpected intervals: {len(unexpected)}")
-
-    if len(unexpected) > 0:
-        print("Examples:")
-        print(unexpected.head(10))
-
 if __name__ == "__main__":
-    from drift_forecasting.config import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
-    raw_file = RAW_DATA_DIR / "NSW1_201801_202312_native.csv"
+    raw_files = {
+        "NSW1": RAW_DATA_DIR / "NSW1_201801_202312_native.csv",
+        "SA1": RAW_DATA_DIR / "SA1_201801_202312_native.csv",
+    }
 
-    df = pd.read_csv(raw_file)
-
-    cleaned_df = clean_demand_series(df)
-
-    print("\nCleaning finished.")
-    print(cleaned_df.head())
-    print(cleaned_df.shape)
-
-    resampled_df = resample_to_30min(cleaned_df)
-
-    print("\nResampling finished.")
-    print(resampled_df.head())
-    print(resampled_df.shape)
-
-    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    cleaned_file = (
-        PROCESSED_DATA_DIR / "NSW1_201801_202312_cleaned_native.csv"
-    )
-    resampled_file = (
-        PROCESSED_DATA_DIR / "NSW1_201801_202312_cleaned_30min.csv"
+    PROCESSED_DATA_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
-    cleaned_df.to_csv(cleaned_file, index=False)
-    resampled_df.to_csv(resampled_file, index=False)
+    for region, raw_file in raw_files.items():
 
-    print(f"\nSaved cleaned native-frequency dataset: {cleaned_file}")
-    print(f"Saved cleaned 30-minute dataset: {resampled_file}")
+        print(f"\nChecking {region}")
+
+        df = pd.read_csv(raw_file)
+
+        # Run quality checks and safe cleaning first.
+        cleaned_df = clean_demand_series(df)
+
+        print()
+
+        # Standardise the entire time series to 30-minute intervals.
+        resampled_df = resample_to_30min(cleaned_df)
+
+        print(
+            f"Rows after 30-minute resampling: "
+            f"{len(resampled_df)}"
+        )
+
+        output_file = (
+            PROCESSED_DATA_DIR
+            / f"{region}_201801_202312_cleaned_30min.csv"
+        )
+
+        resampled_df.to_csv(
+            output_file,
+            index=False,
+        )
+
+        print(f"Saved: {output_file}")

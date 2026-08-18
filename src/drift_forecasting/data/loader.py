@@ -1,82 +1,72 @@
-"""Load raw AEMO price and demand data.
+"""Load manually downloaded raw AEMO price and demand data.
 
-The loader preserves the native AEMO sampling frequency.
+Expected folder structure:
 
-2018-01 to 2021-09:
-    30-minute trading data.
+data/raw/
+├── sa1/
+│   ├── monthly CSV files...
+│   └── ...
+└── nsw1/
+    ├── monthly CSV files...
+    └── ...
 
-2021-10 to 2023-12:
-    5-minute dispatch data.
+Each CSV is expected to contain:
 
-No resampling, cleaning or train/test splitting is performed here.
+    REGION
+    SETTLEMENTDATE
+    TOTALDEMAND
+    RRP
+    PERIODTYPE
+
+The loader concatenates the monthly files for the requested region and
+sorts them by SETTLEMENTDATE.
+
+No downloading, merging, resampling, cleaning, or train/test splitting
+is performed here.
 """
 
 from pathlib import Path
 
 import pandas as pd
-from nemosis import dynamic_data_compiler
 
-from drift_forecasting.config import (
-    AEMO_30MIN_END,
-    AEMO_30MIN_START,
-    AEMO_5MIN_END,
-    AEMO_5MIN_START,
-    NEMOSIS_CACHE,
-    RAW_DATA_DIR,
-    REGIONS,
-)
+from drift_forecasting.config import RAW_DATA_DIR, REGIONS
 
 
-def _report_unmatched_merge_rows(
-    merged: pd.DataFrame,
-    label: str,
-) -> None:
-    """Print how many rows an outer merge kept that lack a demand or price value.
-
-    An inner merge would have silently dropped these instead. Reporting
-    them keeps the loader honest about "no cleaning is performed here" -
-    the rows are kept, not fixed.
-    """
-
-    missing_demand = merged["TOTALDEMAND"].isna().sum()
-    missing_price = merged["RRP"].isna().sum()
-
-    if missing_demand or missing_price:
-        print(
-            f"{label}: {missing_demand} rows missing TOTALDEMAND, "
-            f"{missing_price} rows missing RRP after merge."
-        )
+REQUIRED_COLUMNS = [
+    "REGION",
+    "SETTLEMENTDATE",
+    "TOTALDEMAND",
+    "RRP",
+    "PERIODTYPE",
+]
 
 
 def load_aemo_demand(
     region: str,
     raw_dir: Path = RAW_DATA_DIR,
 ) -> pd.DataFrame:
-    """Load raw AEMO price and demand data for one region.
+    """Load and concatenate monthly AEMO CSV files for one region.
 
-    Uses NEMOSIS to retrieve:
+    Parameters
+    ----------
+    region : str
+        AEMO region to load, for example "SA1" or "NSW1".
 
-    2018-01 to 2021-09:
-        TRADINGREGIONSUM -> TOTALDEMAND
-        TRADINGPRICE     -> RRP
-
-    2021-10 to 2023-12:
-        DISPATCHREGIONSUM -> TOTALDEMAND
-        DISPATCHPRICE     -> RRP
-
-    Three CSV files are saved:
-
-        <region>_201801_202109_30min.csv
-        <region>_202110_202312_5min.csv
-        <region>_201801_202312_native.csv
-
-    The combined file preserves the native sampling frequencies.
-    No resampling, cleaning or splitting is performed.
+    raw_dir : Path
+        Root directory containing the region folders.
 
     Returns
     -------
     pd.DataFrame
-        Combined raw data sorted ascending by SETTLEMENTDATE.
+        Concatenated raw data with columns:
+
+        REGION
+        SETTLEMENTDATE
+        TOTALDEMAND
+        RRP
+        PERIODTYPE
+
+        Rows are sorted ascending by SETTLEMENTDATE.
     """
 
     if region not in REGIONS:
@@ -84,216 +74,83 @@ def load_aemo_demand(
             f"Unknown region {region!r}. Expected one of {REGIONS}."
         )
 
-    # Respect a custom raw_dir if one is supplied by tests/callers.
-    if raw_dir == RAW_DATA_DIR:
-        cache_dir = NEMOSIS_CACHE
-    else:
-        cache_dir = raw_dir / "nemosis_cache"
+    # Example:
+    # NSW1 -> data/raw/nsw1/
+    # SA1  -> data/raw/sa1/
+    region_dir = raw_dir / region.lower()
 
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    if not region_dir.exists():
+        raise FileNotFoundError(
+            f"Region directory does not exist: {region_dir}"
+        )
 
-    # =====================================================
-    # 1. Native 30-minute data
-    #    2018-01-01 -> 2021-09-30
-    # =====================================================
+    csv_files = sorted(region_dir.glob("*.csv"))
 
-    trading_demand = dynamic_data_compiler(
-        AEMO_30MIN_START,
-        AEMO_30MIN_END,
-        "TRADINGREGIONSUM",
-        str(cache_dir),
-    )
+    if not csv_files:
+        raise FileNotFoundError(
+            f"No CSV files found in {region_dir}"
+        )
 
-    trading_price = dynamic_data_compiler(
-        AEMO_30MIN_START,
-        AEMO_30MIN_END,
-        "TRADINGPRICE",
-        str(cache_dir),
-    )
+    monthly_data = []
 
-    trading_demand = trading_demand.loc[
-        trading_demand["REGIONID"] == region,
-        [
-            "SETTLEMENTDATE",
-            "REGIONID",
-            "TOTALDEMAND",
-        ],
-    ].copy()
+    for file in csv_files:
+        print(f"Loading {file}")
 
-    trading_price = trading_price.loc[
-        trading_price["REGIONID"] == region,
-        [
-            "SETTLEMENTDATE",
-            "REGIONID",
-            "RRP",
-        ],
-    ].copy()
+        df = pd.read_csv(file)
 
-    trading_demand["SETTLEMENTDATE"] = pd.to_datetime(
-        trading_demand["SETTLEMENTDATE"]
-    )
+        missing_columns = [
+            column
+            for column in REQUIRED_COLUMNS
+            if column not in df.columns
+        ]
 
-    trading_price["SETTLEMENTDATE"] = pd.to_datetime(
-        trading_price["SETTLEMENTDATE"]
-    )
+        if missing_columns:
+            raise ValueError(
+                f"{file.name} is missing columns: "
+                f"{missing_columns}"
+            )
 
-    data_30min = pd.merge(
-        trading_demand,
-        trading_price,
-        on=["SETTLEMENTDATE", "REGIONID"],
-        how="outer",
-    )
+        # Keep the dataset in the agreed interface format.
+        df = df[REQUIRED_COLUMNS].copy()
 
-    _report_unmatched_merge_rows(
-        data_30min,
-        label="30-minute demand/price",
-    )
+        df["SETTLEMENTDATE"] = pd.to_datetime(
+            df["SETTLEMENTDATE"]
+        )
 
-    data_30min = (
-        data_30min
-        .sort_values("SETTLEMENTDATE")
-        .reset_index(drop=True)
-    )
+        monthly_data.append(df)
 
-    # =====================================================
-    # 2. Native 5-minute data
-    #    2021-10-01 -> 2023-12-31
-    # =====================================================
-
-    dispatch_demand = dynamic_data_compiler(
-        AEMO_5MIN_START,
-        AEMO_5MIN_END,
-        "DISPATCHREGIONSUM",
-        str(cache_dir),
-    )
-
-    dispatch_price = dynamic_data_compiler(
-        AEMO_5MIN_START,
-        AEMO_5MIN_END,
-        "DISPATCHPRICE",
-        str(cache_dir),
-    )
-
-    dispatch_demand = dispatch_demand.loc[
-        dispatch_demand["REGIONID"] == region,
-        [
-            "SETTLEMENTDATE",
-            "REGIONID",
-            "TOTALDEMAND",
-        ],
-    ].copy()
-
-    dispatch_price = dispatch_price.loc[
-        dispatch_price["REGIONID"] == region,
-        [
-            "SETTLEMENTDATE",
-            "REGIONID",
-            "RRP",
-        ],
-    ].copy()
-
-    dispatch_demand["SETTLEMENTDATE"] = pd.to_datetime(
-        dispatch_demand["SETTLEMENTDATE"]
-    )
-
-    dispatch_price["SETTLEMENTDATE"] = pd.to_datetime(
-        dispatch_price["SETTLEMENTDATE"]
-    )
-
-    data_5min = pd.merge(
-        dispatch_demand,
-        dispatch_price,
-        on=["SETTLEMENTDATE", "REGIONID"],
-        how="outer",
-    )
-
-    _report_unmatched_merge_rows(
-        data_5min,
-        label="5-minute demand/price",
-    )
-
-    data_5min = (
-        data_5min
-        .sort_values("SETTLEMENTDATE")
-        .reset_index(drop=True)
-    )
-
-    # =====================================================
-    # 3. Save the two native-frequency datasets
-    # =====================================================
-
-    file_30min = (
-        raw_dir
-        / f"{region}_201801_202109_30min.csv"
-    )
-
-    file_5min = (
-        raw_dir
-        / f"{region}_202110_202312_5min.csv"
-    )
-
-    data_30min.to_csv(
-        file_30min,
-        index=False,
-    )
-
-    data_5min.to_csv(
-        file_5min,
-        index=False,
-    )
-
-    print(f"Saved 30-minute dataset: {file_30min}")
-    print(f"Saved 5-minute dataset: {file_5min}")
-
-    # =====================================================
-    # 4. Concatenate both periods
-    # =====================================================
-
+    # Concatenate all monthly files.
     data = pd.concat(
-        [
-            data_30min,
-            data_5min,
-        ],
+        monthly_data,
         ignore_index=True,
     )
 
+    # Keep chronological order.
     data = (
         data
         .sort_values("SETTLEMENTDATE")
         .reset_index(drop=True)
     )
 
-    # =====================================================
-    # 5. Save the combined native-frequency dataset
-    # =====================================================
-
-    combined_file = (
-        raw_dir
-        / f"{region}_201801_202312_native.csv"
-    )
-
-    data.to_csv(
-        combined_file,
-        index=False,
-    )
-
-    print(f"Saved combined dataset: {combined_file}")
-
     return data
 
 
 if __name__ == "__main__":
-    df = load_aemo_demand("NSW1")
+    # Load and concatenate all monthly files for each region.
+    nsw1 = load_aemo_demand("NSW1")
+    sa1 = load_aemo_demand("SA1")
+
+    # Save the concatenated raw datasets.
+    nsw1_file = RAW_DATA_DIR / "NSW1_201801_202312_native.csv"
+    sa1_file = RAW_DATA_DIR / "SA1_201801_202312_native.csv"
+
+    nsw1.to_csv(nsw1_file, index=False)
+    sa1.to_csv(sa1_file, index=False)
 
     print()
-    print("First rows:")
-    print(df.head())
+    print(f"Saved NSW1 dataset: {nsw1_file}")
+    print(f"Shape: {nsw1.shape}")
 
     print()
-    print("Last rows:")
-    print(df.tail())
-
-    print()
-    print("Shape:")
-    print(df.shape)
+    print(f"Saved SA1 dataset: {sa1_file}")
+    print(f"Shape: {sa1.shape}")
