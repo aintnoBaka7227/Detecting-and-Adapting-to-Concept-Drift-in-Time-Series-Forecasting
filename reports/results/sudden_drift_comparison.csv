@@ -1,0 +1,3 @@
+Detector,True Changepoint,Detected Changepoint,Detection Delay,Pre-drift False Alarms,False Alarms per 10k,Missed
+ADWIN,2000,2047,47,0,0.0,No
+KSWIN,2000,2031,31,4,20.0,No
