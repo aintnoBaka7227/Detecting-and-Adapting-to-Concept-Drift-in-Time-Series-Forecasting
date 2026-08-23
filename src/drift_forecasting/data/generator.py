@@ -110,6 +110,56 @@ def make_series(
     return y, changepoints
 
 
+def save_series_to_csv(
+    kind: Kind,
+    n: int,
+    noise: float,
+    seed: int | None,
+    out_dir: str,
+) -> str:
+    """
+    Generate one series with make_series() and save it as a CSV file.
+
+    This is a convenience wrapper for teammates who'd rather load a CSV
+    (e.g. into pandas, Excel, or another language) than call make_series()
+    directly in Python. It does NOT change make_series() itself — the
+    frozen interface stays exactly as agreed.
+
+    The CSV has two columns:
+        t              : time index (0 .. n-1)
+        y              : the generated series value
+        is_changepoint : 1 at a true drift index, 0 otherwise (so the
+                          ground truth travels with the data even outside
+                          Python)
+
+    Parameters
+    ----------
+    kind, n, noise, seed : same as make_series()
+    out_dir : str
+        Folder to save the CSV into. Created if it doesn't exist.
+
+    Returns
+    -------
+    str : the full path of the saved CSV file.
+    """
+    import csv
+
+    y, changepoints = make_series(kind=kind, n=n, noise=noise, seed=seed)
+    changepoint_set = set(changepoints)
+
+    os.makedirs(out_dir, exist_ok=True)
+    filename = f"series_{kind}_n{n}_seed{seed}.csv"
+    out_path = os.path.join(out_dir, filename)
+
+    with open(out_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["t", "y", "is_changepoint"])
+        for t_idx, y_val in enumerate(y):
+            writer.writerow([t_idx, y_val, 1 if t_idx in changepoint_set else 0])
+
+    return out_path
+
+
 if __name__ == "__main__":
     import os
     import matplotlib.pyplot as plt
@@ -144,4 +194,9 @@ if __name__ == "__main__":
     print(f"\nExample: kind='sudden', n=20000 -> changepoints={cps}")
     print(f"y.shape = {y.shape}, y[:5] = {y[:5]}")
 
-
+    # Save one CSV per drift type, next to this script, in a "csv_output" folder.
+    csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "csv_output")
+    print(f"\nSaving CSVs to {csv_dir} ...")
+    for kind in kinds:
+        path = save_series_to_csv(kind=kind, n=20000, noise=1.0, seed=7, out_dir=csv_dir)
+        print(f"  {kind:<10} -> {path}")
