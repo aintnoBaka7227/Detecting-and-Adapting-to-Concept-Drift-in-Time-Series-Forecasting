@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd
 from drift_forecasting.detection.adwin import ADWINDetector
 from drift_forecasting.detection.kswin import KSWINDetector
+from drift_forecasting.detection.page_hinkley import PageHinkleyDetector
 
 # Locate the project root from this script
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -134,6 +135,57 @@ print("Detection delay:", adwin_delay)
 
 
 # ============================================================
+# Page-Hinkley sudden drift detection
+# ============================================================
+
+page_hinkley_detector = PageHinkleyDetector()
+
+page_hinkley_changepoints = page_hinkley_detector.detect(
+    df["demand"].to_numpy()
+)
+
+page_hinkley_false_alarms = [
+    cp for cp in page_hinkley_changepoints
+    if cp < TRUE_CHANGEPOINT
+]
+
+page_hinkley_after_drift = [
+    cp for cp in page_hinkley_changepoints
+    if cp >= TRUE_CHANGEPOINT
+]
+
+if len(page_hinkley_after_drift) > 0:
+    page_hinkley_detection = page_hinkley_after_drift[0]
+    page_hinkley_delay = (
+        page_hinkley_detection - TRUE_CHANGEPOINT
+    )
+else:
+    page_hinkley_detection = None
+    page_hinkley_delay = None
+
+print()
+print("========== PAGE-HINKLEY RESULT ==========")
+print("True changepoint:", TRUE_CHANGEPOINT)
+print("Detected changepoints:", page_hinkley_changepoints)
+print(
+    "False alarms before drift:",
+    page_hinkley_false_alarms
+)
+print(
+    "Number of false alarms:",
+    len(page_hinkley_false_alarms)
+)
+print(
+    "Matched detection:",
+    page_hinkley_detection
+)
+print(
+    "Detection delay:",
+    page_hinkley_delay
+)
+
+
+# ============================================================
 # KSWIN sudden drift detection
 # ============================================================
 
@@ -219,10 +271,19 @@ plt.axvline(
     linewidth=2,
     label="KSWIN detection (2031)"
 )
+# page_hinkley_detection
+plt.axvline(
+    page_hinkley_detection,
+    linestyle=(0, (3, 1, 1, 1)),
+    linewidth=2,
+    label=f"Page-Hinkley detection ({page_hinkley_detection})"
+)
 
 plt.xlabel("Time Index")
 plt.ylabel("Demand")
-plt.title("Sudden Drift Detection: ADWIN vs KSWIN")
+plt.title(
+    "Sudden Drift Detection: ADWIN vs KSWIN vs Page-Hinkley"
+)
 
 plt.legend()
 plt.tight_layout()
@@ -250,37 +311,51 @@ kswin_false_alarm_rate = (
     len(kswin_false_alarms) / TRUE_CHANGEPOINT
 ) * 10000
 
+page_hinkley_false_alarm_rate = (
+    len(page_hinkley_false_alarms) / TRUE_CHANGEPOINT
+) * 10000
+
 comparison = pd.DataFrame({
-    "Detector": ["ADWIN", "KSWIN"],
+    "Detector": [
+        "ADWIN",
+        "KSWIN",
+        "Page-Hinkley"
+    ],
 
     "True Changepoint": [
+        TRUE_CHANGEPOINT,
         TRUE_CHANGEPOINT,
         TRUE_CHANGEPOINT
     ],
 
     "Detected Changepoint": [
         adwin_detection,
-        kswin_detection
+        kswin_detection,
+        page_hinkley_detection
     ],
 
     "Detection Delay": [
         adwin_delay,
-        kswin_delay
+        kswin_delay,
+        page_hinkley_delay
     ],
 
     "Pre-drift False Alarms": [
         len(adwin_false_alarms),
-        len(kswin_false_alarms)
+        len(kswin_false_alarms),
+        len(page_hinkley_false_alarms)
     ],
 
     "False Alarms per 10k": [
         adwin_false_alarm_rate,
-        kswin_false_alarm_rate
+        kswin_false_alarm_rate,
+        page_hinkley_false_alarm_rate
     ],
 
     "Missed": [
         "No" if adwin_detection is not None else "Yes",
-        "No" if kswin_detection is not None else "Yes"
+        "No" if kswin_detection is not None else "Yes",
+        "No" if page_hinkley_detection is not None else "Yes"
     ]
 })
 
