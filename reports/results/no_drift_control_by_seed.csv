@@ -1,0 +1,16 @@
+Detector,Drift Type,Seed,False Alarms,False Alarms per 10k
+ADWIN,none,42,0,0.0
+KSWIN,none,42,29,14.499999999999998
+Page-Hinkley,none,42,300,150.0
+ADWIN,none,43,0,0.0
+KSWIN,none,43,25,12.5
+Page-Hinkley,none,43,299,149.5
+ADWIN,none,44,0,0.0
+KSWIN,none,44,24,11.999999999999998
+Page-Hinkley,none,44,290,145.0
+ADWIN,none,45,0,0.0
+KSWIN,none,45,33,16.5
+Page-Hinkley,none,45,293,146.5
+ADWIN,none,46,0,0.0
+KSWIN,none,46,36,18.0
+Page-Hinkley,none,46,283,141.5
