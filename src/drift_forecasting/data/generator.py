@@ -32,6 +32,7 @@ but is generalised so `n` and drift locations scale with series length.
 
 from __future__ import annotations
 
+import os
 import numpy as np
 from typing import List, Tuple, Literal
 
@@ -110,38 +111,143 @@ def make_series(
     return y, changepoints
 
 
+def save_series_to_csv(
+    kind: Kind,
+    n: int,
+    noise: float,
+    seed: int | None,
+    out_dir: str,
+) -> str:
+    """
+    Generate one series with make_series() and save it as a CSV file.
+
+    This is a convenience wrapper for teammates who'd rather load a CSV
+    (e.g. into pandas, Excel, or another language) than call make_series()
+    directly in Python. It does NOT change make_series() itself — the
+    frozen interface stays exactly as agreed.
+
+    The CSV has two columns:
+        t              : time index (0 .. n-1)
+        y              : the generated series value
+        is_changepoint : 1 at a true drift index, 0 otherwise (so the
+                          ground truth travels with the data even outside
+                          Python)
+
+    Parameters
+    ----------
+    kind, n, noise, seed : same as make_series()
+    out_dir : str
+        Folder to save the CSV into. Created if it doesn't exist.
+
+    Returns
+    -------
+    str : the full path of the saved CSV file.
+    """
+    import csv
+
+    y, changepoints = make_series(kind=kind, n=n, noise=noise, seed=seed)
+    changepoint_set = set(changepoints)
+
+    os.makedirs(out_dir, exist_ok=True)
+    filename = f"series_{kind}_n{n}_seed{seed}.csv"
+    out_path = os.path.join(out_dir, filename)
+
+    with open(out_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["t", "y", "is_changepoint"])
+        for t_idx, y_val in enumerate(y):
+            writer.writerow([t_idx, y_val, 1 if t_idx in changepoint_set else 0])
+
+    return out_path
+
+
 if __name__ == "__main__":
-    import os
     import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(4, 1, figsize=(11, 11), sharex=False)
-    kinds: List[Kind] = ["none", "sudden", "gradual", "recurring"]
-
-    for ax, kind in zip(axes, kinds):
-        y, changepoints = make_series(kind=kind, n=20000, noise=1.0, seed=7)
-        ax.plot(y, linewidth=0.5, color="#3b5b6b")
-        for cp in changepoints:
-            ax.axvline(cp, color="#c0392b", linestyle="--", alpha=0.8)
-        ax.set_title(f"kind = '{kind}'  |  changepoints = {changepoints}")
-        ax.set_ylabel("y")
-
-    axes[-1].set_xlabel("t")
-    fig.tight_layout()
-
-    # Save next to this script, not to a hardcoded absolute path,
-    # so it works on any machine.
-    out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drift_examples.png")
-    fig.savefig(out_path, dpi=130)
-    print(f"Saved preview to {out_path}")
 
     # Sanity check matching the brief's required test:
     # a detector on a no-drift series should find nothing.
+    # This is a one-off check, NOT part of the 15-output batch below —
+    # 'none' is a test case, not a seeded dataset variant.
     y_none, cps_none = make_series(kind="none", n=20000, noise=1.0, seed=1)
     assert cps_none == [], "no-drift series should report zero changepoints"
     print("Sanity check passed: kind='none' has zero changepoints.")
 
-    y, cps = make_series(kind="sudden", n=20000, noise=1.0, seed=42)
-    print(f"\nExample: kind='sudden', n=20000 -> changepoints={cps}")
-    print(f"y.shape = {y.shape}, y[:5] = {y[:5]}")
+    # Team-agreed seed list — use these 5 for every experiment all semester,
+    # so results are comparable across every table (T1-T7) and both groups.
+    SEEDS = [1, 2, 3, 4, 5]
+    OUTPUT_KINDS: List[Kind] = ["sudden", "gradual", "recurring"]
 
+    csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "csv_output")
+    plot_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_output")
+    os.makedirs(plot_dir, exist_ok=True)
+
+    print(f"\nGenerating {len(OUTPUT_KINDS) * len(SEEDS)} (graph + CSV) pairs "
+          f"for kinds={OUTPUT_KINDS}, seeds={SEEDS} ...\n")
+
+    for kind in OUTPUT_KINDS:
+        for seed in SEEDS:
+            y, changepoints = make_series(kind=kind, n=20000, noise=1.0, seed=seed)
+
+            # --- CSV ---
+            csv_path = save_series_to_csv(kind=kind, n=20000, noise=1.0, seed=seed, out_dir=csv_dir)
+
+            # --- Graph ---
+            fig, ax = plt.subplots(figsize=(10, 3.5))
+            ax.plot(y, linewidth=0.5, color="#3b5b6b")
+            for cp in changepoints:
+                ax.axvline(cp, color="#c0392b", linestyle="--", alpha=0.8)
+                y_at_cp = y[cp]
+                ax.plot(cp, y_at_cp, marker="o", color="#c0392b", markersize=5, zorder=5)
+                ax.annotate(
+                    f"({cp}, {y_at_cp:.2f})",
+                    xy=(cp, y_at_cp),
+                    xytext=(8, 10),
+                    textcoords="offset points",
+                    fontsize=8,
+                    color="#c0392b",
+                    fontweight="bold",
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#c0392b", alpha=0.85),
+                )
+            ax.set_title(f"kind='{kind}', seed={seed}  |  changepoints={changepoints}")
+            ax.set_xlabel("t")
+            ax.set_ylabel("y")
+            fig.tight_layout()
+
+            plot_path = os.path.join(plot_dir, f"plot_{kind}_seed{seed}.png")
+            fig.savefig(plot_path, dpi=130)
+            plt.close(fig)
+
+            print(f"  {kind:<10} seed={seed} -> {os.path.basename(csv_path)}, {os.path.basename(plot_path)}")
+
+    print(f"\nDone. {len(OUTPUT_KINDS) * len(SEEDS)} CSVs in {csv_dir}")
+    print(f"      {len(OUTPUT_KINDS) * len(SEEDS)} plots in {plot_dir}")
+
+    # Also keep the original 4-panel overview (none/sudden/gradual/recurring,
+    # single seed) as a quick-glance summary figure.
+    fig, axes = plt.subplots(4, 1, figsize=(11, 11), sharex=False)
+    overview_kinds: List[Kind] = ["none", "sudden", "gradual", "recurring"]
+    for ax, kind in zip(axes, overview_kinds):
+        y, changepoints = make_series(kind=kind, n=20000, noise=1.0, seed=7)
+        ax.plot(y, linewidth=0.5, color="#3b5b6b")
+        for cp in changepoints:
+            ax.axvline(cp, color="#c0392b", linestyle="--", alpha=0.8)
+            y_at_cp = y[cp]
+            ax.plot(cp, y_at_cp, marker="o", color="#c0392b", markersize=5, zorder=5)
+            ax.annotate(
+                f"({cp}, {y_at_cp:.2f})",
+                xy=(cp, y_at_cp),
+                xytext=(8, 12),
+                textcoords="offset points",
+                fontsize=9,
+                color="#c0392b",
+                fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#c0392b", alpha=0.85),
+            )
+        ax.set_title(f"kind = '{kind}'  |  changepoints = {changepoints}")
+        ax.set_ylabel("y")
+    axes[-1].set_xlabel("t")
+    fig.tight_layout()
+    overview_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drift_examples.png")
+    fig.savefig(overview_path, dpi=130)
+    print(f"\nSaved overview figure to {overview_path}")
 

@@ -1,6 +1,6 @@
 # Synthetic Drift Data Generator
 
-`data_generator.py` creates fake time series data with **known, labelled concept drift** — used to test whether our drift-detection and adaptation components actually work, since we need ground truth to score them against.
+`generator.py` creates fake time series data with **known, labelled concept drift** — used to test whether our drift-detection and adaptation components actually work, since we need ground truth to score them against.
 
 This matches the interface frozen in the supervisor's project brief.
 
@@ -16,12 +16,12 @@ This installs the whole project in editable mode, including everything `generato
 
 ## File Location
 
-This module lives at `src/drift_forecasting/generator.py` (not in `data/` — that folder is for actual data files, not source code). If `pyproject.toml` is installed via `pip install -e .`, it's importable as a package.
+This module lives at `src/drift_forecasting/data/generator.py`. If installed via `pip install -e .`, it's importable as a package.
 
 ## Quick Start
 
 ```python
-from drift_forecasting.generator import make_series
+from drift_forecasting.data.generator import make_series
 
 y, changepoints = make_series(kind="sudden", n=20000, noise=1.0, seed=42)
 
@@ -51,41 +51,60 @@ make_series(kind, n, noise, seed=None) -> (y, changepoints)
 
 ## Drift Types (`kind`)
 
-- **`"none"`** — no drift at all. Control case: a detector run on this should find nothing. `changepoints` will be `[]`.
+- **`"none"`** — no drift at all. Used only as a one-off sanity check (a detector run on this should find nothing). `changepoints` will be `[]`. **Not part of the seeded batch output below** — it's a test case, not a dataset variant.
 - **`"sudden"`** — an instant step change at the series midpoint. One changepoint.
 - **`"gradual"`** — the new pattern is interpolated in over ~1000 steps (per the brief). One changepoint, marking where the transition *begins*.
 - **`"recurring"`** — the series shifts to a second regime and then returns to the original — an old pattern coming back. Two changepoints (`[cp1, cp2]`).
 
-## Reproducibility
+## Reproducibility & Seeds
 
 - **`changepoints` are deterministic** — they're calculated from `n`, not randomness, so they never change between runs.
-- **The noisy values in `y` will differ each run unless you pass a `seed`.** Always pass an explicit `seed=` for anything you're reporting results on, so results can be reproduced exactly by teammates or your supervisor.
+- **The noisy values in `y` will differ each run unless you pass a `seed`.**
+- **Team-agreed seed list: `[1, 2, 3, 4, 5]`.** Use these 5 seeds for every experiment all semester so results are comparable across every table (T1–T7) and between both groups, per the deliverables doc's "5 seeds minimum, mean ± sd" requirement.
 
-## Example: Generate All Four Types
+## Batch Output (CSVs + Plots)
 
-```python
-for kind in ["none", "sudden", "gradual", "recurring"]:
-    y, cps = make_series(kind=kind, n=20000, noise=1.0, seed=7)
-    print(kind, cps)
-```
+Running the script generates **15 CSVs and 15 plots** — one of each for every combination of:
+- `kind` ∈ `{"sudden", "gradual", "recurring"}` (3 types)
+- `seed` ∈ `{1, 2, 3, 4, 5}` (5 seeds)
 
-## Run the Demo / Preview Plot
+`3 × 5 = 15`. `"none"` is excluded from this batch (see above) — it's only used for the sanity check.
+
+Each CSV has three columns:
+
+| Column | Meaning |
+|---|---|
+| `t` | Time index |
+| `y` | The generated series value |
+| `is_changepoint` | `1` at a true drift index, `0` otherwise — so the ground truth travels with the data even outside Python (e.g. Excel, another language) |
+
+## Run the Demo
 
 From the repo root:
 
 ```
-python src/drift_forecasting/generator.py
+python src/drift_forecasting/data/generator.py
 ```
 
 This will:
-- Run a **sanity check**: confirm `kind="none"` returns zero changepoints (required test from the brief)
-- Generate and save `drift_examples.png` in the same folder — a 4-panel plot of all drift types, with true changepoints marked as red dashed lines
-- Print an example `(y, changepoints)` call to the console
+1. Run the required **sanity check**: confirm `kind="none"` returns zero changepoints
+2. Generate **15 CSVs** into `csv_output/` (e.g. `series_gradual_n20000_seed3.csv`)
+3. Generate **15 individual plots** into `plot_output/` (e.g. `plot_gradual_seed3.png`), each with the true changepoint(s) marked and labeled with their exact `(t, y)` coordinate
+4. Also save `drift_examples.png` — a single 4-panel overview plot (`none`/`sudden`/`gradual`/`recurring`, one seed) for a quick-glance summary
 
-To also pop the plot up in a window when you run it (instead of only saving the file), add `plt.show()` right after the `fig.savefig(...)` line near the bottom of the script.
+## Example: Generate One Series and Save It Yourself
+
+```python
+from drift_forecasting.data.generator import make_series, save_series_to_csv
+
+y, cps = make_series(kind="sudden", n=20000, noise=1.0, seed=3)
+
+path = save_series_to_csv(kind="sudden", n=20000, noise=1.0, seed=3, out_dir="my_csvs")
+```
 
 ## Notes for the Team
 
 - This interface is **frozen** per the project brief — if it needs to change, flag it with the team before building on top of it, since detector/adaptation components will import this directly.
 - Gradual drift's transition width is currently fixed at ~1000 steps regardless of `n`. Worth confirming with the supervisor whether this should scale with series length for very short or very long series.
 - For `"recurring"`, the series currently splits evenly into three segments (A → B → A). Let us know if a different cycle structure is needed.
+- `csv_output/` and `plot_output/` are regenerated by running the script — delete and re-run any time to refresh them.
