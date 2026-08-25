@@ -1,15 +1,18 @@
-import numpy as np
+from pathlib import Path
 
-from drift_forecasting.synthetic.generator import make_series
+import numpy as np
+import pandas as pd
+
 from drift_forecasting.detection.page_hinkley import PageHinkleyDetector
 from drift_forecasting.detection.adwin import ADWINDetector
 from drift_forecasting.detection.kswin import KSWINDetector
 
 
 DRIFT_TYPE = "gradual"
-N = 20000
-NOISE = 1.0
-SEEDS = [1, 2, 3, 4, 5]
+
+CSV_DIR = Path(
+    "src/drift_forecasting/data/csv_output"
+)
 
 
 DETECTORS = {
@@ -28,6 +31,17 @@ DETECTORS = {
 }
 
 
+csv_files = sorted(
+    CSV_DIR.glob("*gradual*.csv")
+)
+
+
+if len(csv_files) != 5:
+    raise ValueError(
+        f"Expected 5 gradual-drift CSV files, found {len(csv_files)}"
+    )
+
+
 results = []
 
 
@@ -37,68 +51,102 @@ for detector_name, config in DETECTORS.items():
     false_alarm_rates = []
     missed = 0
 
-    for seed in SEEDS:
+    for csv_file in csv_files:
 
-        stream, changepoints = make_series(
-            kind=DRIFT_TYPE,
-            n=N,
-            noise=NOISE,
-            seed=seed,
-        )
+        df = pd.read_csv(csv_file)
 
-        true_changepoint = changepoints[0]
+        stream = df["y"].to_numpy(dtype=float)
+
+        true_changepoints = df.index[
+            df["is_changepoint"] == 1
+        ].tolist()
+
+        if not true_changepoints:
+            raise ValueError(
+                f"No changepoint found in {csv_file.name}"
+            )
+
+        true_changepoint = true_changepoints[0]
 
         detector = config["factory"]()
+
         detected = detector.detect(stream)
 
         false_alarms = [
-            index
-            for index in detected
-            if index < true_changepoint
+            cp
+            for cp in detected
+            if cp < true_changepoint
         ]
 
         valid_detections = [
-            index
-            for index in detected
-            if index >= true_changepoint
+            cp
+            for cp in detected
+            if cp >= true_changepoint
         ]
 
         false_alarm_rate = (
-            len(false_alarms) / true_changepoint
+            len(false_alarms)
+            / true_changepoint
         ) * 10000
 
         false_alarm_rates.append(false_alarm_rate)
 
         if valid_detections:
+
             first_detection = valid_detections[0]
-            delay = first_detection - true_changepoint
+
+            delay = (
+                first_detection
+                - true_changepoint
+            )
+
             delays.append(delay)
+
         else:
             missed += 1
 
+
     if delays:
+
         delay_mean = np.mean(delays)
-        delay_sd = np.std(delays)
-        delay_text = f"{delay_mean:.1f} ± {delay_sd:.1f}"
+
+        # Sample standard deviation across seeds
+        delay_sd = (
+            np.std(delays, ddof=1)
+            if len(delays) > 1
+            else 0.0
+        )
+
+        delay_text = (
+            f"{delay_mean:.1f} ± {delay_sd:.1f}"
+        )
+
     else:
         delay_text = "N/A"
 
-    mean_false_alarm_rate = np.mean(false_alarm_rates)
+
+    false_alarm_mean = np.mean(
+        false_alarm_rates
+    )
+
 
     results.append(
         {
             "detector": detector_name,
             "drift_type": DRIFT_TYPE,
             "delay": delay_text,
-            "false_alarms_10k": mean_false_alarm_rate,
+            "false_alarms_10k": false_alarm_mean,
             "missed": missed,
             "threshold": config["threshold"],
-            "seeds": len(SEEDS),
+            "seeds": len(csv_files),
         }
     )
 
 
-print("\nT1 — DETECTION ON THE SYNTHETIC BENCHMARK")
+print(
+    "\nT1 — DETECTION ON THE SYNTHETIC BENCHMARK"
+)
+
 print("=" * 120)
 
 print(
@@ -115,6 +163,7 @@ print("-" * 120)
 
 
 for result in results:
+
     print(
         f"{result['detector']:<18}"
         f"{result['drift_type']:<15}"
