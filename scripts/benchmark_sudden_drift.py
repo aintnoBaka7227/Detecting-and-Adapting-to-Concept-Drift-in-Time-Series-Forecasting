@@ -19,7 +19,7 @@ NUM_SAMPLES = 20000
 TRUE_CHANGEPOINT = 2000
 
 # Five independent synthetic runs
-SEEDS = [42, 43, 44, 45, 46]
+SEEDS = [1, 2, 3, 4, 5]
 
 parameter_text = {
     "ADWIN": "delta=0.002",

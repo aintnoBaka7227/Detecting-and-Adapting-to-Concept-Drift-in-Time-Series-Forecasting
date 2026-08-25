@@ -1,4 +1,4 @@
 Detector,Drift Type,Delay (mean ± sd),Mean Delay,Delay SD,False Alarms / 10k,Missed,Threshold / Parameters,Seeds
 ADWIN,sudden,27.8 ± 17.5,27.8,17.527121840165318,0.0,0,delta=0.002,5
-KSWIN,sudden,281.4 ± 509.1,281.4,509.05039043301014,20.0,0,alpha=0.005; window=100; stat=30,5
-Page-Hinkley,sudden,13.6 ± 7.4,13.6,7.436396977031283,141.0,0,delta=0.005; threshold=50; alpha=0.9999; mode=both,5
+KSWIN,sudden,20.6 ± 8.6,20.6,8.61974477580398,13.0,0,alpha=0.005; window=100; stat=30,5
+Page-Hinkley,sudden,18.8 ± 18.2,18.8,18.226354544998845,139.0,0,delta=0.005; threshold=50; alpha=0.9999; mode=both,5
