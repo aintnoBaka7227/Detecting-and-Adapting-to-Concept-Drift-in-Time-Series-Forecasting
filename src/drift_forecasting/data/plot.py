@@ -73,11 +73,12 @@ def _plot_series(
 
 def plot_demand_series(
     df: pd.DataFrame,
+    region: str,
     date_col: str = "SETTLEMENTDATE",
     demand_col: str = "TOTALDEMAND",
     output_path: Path | None = None,
 ) -> None:
-    """Plot the complete electricity-demand time series.
+    """Plot the complete electricity-demand time series for one region.
 
     The input DataFrame is copied and sorted chronologically before
     plotting. No values in the original DataFrame are modified.
@@ -94,18 +95,19 @@ def plot_demand_series(
         date_col=date_col,
         value_col=demand_col,
         ylabel="Total Demand (MW)",
-        title="NSW1 Total Electricity Demand",
+        title=f"{region} Total Electricity Demand",
         output_path=output_path,
     )
 
 
 def plot_price_series(
     df: pd.DataFrame,
+    region: str,
     date_col: str = "SETTLEMENTDATE",
     price_col: str = "RRP",
     output_path: Path | None = None,
 ) -> None:
-    """Plot the complete electricity-price (RRP) time series.
+    """Plot the complete electricity-price (RRP) time series for one region.
 
     The input DataFrame is copied and sorted chronologically before
     plotting. No values in the original DataFrame are modified.
@@ -122,12 +124,13 @@ def plot_price_series(
         date_col=date_col,
         value_col=price_col,
         ylabel="RRP ($/MWh)",
-        title="NSW1 Regional Reference Price",
+        title=f"{region} Regional Reference Price",
         output_path=output_path,
     )
 
 def plot_week_comparison(
     df: pd.DataFrame,
+    region: str,
     month: int,
     day: int,
     year_a: int = 2019,
@@ -204,7 +207,7 @@ def plot_week_comparison(
     ax.set_xlabel("Day of week")
     ax.set_ylabel(ylabel)
     ax.set_title(
-        f"NSW1 week of {month:02d}-{day:02d} — {year_a} vs {year_b}"
+        f"{region} week of {month:02d}-{day:02d} — {year_a} vs {year_b}"
     )
 
     ax.legend()
@@ -221,46 +224,126 @@ def plot_week_comparison(
 
     plt.close(fig)
 
+
+def plot_boxplot_by_region(
+    data_by_region: dict[str, pd.DataFrame],
+    value_col: str,
+    ylabel: str,
+    title: str,
+    output_path: Path | None = None,
+) -> None:
+    """Boxplot of `value_col`, one box per region, to compare outliers.
+
+    `data_by_region` maps region name to its DataFrame, for example
+    `{"SA1": sa1_df, "NSW1": nsw1_df}`. Boxes are drawn side by side in
+    that order so outlier spread (whiskers, fliers) can be compared
+    directly across regions.
+
+    If `output_path` is given, the figure is saved there instead of shown
+    interactively.
+    """
+
+    regions = list(data_by_region.keys())
+    values = [
+        data_by_region[region][value_col].dropna()
+        for region in regions
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=(8, 7)
+    )
+
+    ax.boxplot(
+        values,
+        tick_labels=regions,
+        showmeans=True,
+    )
+
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(alpha=0.3, axis="y")
+
+    plt.tight_layout()
+
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path)
+        print(f"Saved figure: {output_path}")
+    else:
+        plt.show()
+
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     import random
 
-    from drift_forecasting.config import PROCESSED_DATA_DIR
+    from drift_forecasting.config import PROCESSED_DATA_DIR, REGIONS
 
-    region = "NSW1"
+    data_by_region = {}
 
-    input_file = (
+    for region in REGIONS:
+        input_file = (
+            PROCESSED_DATA_DIR
+            / f"{region}_201801_202312_cleaned_30min.csv"
+        )
+
+        df = pd.read_csv(input_file)
+        data_by_region[region] = df
+
+        demand_output_path = (
+            PROCESSED_DATA_DIR
+            / f"{region}_demand_series.png"
+        )
+
+        price_output_path = (
+            PROCESSED_DATA_DIR
+            / f"{region}_price_series.png"
+        )
+
+        plot_demand_series(df, region=region, output_path=demand_output_path)
+        plot_price_series(df, region=region, output_path=price_output_path)
+
+        # Picked randomly for now
+        random_anchor = pd.Timestamp("2019-01-01") + pd.Timedelta(
+            days=random.randint(0, 358)
+        )
+
+        week_output_path = (
+            PROCESSED_DATA_DIR
+            / f"{region}_week_comparison_{random_anchor.strftime('%m%d')}.png"
+        )
+
+        plot_week_comparison(
+            df,
+            region=region,
+            month=random_anchor.month,
+            day=random_anchor.day,
+            output_path=week_output_path,
+        )
+
+    demand_boxplot_path = (
         PROCESSED_DATA_DIR
-        / f"{region}_201801_202312_cleaned_30min.csv"
+        / "demand_boxplot_by_region.png"
     )
 
-    df = pd.read_csv(input_file)
-
-    demand_output_path = (
+    price_boxplot_path = (
         PROCESSED_DATA_DIR
-        / f"{region}_demand_series.png"
+        / "price_boxplot_by_region.png"
     )
 
-    price_output_path = (
-        PROCESSED_DATA_DIR
-        / f"{region}_price_series.png"
+    plot_boxplot_by_region(
+        data_by_region,
+        value_col="TOTALDEMAND",
+        ylabel="Total Demand (MW)",
+        title="Total Electricity Demand by Region",
+        output_path=demand_boxplot_path,
     )
 
-    plot_demand_series(df, output_path=demand_output_path)
-    plot_price_series(df, output_path=price_output_path)
-
-    # Picked randomly for now 
-    random_anchor = pd.Timestamp("2019-01-01") + pd.Timedelta(
-        days=random.randint(0, 358)
-    )
-
-    week_output_path = (
-        PROCESSED_DATA_DIR
-        / f"{region}_week_comparison_{random_anchor.strftime('%m%d')}.png"
-    )
-
-    plot_week_comparison(
-        df,
-        month=random_anchor.month,
-        day=random_anchor.day,
-        output_path=week_output_path,
+    plot_boxplot_by_region(
+        data_by_region,
+        value_col="RRP",
+        ylabel="RRP ($/MWh)",
+        title="Regional Reference Price by Region",
+        output_path=price_boxplot_path,
     )
