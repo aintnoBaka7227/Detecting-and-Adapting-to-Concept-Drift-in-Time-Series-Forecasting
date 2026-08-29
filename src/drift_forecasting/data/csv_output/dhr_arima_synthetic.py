@@ -1,32 +1,4 @@
-"""
-Dynamic Harmonic Regression + ARIMA errors — synthetic drift version
-=========================================================================
 
-Takes a single synthetic drift CSV (columns: t, y, is_changepoint — the
-output of make_series() / save_series_to_csv()), splits it into train
-and test using scikit-learn, fits a frozen DHR+ARIMA baseline on the
-training portion, forecasts across the test portion, and outputs a
-rolling MAE curve — the synthetic-data sanity check that should precede
-trusting this model on real AEMO data.
-
-IMPORTANT — read before changing the split fraction
------------------------------------------------------
-This is NOT a random-shuffle ML split. Two things make it different from
-a typical scikit-learn train/test split:
-
-1. Order matters. Splitting a time series must never shuffle rows —
-   `train_test_split(..., shuffle=False)` is used specifically to keep
-   the last N% as a contiguous block after the first (1-N)%, not a
-   random sample. Shuffling would let the model "see the future" during
-   training and would make training data appear interleaved with drift
-   in a way that never happens in reality.
-
-2. The split boundary should not land in the middle of the pre-drift
-   period by accident, and for this project's purpose (proving a frozen
-   model degrades under drift), the split boundary SHOULD align with
-   the true changepoint — training on drifted data would defeat the
-   entire point of the test.
-"""
 
 from __future__ import annotations
 
@@ -36,9 +8,7 @@ from sklearn.model_selection import train_test_split
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 
-# ---------------------------------------------------------------------------
-# Fourier / model fitting
-# ---------------------------------------------------------------------------
+
 
 def build_fourier_terms(n: int, periods: list[int], n_harmonics: list[int]) -> pd.DataFrame:
     """Build sine/cosine Fourier terms for one or more seasonal periods."""
@@ -57,27 +27,7 @@ def fit_dhr_arima(
     n_harmonics: list[int] = [3],
     arima_order: tuple[int, int, int] = (2, 0, 2),
 ):
-    """
-    Fit the frozen DHR+ARIMA baseline on the training window only.
 
-    Parameters for the SYNTHETIC generator (make_series):
-        periods = [48]
-            The synthetic generator only injects ONE seasonal cycle
-            (period = 48, a "daily" sine wave — see generator.py's
-            `period = 48` constant). Unlike the real AEMO data, there is
-            no second (weekly) cycle actually present in this signal, so
-            passing periods=[48, 336] here would just fit the 336-period
-            Fourier terms to noise. Use [48] only.
-        n_harmonics = [3]
-            The synthetic signal is a single clean sine wave (plus
-            noise) — it doesn't need many harmonics to represent
-            faithfully. 3 is more than enough; going higher mostly just
-            risks fitting noise.
-        arima_order = (2, 0, 2)
-            Same reasoning as the AEMO version — a reasonable starting
-            point for whatever autocorrelation is left after removing
-            the seasonal shape.
-    """
     y_train = np.asarray(y_train)
     n = len(y_train)
     exog_train = build_fourier_terms(n, periods, n_harmonics)
@@ -115,9 +65,6 @@ def forecast_dhr_arima(
     return np.asarray(result.predicted_mean)
 
 
-# ---------------------------------------------------------------------------
-# Loading + splitting the single synthetic CSV
-# ---------------------------------------------------------------------------
 
 def load_synthetic_csv(path: str) -> pd.DataFrame:
     """Load a make_series()-generated CSV (t, y, is_changepoint)."""
@@ -131,29 +78,7 @@ def split_synthetic_series(
     test_size: float = 0.5,
     calibration_size: float = 0.0,
 ):
-    """
-    Split the synthetic series into train / test (/ calibration) using
-    scikit-learn's train_test_split, with shuffle=False (mandatory for
-    time series — see module docstring).
 
-    Also checks the split against the file's true changepoint(s) and
-    warns loudly if the chosen split would let drifted data leak into
-    the training set.
-
-    Parameters
-    ----------
-    test_size : fraction of rows to hold out as the final test set.
-    calibration_size : fraction of rows to hold out as a calibration
-        set, taken from what would otherwise be training data (i.e.
-        calibration sits BETWEEN train and test in time, not after
-        test). Set to 0.0 to skip calibration entirely (see
-        justification below).
-
-    Returns
-    -------
-    dict with 'train', 'test', and optionally 'calibration' — each a
-    DataFrame with columns t, y, is_changepoint, in time order.
-    """
     changepoints = df.loc[df["is_changepoint"] == 1, "t"].tolist()
 
     # Step 1: carve off the test set from the end — shuffle=False keeps
@@ -197,9 +122,7 @@ def split_synthetic_series(
     return result
 
 
-# ---------------------------------------------------------------------------
-# End-to-end run
-# ---------------------------------------------------------------------------
+
 
 def run_dhr_arima_on_synthetic(
     csv_path: str,
@@ -210,16 +133,8 @@ def run_dhr_arima_on_synthetic(
     arima_order: tuple[int, int, int] = (2, 0, 2),
     rolling_window: int = 240,
 ) -> pd.Series:
-    """
-    End-to-end: load the synthetic CSV, split it, fit the frozen model
-    on train, forecast across test, return a rolling MAE curve indexed
-    by t.
+ 
 
-    rolling_window : int
-        Row-based rolling window (no real dates here, just row count).
-        240 = 5 "days" at period=48, a reasonable default; adjust as
-        needed.
-    """
     df = load_synthetic_csv(csv_path)
     splits = split_synthetic_series(df, test_size=test_size, calibration_size=calibration_size)
 
@@ -242,20 +157,7 @@ def run_dhr_arima_on_synthetic(
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    # ---- Split decision: 80/20 train/test, NO calibration set. ----
-    # Justification: this script covers Step 3 (frozen baseline +
-    # degradation curve) only. A calibration set is specifically needed
-    # for Step 6 (conformal prediction / uncertainty intervals), which
-    # is a separate downstream task with its own script and its own
-    # held-out data — introducing a calibration split here would just
-    # shrink the test stream without serving this script's purpose.
-    # If the team later wants one shared 3-way split reused everywhere
-    # (mirroring the AEMO train/calibration/test convention) that's a
-    # reasonable alternative — just make it an explicit team decision,
-    # not a silent default, since it changes what "test" means in every
-    # downstream table.
 
-    #sudden drift synthetic series (n=20000, seed=1)
     mae_curve_sudden = run_dhr_arima_on_synthetic(
         csv_path="series_sudden_n20000_seed1.csv",
         test_size=0.5,
