@@ -109,3 +109,7 @@ A few rules that keep five people from stepping on each other:
 
 See [`docs/interfaces.md`](docs/interfaces.md) for the full contract
 rationale and the module-ownership sign-up table.
+
+#Dependencies
+sklearn
+statsmodels

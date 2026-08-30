@@ -1,34 +1,4 @@
-"""
-Synthetic Data Generator for Concept Drift Detection
-=====================================================
 
-Implements make_series(), matching the interface frozen in the project
-brief:
-
-    make_series(kind, n, noise) -> (y, changepoints)
-
-- y            : numpy array of shape (n,), the generated series
-- changepoints : list[int], the true indices where drift begins
-                 (ground truth, used to score detectors)
-
-Supported kind values
-----------------------
-- "none"      : no drift at all (control case — a detector should find
-                 nothing here)
-- "sudden"    : an instant step change
-- "gradual"   : the new pattern is interpolated in over ~1000 steps
-- "recurring" : the series alternates back and forth between two
-                 regimes (old pattern returns)
-
-This mirrors the minimal generator shown in the brief:
-
-    t < 5000   y = 20 + 5*sin(2*pi*t/48) + noise
-    t >= 5000  y = 20 + 5*sin(2*pi*t/48) + 8 + noise
-    t >= 9000  y = 20 + 9*sin(2*pi*t/48) + noise
-    changepoints = [5000, 9000]
-
-but is generalised so `n` and drift locations scale with series length.
-"""
 
 from __future__ import annotations
 
@@ -45,27 +15,7 @@ def make_series(
     noise: float = 1.0,
     seed: int | None = None,
 ) -> Tuple[np.ndarray, List[int]]:
-    """
-    Generate a synthetic time series with known concept drift.
-
-    Parameters
-    ----------
-    kind : {"none", "sudden", "gradual", "recurring"}
-        The type of drift to inject.
-    n : int
-        Number of time steps to generate.
-    noise : float
-        Standard deviation of additive Gaussian noise.
-    seed : int, optional
-        Random seed for reproducibility.
-
-    Returns
-    -------
-    y : np.ndarray, shape (n,)
-        The generated series.
-    changepoints : list[int]
-        True indices where drift begins (ground truth).
-    """
+  
     rng = np.random.default_rng(seed)
     t = np.arange(n)
 
@@ -118,31 +68,7 @@ def save_series_to_csv(
     seed: int | None,
     out_dir: str,
 ) -> str:
-    """
-    Generate one series with make_series() and save it as a CSV file.
 
-    This is a convenience wrapper for teammates who'd rather load a CSV
-    (e.g. into pandas, Excel, or another language) than call make_series()
-    directly in Python. It does NOT change make_series() itself — the
-    frozen interface stays exactly as agreed.
-
-    The CSV has two columns:
-        t              : time index (0 .. n-1)
-        y              : the generated series value
-        is_changepoint : 1 at a true drift index, 0 otherwise (so the
-                          ground truth travels with the data even outside
-                          Python)
-
-    Parameters
-    ----------
-    kind, n, noise, seed : same as make_series()
-    out_dir : str
-        Folder to save the CSV into. Created if it doesn't exist.
-
-    Returns
-    -------
-    str : the full path of the saved CSV file.
-    """
     import csv
 
     y, changepoints = make_series(kind=kind, n=n, noise=noise, seed=seed)
