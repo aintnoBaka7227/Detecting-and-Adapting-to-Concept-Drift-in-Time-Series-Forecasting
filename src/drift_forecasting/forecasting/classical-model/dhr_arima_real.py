@@ -72,9 +72,21 @@ def elapsed_steps(df: pd.DataFrame, epoch: pd.Timestamp, step_minutes: int = 30)
     return delta.round().astype(int).to_numpy()
 
 
-def rolling_mae_series(dates: pd.Series, y_true: np.ndarray, y_pred: np.ndarray, window: str = "7D") -> pd.Series:
+def rolling_mae_series(
+    dates: pd.Series,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    window: str = "7D",
+    step_minutes: int = 30,
+) -> pd.Series:
     abs_error = pd.Series(np.abs(y_true - y_pred), index=pd.DatetimeIndex(dates))
-    rolling_mae = abs_error.rolling(window).mean()
+    # Require a completely full window before reporting a value, so the first
+    # (window - 1) test intervals come out as NaN instead of partial-window
+    # means. This matches the seasonal-naive baseline
+    # (min_periods == ROLLING_WINDOW); for regular half-hourly data a 7-day
+    # window is 336 intervals, so the first 335 test rows are NaN.
+    min_periods = int(pd.Timedelta(window) / pd.Timedelta(minutes=step_minutes))
+    rolling_mae = abs_error.rolling(window, min_periods=min_periods).mean()
     return rolling_mae
 
 
