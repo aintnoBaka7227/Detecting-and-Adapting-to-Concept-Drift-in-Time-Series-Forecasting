@@ -8,3 +8,8 @@ build/
 dist/
 .pytest_cache/
 .DS_Store
+
+# Mangled temp figures dropped in the working dir by notebook figure-capture
+# tooling (intended path was /tmp/_nb_<var>_<title>.png).
+-tmp-*
+_nb_*.png
