@@ -41,10 +41,7 @@ REQUIRED_COLUMNS = [
 ]
 
 
-def load_aemo_demand(
-    region: str,
-    raw_dir: Path = RAW_DATA_DIR,
-) -> pd.DataFrame:
+def load_aemo_demand(region: str, raw_dir: Path = RAW_DATA_DIR) -> pd.DataFrame:
     """Load and concatenate monthly AEMO CSV files for one region.
 
     Parameters
