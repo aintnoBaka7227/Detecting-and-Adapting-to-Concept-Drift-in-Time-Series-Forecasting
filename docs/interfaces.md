@@ -15,14 +15,14 @@ uq(point_forecast, calibration_residuals) -> lower bound, upper bound, escalate 
 
 | Contract | Abstract base class | File |
 |---|---|---|
-| `detector` | `DriftDetector` | [`src/drift_forecasting/detection/base.py`](../src/drift_forecasting/detection/base.py) |
-| `adapter` | `Adapter` | [`src/drift_forecasting/adaptation/base.py`](../src/drift_forecasting/adaptation/base.py) |
-| `uq` | `UncertaintyQuantifier` | [`src/drift_forecasting/uncertainty/base.py`](../src/drift_forecasting/uncertainty/base.py) |
+| `detector` | `DriftDetector` | [`src/drift_lab/detection/base.py`](../src/drift_lab/detection/base.py) |
+| `adapter` | `Adapter` | [`src/drift_lab/adaptation/base.py`](../src/drift_lab/adaptation/base.py) |
+| `uq` | `UncertaintyQuantifier` | [`src/drift_lab/uncertainty/base.py`](../src/drift_lab/uncertainty/base.py) |
 
 A fourth contract, `Forecaster` (`fit`/`predict`), isn't on the slide but
 is required by `adapter`'s signature — every model type has to expose the
 same shape so an adapter can retrain any of them interchangeably. It
-lives in [`src/drift_forecasting/forecasting/base.py`](../src/drift_forecasting/forecasting/base.py).
+lives in [`src/drift_lab/forecasting/base.py`](../src/drift_lab/forecasting/base.py).
 
 **Each of these four files has a "How to implement" section in its own
 docstring** with a worked example of subclassing it — read the file
@@ -42,7 +42,7 @@ many thresholds, it doesn't change the interface.
 
 `config.SPLIT` (train 2018–2019, calibration Jan–Feb 2020, test Mar 2020
 onward) is the other thing frozen this sprint. Every module that needs a
-date boundary imports it from `drift_forecasting.config` — nothing
+date boundary imports it from `drift_lab.config` — nothing
 hardcodes a date elsewhere.
 
 ## Module ownership (fill in at the Sprint 1 team meeting)

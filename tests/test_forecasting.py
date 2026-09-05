@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from drift_forecasting.forecasting.xgboost_forecaster import (
+from drift_lab.forecasting.xgboost_forecaster import (
     XGBoostForecaster,
 )
 
