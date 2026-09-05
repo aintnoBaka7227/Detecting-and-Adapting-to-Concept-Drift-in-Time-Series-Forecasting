@@ -8,10 +8,10 @@ some other way, so nobody re-litigates a settled call or accidentally
 undoes one while "cleaning up."
 
 [`docs/refactor.md`](docs/refactor.md) is the original planning document
-the refactor was built from — useful as history, but it predates NHITS
-and still has a couple of stale names (`_harness.py`, registries) that
-were superseded by decisions below. This file is the current, corrected
-record; where the two disagree, this one wins.
+the refactor was built from — useful as history, but it still has a
+couple of stale names (`_harness.py`, registries) that were superseded by
+decisions below. This file is the current, corrected record; where the
+two disagree, this one wins.
 
 ---
 
@@ -167,54 +167,6 @@ number duplicated across files:
   deliberate: it's what makes the F1 "degradation curve" mean something
   — it's showing how badly a model degrades with zero feedback, which
   only works if the model genuinely gets zero feedback.
-- **NHITS is the one model that broke this dichotomy, and the resulting
-  fix is worth its own subsection** — see below.
-
-### The NHITS case study
-
-`NHITSForecaster` was added later, backed by Nixtla's `neuralforecast`.
-Its integration surfaced two real problems worth remembering, not just
-fixing quietly:
-
-1. **A silent evaluation-protocol bug, not leakage.** The first version
-   of `run_aemo_nhits.py` copied `seasonal_naive`'s walk-forward branch
-   (feeding it the real test-period demand column) instead of
-   `xgboost`/`dhr_arima`'s frozen-blind branch. No future data ever
-   leaked into a forecast, but NHITS was silently re-grounded on the
-   truth every 24 hours — a form of daily adaptation the other two
-   "frozen" baselines never get. That made its rolling-MAE curve look
-   suspiciously flat and low, which is what surfaced the bug: it wasn't
-   a better model, it was an easier task.
-2. **Making it genuinely frozen exposed a real numerical failure mode.**
-   Once NHITS ran fully blind (matching xgboost/dhr_arima), it diverged
-   to `NaN` by roughly day 705 of a ~1,400-day rollout — a textbook
-   recursive-forecast blowup from feeding a direct multi-step model
-   its own compounding forecasts for years with zero correction.
-   **Resolution**: periodic re-grounding — real observations fed back in
-   once every `ROLLING_WINDOW_DAYS` (7 days), blind in between
-   (`run_aemo_nhits.py::reground_column`). This is a materially different,
-   more forgiving evaluation protocol than xgboost/dhr_arima's fully
-   frozen one — labeled as such (`"NHITS (pilot, weekly re-grounded)"`
-   in `produce_figure_f1.py`) so nobody reads its numbers as
-   apples-to-apples against the other three without that caveat.
-
-Consequences of that saga, still in force:
-- NHITS is run by its **own** script (`run_aemo_nhits.py`), never folded
-  into `run_aemo_baselines.py`'s model list, and under its **own**
-  `split_id` (`"aemo_frozen_v1_nhits_pilot"`) — same underlying data
-  split as `"aemo_frozen_v1"`, kept distinct on purpose so these
-  still-being-validated pilot rows can never silently mix into the
-  reviewed three-baseline comparison in `runs.csv`.
-- `forecasting/nixtla_common.py` exists as a shared, model-agnostic
-  rolling-forecast adapter (`roll_forecast()`) — factored out so a future
-  Nixtla-backed model (PatchTST was discussed, not yet built) reuses the
-  same chunk-and-roll logic instead of duplicating it, mirroring how the
-  three river detectors already share `detect_with_river()`.
-- `os.environ.setdefault("OMP_NUM_THREADS", "1")` at the top of
-  `nhits_forecaster.py` is load-bearing, not cosmetic: XGBoost's and
-  PyTorch's OpenMP runtimes deadlock (occasionally segfault) when they do
-  real work in the same process — discovered because the full test suite
-  hung. Do not remove it without re-testing `pytest` end to end.
 
 ---
 
@@ -299,11 +251,64 @@ recomputed on the read side. This three-way split (run → record → produce)
 is the "compose in memory, one sanctioned file hand-off" rule from the
 top of this document, applied concretely.
 
+### Where experiment output lives — and why nowhere else
+
+Every experiment writes exactly three kinds of output, to exactly three
+places, and nothing is allowed to land anywhere else:
+
+```
+results/
+├── runs.csv                 the ledger — scalar metrics only, one row per
+│                             (method × dataset × region × seed × metric × regime)
+├── runs/<config_hash>/
+│   ├── config.json          the actual hyperparameter values behind that hash
+│   └── curve_<dataset>_<region>_<seed>.csv    the full rolling-MAE curve, one
+│                             per forecast run — not squeezed into runs.csv
+└── figures/                  every table/figure a produce_*.py script emits
+```
+
+- **`runs.csv` holds scalars only** (`mae`, `rolling_mae_7d_mean`,
+  `rolling_mae_7d_max`, `detection_delay`, `false_alarms_per_10000`,
+  `missed_detections`, `n_detections`) — a full time-indexed curve doesn't
+  fit a long-format row, so it was never going to live here.
+- **The curve dump is what a figure script actually reads for the line
+  itself.** `produce_figure_f1.py` doesn't recompute a rolling MAE from raw
+  forecasts — it reads the exact curve `run_aemo_baselines.py` already
+  dumped via `record_run` → `results_io.dump_curve()`, keyed by
+  `config_hash`/`dataset`/`region`/`seed`
+  (`results_io.curve_path()` builds that path consistently on both
+  the write and read side — see the `seed=None` bug above for why that
+  consistency matters). `produce_table_t1.py`, by contrast, never touches
+  a curve dump — a table of detection metrics is entirely a `groupby` of
+  scalars already in `runs.csv`.
+- **`results/figures/` is the only legal write target for a
+  `produce_*.py` script.** Nothing it produces belongs in `data/`,
+  `notebooks/`, the repo root, or a new folder invented per-script — use
+  the `FIGURES_DIR` constant from `experiments/results_io.py`, don't
+  hardcode a path.
+- **No `run_*.py` script writes a file directly, ever.** It calls
+  `record_run(...)`; `record_run` is the only thing that touches
+  `results_io.append_runs` / `dump_config` / `dump_curve`. If a script is
+  about to do its own `df.to_csv(...)` outside of that call, that's a
+  sign the output belongs in `runs.csv` (or a curve dump) instead, not a
+  new convention.
+- **`runs.csv` is the only piece of `results/` tracked in git** — `runs/`
+  and `figures/` are gitignored (see `.gitignore`) precisely because
+  they're mechanically regenerable from `runs.csv` (or from re-running
+  the `run_*.py` scripts). If you ever find yourself wanting to commit a
+  figure or a curve CSV directly, that's a sign something upstream isn't
+  actually reproducible yet — fix that instead.
+
+This is also why the `seed=None` curve-path bug described below turned
+out to be about this contract specifically — almost every "where did
+this number come from" question in this codebase resolves to one of
+these three files.
+
 ### Column-by-column reasoning
 
 | Column | Why it's there / non-obvious rule |
 |---|---|
-| `seed` | `None` (written as `NaN`) for a genuinely deterministic method — **never a fabricated seed value** just to fill the column. NHITS is the one model where a real seed is logged (`random_seed`), because its training actually is stochastic. |
+| `seed` | `None` (written as `NaN`) for a genuinely deterministic method — **never a fabricated seed value** just to fill the column. A model whose training is genuinely stochastic should log its real seed instead — the column exists for that case too, not only the deterministic one. |
 | `config_hash` | `sha1(json.dumps(config, sort_keys=True, default=str))[:12]`, where `config` comes from `config_of(obj)` — the object's public (non-underscore) attributes only. This is *why* the underscore-prefix instance-attribute convention above is load-bearing: fitted state leaking into `config` would make the same hyperparameters hash differently run to run. |
 | `split_id` | Identifies the **data-partitioning scheme**, not "this batch of rows" (that's what `dataset` + `method` + `config_hash` already identify together). Required, with **no default** — an earlier version defaulted to `"frozen_v1"`, which silently mislabeled every synthetic run with an AEMO-shaped id. For synthetic detection, `split_id` embeds the actual changepoint positions (`synth_n{N}_cp{cp1-cp2-...}`) so a future change to the generator's drift geometry can't silently mix with old rows sharing the same generic id. |
 | `regime` | See "The regime decision" below — this one took real back-and-forth to settle and is worth reading in full before changing it. |
@@ -343,7 +348,7 @@ The final rule:
   same Slack conversation, adjustable if a detector's drift band turns out
   too narrow to see in the rolling-MAE curve.
 
-### Two bugs worth remembering (both fixed, both easy to reintroduce)
+### A bug worth remembering (fixed, but easy to reintroduce)
 
 - **`curve_path(..., seed=None)` used to interpolate Python's literal
   `None`** into the filename (`"...None.csv"`). After a `runs.csv`
@@ -355,10 +360,10 @@ The final rule:
   (`produce_figure_f1.py`) sides. If you touch `curve_path`, keep the
   token symmetric on both ends.
 - **`runs.csv` is append-only, on purpose** — re-running a `run_*.py`
-  script adds new rows rather than overwriting old ones (this is *why*
-  NHITS ended up with a mismatched row count between regions once, from
-  an interrupted first run). `produce_*.py` scripts are expected to take
-  the **latest** row per `(method, region)` when duplicates exist (see
+  script adds new rows rather than overwriting old ones, including after
+  an interrupted run that only got partway through its loop.
+  `produce_*.py` scripts are expected to take the **latest** row per
+  `(method, region)` when duplicates exist (see
   `produce_figure_f1.py::load_model_curves()`'s `rows.iloc[-1]`) rather
   than assuming one row per method ever exists.
 
@@ -381,9 +386,6 @@ The final rule:
   start failing — that's a signal to bring to the team about whether to
   accept the new defaults as the new frozen baseline (and regenerate the
   reference CSV), not something to quietly loosen.
-- **The macOS OpenMP note** (see the NHITS case study above) is a testing
-  gotcha as much as a runtime one — it was the full `pytest` run hanging,
-  not a script, that surfaced it.
 
 ---
 
@@ -406,7 +408,3 @@ The final rule:
   the pre-drift level (most visible for `recurring` drift); that segment
   is currently still labeled `post-drift`. If it needs its own label,
   that's a change inside `label_regimes`, not a schema change.
-- **PatchTST** (or another Nixtla-backed model) was discussed as a
-  natural reuse of `nixtla_common.py`'s adapter, but was not requested or
-  built — noted here so whoever picks it up doesn't duplicate
-  `roll_forecast()`.

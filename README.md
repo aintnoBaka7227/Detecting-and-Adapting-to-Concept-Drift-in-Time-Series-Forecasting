@@ -77,9 +77,7 @@ delete it and regenerate it from `results/runs.csv` (or regenerate
 │   │   ├── base.py                    the frozen contract
 │   │   ├── seasonal_naive.py          lag-48 (one day ago) baseline
 │   │   ├── xgboost_forecaster.py       recursive XGBoost on lag + calendar features
-│   │   ├── dhr_arima.py                dynamic harmonic regression + ARIMA errors
-│   │   ├── nhits_forecaster.py         NHITS (Nixtla neuralforecast) — see caveats below
-│   │   └── nixtla_common.py            shared rolling-forecast adapter for Nixtla-backed models
+│   │   └── dhr_arima.py                dynamic harmonic regression + ARIMA errors
 │   │
 │   ├── detection/                   # DriftDetector implementations (detect(stream) -> indices)
 │   │   ├── base.py                    the frozen contract + detect_with_river() shared helper
@@ -99,7 +97,6 @@ delete it and regenerate it from `results/runs.csv` (or regenerate
 │   ├── run_harness.py                 record_run() — turns one run's arrays into runs.csv rows
 │   ├── results_io.py                   runs.csv / config.json / curve-dump filesystem plumbing
 │   ├── run_aemo_baselines.py           fits seasonal_naive + xgboost + dhr_arima on AEMO
-│   ├── run_aemo_nhits.py               NHITS pilot on AEMO — run separately, own split_id (see below)
 │   ├── run_synthetic_detectors.py      runs adwin/kswin/page_hinkley on the synthetic benchmark
 │   ├── run_synthetic_generator.py      plots the synthetic benchmark itself (no runs.csv row)
 │   ├── produce_table_t1.py             synthetic detection table, grouped from runs.csv
@@ -168,23 +165,9 @@ a metric; metrics only ever come from `evaluation/`.
 | `SeasonalNaive` | `seasonal_naive.py` | forecast = observed value one season (day) ago |
 | `XGBoostForecaster` | `xgboost_forecaster.py` | recursive, lag + calendar features |
 | `DHRArima` | `dhr_arima.py` | Fourier terms (day/week) + SARIMAX errors |
-| `NHITSForecaster` | `nhits_forecaster.py` | neural, direct multi-step (Nixtla) — see caveats below |
 
 To add a model: new file next to these, subclass `Forecaster`, read
 `forecasting/base.py`'s docstring first (it has a worked example).
-
-**NHITS caveats** (read before trusting its numbers): it's run by its own
-script (`run_aemo_nhits.py`), separately from the other three, under its
-own `split_id`. Running it fully frozen/blind like xgboost/dhr_arima
-causes it to diverge (a direct multi-step model fed its own compounding
-forecasts for years with zero correction runs away numerically), so it's
-evaluated with **periodic weekly re-grounding** instead — a materially
-different, more forgiving protocol than the other three. See the
-docstring at the top of `run_aemo_nhits.py` for the full story. Also
-note: sharing a process with `XGBoostForecaster` requires the
-`OMP_NUM_THREADS=1` workaround already set at the top of
-`nhits_forecaster.py` — XGBoost's and PyTorch's OpenMP runtimes deadlock
-(occasionally segfault) otherwise. Don't remove it.
 
 ### `DriftDetector` (`src/drift_lab/detection/base.py`)
 
@@ -345,7 +328,6 @@ Each of these is a standalone script — run with `python -m experiments.<name>`
 | Script | What it does |
 |---|---|
 | `run_aemo_baselines.py` | Fits `SeasonalNaive`, `XGBoostForecaster`, `DHRArima` on both AEMO regions, frozen split (`split_id="aemo_frozen_v1"`), `seed=None` (deterministic). |
-| `run_aemo_nhits.py` | NHITS on both AEMO regions, its own `split_id="aemo_frozen_v1_nhits_pilot"`, **not** part of `run_aemo_baselines.py`'s model list — see the NHITS caveats above before reading its numbers alongside the other three. |
 | `run_synthetic_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` against `make_series` for every `(drift_type, seed)` in `{none, sudden, gradual, recurring} × SEEDS`. `split_id` embeds the actual changepoint positions, so a future change to the generator's drift geometry can't silently mix with old rows. |
 | `run_synthetic_generator.py` | Plots the synthetic benchmark itself (one figure per drift type, one panel per seed) — visual sanity check, not a `runs.csv` producer. |
 
@@ -385,10 +367,6 @@ Notes:
 - A couple of `xgboost`/`dhr_arima` tests are gated behind
   `RUN_BASELINE_REPRO=1` because they reproduce a committed baseline CSV
   against real AEMO data and take minutes; they're skipped by default.
-- On macOS, don't remove the `OMP_NUM_THREADS=1` line at the top of
-  `nhits_forecaster.py` — without it, running the XGBoost and NHITS test
-  files together deadlocks (occasionally segfaults) from two competing
-  OpenMP runtimes in one process.
 
 ---
 
@@ -426,8 +404,8 @@ A few rules that keep several people from stepping on each other:
 
 - [`DECISIONS.md`](DECISIONS.md) — **why** the codebase looks like this:
   per-component design decisions, the full `runs.csv`/regime/`split_id`
-  reasoning, the NHITS case study, and what's still open. Read this
-  before changing something that seems arbitrary — it probably isn't.
+  reasoning, and what's still open. Read this before changing something
+  that seems arbitrary — it probably isn't.
 - [`docs/interfaces.md`](docs/interfaces.md) — full rationale for the
   frozen contracts and where escalation logic lives.
 - [`docs/refactor.md`](docs/refactor.md) — the living design doc this
