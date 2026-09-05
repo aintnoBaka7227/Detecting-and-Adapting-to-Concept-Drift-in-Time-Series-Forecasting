@@ -1,5 +1,5 @@
 [project]
-name = "drift-forecasting"
+name = "drift-lab"
 version = "0.1.0"
 description = "Detecting and adapting to concept drift in time series forecasting"
 requires-python = ">=3.11"
@@ -13,13 +13,18 @@ dependencies = [
     "nemosis>=3.8.1",
     "statsmodels>=0.15.0",
     "xgboost>=2.0",
+    "neuralforecast>=3.2",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.5"]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["drift_lab*", "experiments*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
