@@ -424,6 +424,10 @@ A few rules that keep several people from stepping on each other:
 
 ## Further reading
 
+- [`DECISIONS.md`](DECISIONS.md) — **why** the codebase looks like this:
+  per-component design decisions, the full `runs.csv`/regime/`split_id`
+  reasoning, the NHITS case study, and what's still open. Read this
+  before changing something that seems arbitrary — it probably isn't.
 - [`docs/interfaces.md`](docs/interfaces.md) — full rationale for the
   frozen contracts and where escalation logic lives.
 - [`docs/refactor.md`](docs/refactor.md) — the living design doc this
