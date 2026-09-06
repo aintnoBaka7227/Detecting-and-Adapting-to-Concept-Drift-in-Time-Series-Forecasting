@@ -389,6 +389,19 @@ The final rule:
 
 ---
 
+## Per-method research notes (`docs/methods/`)
+
+Introduced by `docs/PG-S2-41-method-tickets.md`: every method-research
+ticket (a detector or forecaster being investigated/improved) writes a
+`docs/methods/<name>.md` note — architecture, current wrapper behavior,
+suitability for synthetic drift and AEMO, and at least two peer-reviewed
+citations (2016 onward) — alongside whatever code/test changes come out
+of it. This directory didn't exist before that ticket set; the first
+ticket to land creates it. Keep new method research here rather than
+letting it live only in a PR description or a ticket comment.
+
+---
+
 ## Deferred — needs the team before building
 
 - **T2 documented-event matcher.** `aemo/events.csv` (Tier 1: 5 primary

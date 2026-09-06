@@ -724,7 +724,6 @@ def evaluate_detections(
         "delays": result["delays"],
     }
 
-
 # Planned evaluation metrics
 #
 # Real-data detection evaluation:
@@ -732,6 +731,170 @@ def evaluate_detections(
 # - delay from documented event to matched detection
 # - unmatched detections
 # - documented events with no matched detection
+
+
+# Real-data detection evaluation (documented events, NOT ground truth)
+
+# A detection matches a point event ("day" precision) if it lands within
+# DOCUMENTED_POINT_TOLERANCE of the event's start; it matches a period event
+# ("date_range" / "month") anywhere from the start through
+# DOCUMENTED_PERIOD_GRACE past the end. These are evaluation design choices,
+# not detector thresholds - agree them with the other team before running.
+DOCUMENTED_POINT_TOLERANCE = pd.Timedelta(days=1)
+DOCUMENTED_PERIOD_GRACE = pd.Timedelta(days=7)
+
+_REQUIRED_EVENT_COLUMNS = ("event_id", "start_date", "end_date", "date_precision")
+
+
+def match_detections_to_events(
+    detected_timestamps,
+    events,
+    point_tolerance=DOCUMENTED_POINT_TOLERANCE,
+    period_grace=DOCUMENTED_PERIOD_GRACE,
+):
+    """
+    Match one detector's output against a catalogue of documented
+    real-world events (COVID, the 2022 market suspension, the solar-demand
+    trend, ...).
+
+    This is the real-data counterpart to evaluate_detections(). The
+    differences are fundamental, not cosmetic:
+
+    - It works in timestamp space, not positional-index space.
+    - The events are NOT ground truth. A detection that matches no event is
+      reported as unmatched, never as a false positive - the documented
+      catalogue is not exhaustive.
+    - There is no drift_type. Each event is a point or a period, told apart
+      by its date_precision column.
+
+    Tiering is the caller's job. Pass only the events you want scored (e.g.
+    Tier 1 for Table 2). For the "N unmatched, of which M coincide with
+    Tier 2" sentence, call this again with the Tier 2 events and the
+    timestamps this call left in `unmatched_detections`.
+
+    Parameters
+    ----------
+    detected_timestamps : array-like of datetime-like
+        Timestamps the detector flagged as changepoints, for one detector
+        on one region's stream.
+    events : pandas.DataFrame
+        One row per documented event. Required columns:
+            event_id       - unique identifier
+            start_date     - event onset (datetime-like)
+            end_date       - event end (datetime-like); equals start_date
+                             for a point event
+            date_precision - "day" -> point event; anything else
+                             ("date_range", "month") -> period event
+        Other columns (region, tier, ...) are ignored. Filter by region
+        before calling.
+    point_tolerance : pandas.Timedelta, default DOCUMENTED_POINT_TOLERANCE
+        Match window for a point event is [start_date, start_date +
+        point_tolerance].
+    period_grace : pandas.Timedelta, default DOCUMENTED_PERIOD_GRACE
+        Match window for a period event is [start_date, end_date +
+        period_grace].
+
+    Matching rules
+    --------------
+    - A detection must occur at or after an event's start_date to match it;
+      a detection before the event cannot be detecting it.
+    - Events are considered in start_date order; each takes the earliest
+      still-unused detection inside its window (greedy, same as the
+      synthetic matcher - fine for well-separated events, not guaranteed
+      maximal if windows overlap heavily).
+    - Each detection matches at most one event, each event at most one
+      detection.
+    - Delay for a matched event = matched_detection - start_date, in days.
+      Measured from the start even for a period event, so a detection late
+      in a months-long trend still counts, with a correspondingly large
+      delay.
+
+    Returns
+    -------
+    dict
+        matched                - list of {event_id, detected (Timestamp),
+                                 delay_days (float)}, in start_date order
+        unmatched_events       - list of event_id with no matched detection
+        unmatched_detections   - list of Timestamps matched to no event
+        n_detections           - total detections passed in
+        n_events               - total events passed in
+        n_matched              - len(matched)
+        n_unmatched_events     - len(unmatched_events)
+        n_unmatched_detections - len(unmatched_detections)
+        mean_delay_days        - mean of matched delays, nan if none matched
+        precision              - n_matched / n_detections (fraction of this
+                                 detector's alarms landing on a documented
+                                 event), nan if it raised no detections
+    """
+
+    missing = [c for c in _REQUIRED_EVENT_COLUMNS if c not in events.columns]
+    if missing:
+        raise ValueError(f"events is missing columns: {missing}")
+
+    detected = pd.DatetimeIndex(
+        pd.to_datetime(list(detected_timestamps))
+    ).sort_values()
+
+    catalogue = events.loc[:, list(_REQUIRED_EVENT_COLUMNS)].copy()
+    catalogue["start_date"] = pd.to_datetime(catalogue["start_date"])
+    catalogue["end_date"] = pd.to_datetime(catalogue["end_date"])
+    catalogue = catalogue.sort_values("start_date").reset_index(drop=True)
+
+    if catalogue["event_id"].duplicated().any():
+        raise ValueError("events contains duplicate event_id values")
+    if (catalogue["end_date"] < catalogue["start_date"]).any():
+        raise ValueError("an event has end_date before start_date")
+
+    used = [False] * len(detected)
+    matched = []
+    unmatched_events = []
+
+    for event in catalogue.itertuples(index=False): 
+        start = event.start_date
+        if str(event.date_precision).lower() == "day":
+            window_end = start + point_tolerance
+        else:
+            window_end = event.end_date + period_grace
+
+        hit = next(
+            (
+                i
+                for i, timestamp in enumerate(detected)
+                if not used[i] and start <= timestamp <= window_end
+            ),
+            None,
+        )
+        if hit is None:
+            unmatched_events.append(event.event_id)
+            continue
+
+        used[hit] = True
+        matched.append(
+            {
+                "event_id": event.event_id,
+                "detected": detected[hit],
+                "delay_days": (detected[hit] - start) / pd.Timedelta(days=1),
+            }
+        )
+
+    unmatched_detections = [ts for i, ts in enumerate(detected) if not used[i]]
+    delays = [m["delay_days"] for m in matched]
+
+    return {
+        "matched": matched,
+        "unmatched_events": unmatched_events,
+        "unmatched_detections": unmatched_detections,
+        "n_detections": len(detected),
+        "n_events": len(catalogue),
+        "n_matched": len(matched),
+        "n_unmatched_events": len(unmatched_events),
+        "n_unmatched_detections": len(unmatched_detections),
+        "mean_delay_days": float(pd.Series(delays).mean()) if delays else float("nan"),
+        "precision": len(matched) / len(detected) if len(detected) else float("nan"),
+    }
+
+
+# Planned evaluation metrics
 #
 # Uncertainty evaluation (Step 6):
 # - empirical coverage
