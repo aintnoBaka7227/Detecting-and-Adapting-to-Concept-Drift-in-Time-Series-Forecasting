@@ -14,6 +14,8 @@ from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
 from drift_lab.synthetic.generator import Kind, make_series
+
+from experiments import results_io
 from experiments.run_harness import config_of, record_run
 
 KINDS: tuple[Kind, ...] = ("none", "sudden", "gradual", "recurring")
@@ -46,11 +48,22 @@ def main() -> None:
             for detector in DETECTORS:
                 t0 = time.perf_counter()
                 detected = detector.detect(y)
+
+                config = config_of(detector)
+                chash = results_io.config_hash(config)
+
+                results_io.dump_synthetic_detections(
+                    config_hash_=chash,
+                    dataset=f"synthetic_{kind}",
+                    seed=seed,
+                    detected_indices=detected,
+                )
+
                 record_run(
                     method=detector.name,
                     dataset=f"synthetic_{kind}",
                     seed=seed,
-                    config=config_of(detector),
+                    config=config,
                     wall_clock_s=time.perf_counter() - t0,
                     split_id=split_id,
                     detection=(detected, changepoints, len(y)),
