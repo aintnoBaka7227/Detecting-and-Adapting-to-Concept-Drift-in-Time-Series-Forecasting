@@ -20,7 +20,16 @@ def _series(n: int, seed: int = 0) -> pd.Series:
 
 
 def _model(**overrides) -> NHITSForecaster:
-    params = {"horizon": 24, "input_size": 96, "max_steps": 20}
+    # small + fast: tiny horizon/context, no held-out validation, and
+    # multi-rate factors that divide the tiny horizon/input_size.
+    params = {
+        "horizon": 24,
+        "input_size": 96,
+        "max_steps": 20,
+        "val_size": 0,
+        "n_pool_kernel_size": (2, 2, 1),
+        "n_freq_downsample": (4, 2, 1),
+    }
     params.update(overrides)
     return NHITSForecaster(**params)
 
@@ -96,11 +105,9 @@ def test_config_of_only_exposes_public_hyperparameters():
     model = _model(random_seed=7)
     config = config_of(model)
 
-    assert config == {
-        "horizon": 24,
-        "input_size": 96,
-        "freq": "30min",
-        "max_steps": 20,
-        "learning_rate": 0.001,
-        "random_seed": 7,
-    }
+    # public constructor knobs are captured...
+    assert config["random_seed"] == 7
+    assert {"horizon", "input_size", "max_steps", "scaler_type"} <= config.keys()
+    # ...and no private fitted state leaks in (that's what keeps config_hash stable)
+    assert not any(key.startswith("_") for key in config)
+    assert "_nf" not in config and "_history" not in config

@@ -111,6 +111,41 @@ def test_aemo_detection_without_truth_logs_n_detections():
     assert rows["regime"].iloc[0] == "full"
 
 
+def test_aemo_documented_event_matching_rows(results_in_tmp):
+    events = pd.DataFrame(
+        {
+            "event_id": ["E1", "E2"],
+            "start_date": pd.to_datetime(["2020-04-01", "2021-10-01"]),
+            "end_date": pd.to_datetime(["2020-04-01", "2021-10-01"]),
+            "date_precision": ["day", "day"],
+        }
+    )
+    # E1 detected on the day (robust to whatever the default tolerance is),
+    # E2 not detected, plus one detection that matches nothing.
+    detected = [pd.Timestamp("2020-04-01"), pd.Timestamp("2020-07-01")]
+    rows = record_run(
+        method="adwin",
+        dataset="aemo",
+        region="SA1",
+        seed=None,
+        config={"delta": 0.002},
+        wall_clock_s=1.0,
+        split_id="aemo_detect_full_v1",
+        detection=(detected, events, None),
+    )
+    value = dict(zip(rows["metric_name"], rows["metric_value"]))
+    assert value["n_detections"] == 2
+    assert value["n_matched"] == 1
+    assert value["n_unmatched_events"] == 1  # E2 missed
+    assert value["n_unmatched_detections"] == 1  # the 2020-07-01 detection
+    assert value["delay_E1"] == pytest.approx(0.0)
+    assert value["precision"] == pytest.approx(0.5)
+
+    dump = results_io.detections_path(rows["config_hash"].iloc[0], "aemo", "SA1", None)
+    assert dump.exists()
+    assert pd.read_csv(dump)["timestamp"].tolist() == ["2020-04-01", "2020-07-01"]
+
+
 def test_detection_with_truth_requires_synthetic_dataset():
     with pytest.raises(ValueError):
         record_run(

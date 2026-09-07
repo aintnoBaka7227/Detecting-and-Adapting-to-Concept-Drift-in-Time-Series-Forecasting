@@ -5,6 +5,7 @@ from drift_lab.evaluation.evaluation import (
     calculate_missed_detections,
     calculate_rolling_mae,
     evaluate_detections,
+    match_detections_to_events,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "calculate_missed_detections",
     "calculate_rolling_mae",
     "evaluate_detections",
+    "match_detections_to_events",
 ]
