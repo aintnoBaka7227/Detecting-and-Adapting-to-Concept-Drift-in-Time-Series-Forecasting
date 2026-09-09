@@ -1,0 +1,7 @@
+region,method,Daily + frozen,Daily baseline,Raw 30-min,Raw to final reduction (%)
+NSW1,adwin,13,13,742,98.2
+NSW1,kswin,4,13,580,99.3
+NSW1,page_hinkley,46,46,2241,97.9
+SA1,adwin,9,9,682,98.7
+SA1,kswin,4,12,599,99.3
+SA1,page_hinkley,46,46,2241,97.9

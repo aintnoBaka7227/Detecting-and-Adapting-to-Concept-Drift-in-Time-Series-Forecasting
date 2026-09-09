@@ -1,8 +1,9 @@
 import numpy as np
 
-from drift_forecasting.detection.page_hinkley import PageHinkleyDetector
-from drift_forecasting.detection.adwin import ADWINDetector
-from drift_forecasting.detection.kswin import KSWINDetector
+from drift_lab.detection.adwin import ADWINDetector
+from drift_lab.detection.kswin import KSWINDetector
+from drift_lab.detection.page_hinkley import PageHinkleyDetector
+
 
 def test_page_hinkley_detects_gradual_drift():
     rng = np.random.default_rng(42)
@@ -19,7 +20,8 @@ def test_page_hinkley_detects_gradual_drift():
 
     assert len(changepoints) > 0
     assert changepoints[0] >= 1000
-    
+
+
 def test_adwin_detects_gradual_drift():
     rng = np.random.default_rng(42)
 
@@ -35,6 +37,8 @@ def test_adwin_detects_gradual_drift():
 
     assert len(changepoints) > 0
     assert changepoints[0] >= 1000
+
+
 def test_kswin_detects_gradual_drift():
     rng = np.random.default_rng(42)
 
@@ -53,9 +57,6 @@ def test_kswin_detects_gradual_drift():
 
     # Detections before index 1000 are false alarms.
     # We only require that KSWIN eventually detects the real gradual drift.
-    valid_detections = [
-        cp for cp in changepoints
-        if cp >= 1000
-    ]
+    valid_detections = [cp for cp in changepoints if cp >= 1000]
 
     assert len(valid_detections) > 0
