@@ -6,12 +6,6 @@ import contextlib
 import hashlib
 import json
 import os
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-    import msvcrt
 from pathlib import Path
 
 import pandas as pd
@@ -152,6 +146,37 @@ def dump_synthetic_detections(
 
 
 @contextlib.contextmanager
+def _fcntl_lock(fd: int):
+    """Exclusive file lock for Linux and macOS."""
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_EX)
+
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _msvcrt_lock(fd: int, lock_path: Path):
+    """Exclusive file lock for Windows."""
+    import msvcrt
+
+    if os.path.getsize(lock_path) == 0:
+        os.write(fd, b"\0")
+
+    os.lseek(fd, 0, os.SEEK_SET)
+    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+
+    try:
+        yield
+    finally:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+
+@contextlib.contextmanager
 def locked_file(path: Path):
     """Cross-platform exclusive file lock."""
     lock_path = path.with_name(path.name + ".lock")
@@ -160,24 +185,11 @@ def locked_file(path: Path):
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
 
     try:
-        if fcntl is not None:
-            # Linux / macOS
-            fcntl.flock(fd, fcntl.LOCK_EX)
+        if os.name == "nt":
+            with _msvcrt_lock(fd, lock_path):
+                yield
         else:
-            # Windows
-            if os.path.getsize(lock_path) == 0:
-                os.write(fd, b"\0")
-
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
-
-        yield
-
+            with _fcntl_lock(fd):
+                yield
     finally:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        else:
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-
         os.close(fd)
