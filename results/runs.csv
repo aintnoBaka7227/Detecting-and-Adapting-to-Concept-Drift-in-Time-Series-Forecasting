@@ -537,3 +537,15 @@ baseline,nhits,aemo,SA1,1,afb8873fbc59,aemo_nhits_blind_v1,rolling_mae_7d_max,34
 baseline,nhits,aemo,NSW1,1,afb8873fbc59,aemo_nhits_blind_v1,mae,3645.3301365996726,full,0,35039,26.43199004099006,2026-09-06T17:12:07.095996+00:00
 baseline,nhits,aemo,NSW1,1,afb8873fbc59,aemo_nhits_blind_v1,rolling_mae_7d_mean,3650.6404975774135,full,0,35039,26.43199004099006,2026-09-06T17:12:07.095996+00:00
 baseline,nhits,aemo,NSW1,1,afb8873fbc59,aemo_nhits_blind_v1,rolling_mae_7d_max,5399.513598167783,full,0,35039,26.43199004099006,2026-09-06T17:12:07.095996+00:00
+baseline,xgboost,aemo,SA1,,40da022171fc,aemo_xgboost_experiment_v1,mae,238.90235240630852,full,0,35039,372.05451119999634,2026-09-10T04:34:11.507250+00:00
+baseline,xgboost,aemo,SA1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_mean,238.9121125099721,full,0,35039,372.05451119999634,2026-09-10T04:34:11.507250+00:00
+baseline,xgboost,aemo,SA1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_max,524.2607529849098,full,0,35039,372.05451119999634,2026-09-10T04:34:11.507250+00:00
+baseline,xgboost,aemo,NSW1,,40da022171fc,aemo_xgboost_experiment_v1,mae,754.2886511357473,full,0,35039,459.0896708999935,2026-09-10T04:41:52.796321+00:00
+baseline,xgboost,aemo,NSW1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_mean,755.1528151007203,full,0,35039,459.0896708999935,2026-09-10T04:41:52.796321+00:00
+baseline,xgboost,aemo,NSW1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_max,1668.3561121186754,full,0,35039,459.0896708999935,2026-09-10T04:41:52.796321+00:00
+baseline,xgboost,aemo,SA1,,40da022171fc,aemo_xgboost_experiment_v1,mae,238.90235240630852,full,0,35039,57.39793530001771,2026-09-10T06:31:57.603272+00:00
+baseline,xgboost,aemo,SA1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_mean,238.9121125099721,full,0,35039,57.39793530001771,2026-09-10T06:31:57.603272+00:00
+baseline,xgboost,aemo,SA1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_max,524.2607529849098,full,0,35039,57.39793530001771,2026-09-10T06:31:57.603272+00:00
+baseline,xgboost,aemo,NSW1,,40da022171fc,aemo_xgboost_experiment_v1,mae,754.2886511357473,full,0,35039,62.54821879998781,2026-09-10T06:33:01.410085+00:00
+baseline,xgboost,aemo,NSW1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_mean,755.1528151007203,full,0,35039,62.54821879998781,2026-09-10T06:33:01.410085+00:00
+baseline,xgboost,aemo,NSW1,,40da022171fc,aemo_xgboost_experiment_v1,rolling_mae_7d_max,1668.3561121186754,full,0,35039,62.54821879998781,2026-09-10T06:33:01.410085+00:00
