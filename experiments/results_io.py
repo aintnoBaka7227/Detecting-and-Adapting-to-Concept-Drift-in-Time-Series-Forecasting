@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -61,7 +60,9 @@ def dump_config(config_hash_: str, config: dict) -> Path:
     return path
 
 
-def curve_path(config_hash_: str, dataset: str, region: str | None, seed: int | None) -> Path:
+def curve_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
     """The path dump_curve() writes to / a figure script reads from.
 
     `seed=None` -> the literal token "none", not Python's str(None) ("None")
@@ -92,7 +93,11 @@ def detections_path(
     """Where dump_detections() writes / a figure script reads a detector's
     raw flagged points. Same seed-token convention as curve_path()."""
     seed_token = "none" if seed is None else str(seed)
-    return RUNS_DIR / config_hash_ / f"detections_{dataset}_{region or '-'}_{seed_token}.csv"
+    return (
+        RUNS_DIR
+        / config_hash_
+        / f"detections_{dataset}_{region or '-'}_{seed_token}.csv"
+    )
 
 
 def dump_detections(
@@ -112,14 +117,79 @@ def dump_detections(
     return path
 
 
+def synthetic_detections_path(
+    config_hash_: str,
+    dataset: str,
+    seed: int,
+) -> Path:
+    """Path for persisted synthetic detector alarm indices."""
+    return RUNS_DIR / config_hash_ / f"detections_{dataset}_-_{seed}.csv"
+
+
+def dump_synthetic_detections(
+    config_hash_: str,
+    dataset: str,
+    seed: int,
+    detected_indices,
+) -> Path:
+    """Persist synthetic detector alarm indices for plotting."""
+    path = synthetic_detections_path(
+        config_hash_,
+        dataset,
+        seed,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    pd.DataFrame({"observation": list(detected_indices)}).to_csv(path, index=False)
+
+    return path
+
+
 @contextlib.contextmanager
-def locked_file(path: Path):
-    lock_path = path.with_name(path.name + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+def _fcntl_lock(fd: int):
+    """Exclusive file lock for Linux and macOS."""
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_EX)
+
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _msvcrt_lock(fd: int, lock_path: Path):
+    """Exclusive file lock for Windows."""
+    import msvcrt
+
+    if os.path.getsize(lock_path) == 0:
+        os.write(fd, b"\0")
+
+    os.lseek(fd, 0, os.SEEK_SET)
+    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+
+    try:
+        yield
+    finally:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+
+@contextlib.contextmanager
+def locked_file(path: Path):
+    """Cross-platform exclusive file lock."""
+    lock_path = path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+
+    try:
+        if os.name == "nt":
+            with _msvcrt_lock(fd, lock_path):
+                yield
+        else:
+            with _fcntl_lock(fd):
+                yield
+    finally:
         os.close(fd)
