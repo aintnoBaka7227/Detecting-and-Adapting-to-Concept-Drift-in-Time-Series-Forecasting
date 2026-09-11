@@ -7,13 +7,19 @@ import pandas as pd
 import pytest
 
 from drift_lab.evaluation import (
+    assign_regime,
+    build_event_windows,
+    calculate_event_metrics,
     calculate_mae,
     calculate_rolling_mae,
+    evaluate_aemo_detections,
     evaluate_detections,
     match_detections_to_events,
+    match_unmatch,
 )
 
 # --- forecast metrics -------------------------------------------------------
+
 
 def test_mae_basic():
     assert calculate_mae([1.0, 2.0, 3.0], [1.0, 4.0, 3.0]) == pytest.approx(2 / 3)
@@ -46,6 +52,7 @@ def test_rolling_mae_matches_manual_rolling():
 
 
 # --- detection metrics ----------------------------------------------------
+
 
 def test_sudden_match_delay_and_false_alarm():
     result = evaluate_detections(
@@ -204,7 +211,393 @@ def test_missing_event_column_raises():
         match_detections_to_events(["2020-01-02"], bad)
 
 
+# --- build_event_windows --------------------------------------------------
+
+
+def _aemo_events(rows):
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "event_id",
+            "start_date",
+            "end_date",
+            "date_precision",
+            "region",
+        ],
+    )
+
+
+def test_build_event_windows_point_event():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1", pre_drift_days=7, post_drift_days=7)
+
+    assert len(windows) == 1
+    row = windows.iloc[0]
+    assert row["pre_drift_start"] == pd.Timestamp("2020-02-23")
+    assert row["drift_start"] == pd.Timestamp("2020-03-01")
+    assert row["drift_end"] == pd.Timestamp("2020-03-01")
+    assert row["post_drift_end"] == pd.Timestamp("2020-03-08")
+
+
+def test_build_event_windows_range_event():
+    events = _aemo_events(
+        [
+            ("E1", "2020-04-01", "2020-05-17", "date_range", "NEM"),
+        ]
+    )
+    windows = build_event_windows(events, "NEM", pre_drift_days=7, post_drift_days=7)
+
+    assert len(windows) == 1
+    row = windows.iloc[0]
+    assert row["pre_drift_start"] == pd.Timestamp("2020-03-25")
+    assert row["drift_start"] == pd.Timestamp("2020-04-01")
+    assert row["drift_end"] == pd.Timestamp("2020-05-17")
+    assert row["post_drift_end"] == pd.Timestamp("2020-05-24")
+
+
+def test_build_event_windows_filters_by_region():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-06-01", "2020-06-01", "day", "NSW1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+
+    assert len(windows) == 1
+    assert windows.iloc[0]["event_id"] == "E1"
+
+
+def test_build_event_windows_sorted_by_start():
+    events = _aemo_events(
+        [
+            ("E2", "2020-06-01", "2020-06-01", "day", "SA1"),
+            ("E1", "2020-01-01", "2020-01-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+
+    assert list(windows["event_id"]) == ["E1", "E2"]
+
+
+# --- assign_regime --------------------------------------------------------
+
+
+def test_assign_regime_detection_during_drift():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime(["2020-03-01"], windows)
+
+    assert len(labels) == 1
+    assert labels.iloc[0]["regime"] == "drift"
+    assert labels.iloc[0]["event_id"] == "E1"
+
+
+def test_assign_regime_detection_in_pre_drift():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime(["2020-02-25"], windows)
+
+    assert len(labels) == 1
+    assert labels.iloc[0]["regime"] == "pre_drift"
+
+
+def test_assign_regime_detection_in_post_drift():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime(["2020-03-05"], windows)
+
+    assert len(labels) == 1
+    assert labels.iloc[0]["regime"] == "post_drift"
+
+
+def test_assign_regime_detection_outside_all_windows():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime(["2020-06-01"], windows)
+
+    assert len(labels) == 0
+
+
+def test_assign_regime_no_detections():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime([], windows)
+
+    assert len(labels) == 0
+
+
+def test_assign_regime_overlapping_events():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-03-10", "2020-03-10", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime(["2020-03-05"], windows)
+
+    assert len(labels) == 2
+    assert set(labels["event_id"]) == {"E1", "E2"}
+    assert set(labels["regime"]) == {"post_drift", "pre_drift"}
+
+
+def test_assign_regime_range_event():
+    events = _aemo_events(
+        [
+            ("E1", "2020-04-01", "2020-05-17", "date_range", "NEM"),
+        ]
+    )
+    windows = build_event_windows(events, "NEM")
+    labels = assign_regime(["2020-04-15"], windows)
+
+    assert len(labels) == 1
+    assert labels.iloc[0]["regime"] == "drift"
+
+
+# --- match_unmatch --------------------------------------------------------
+
+
+def test_match_unmatch_point_event_matched():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-03"], events, "SA1", tolerance=pd.Timedelta(days=7)
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["label"] == "Match"
+    assert result.iloc[0]["matched_event_id"] == "E1"
+    assert result.iloc[0]["delay_days"] == pytest.approx(2.0)
+
+
+def test_match_unmatch_point_event_unmatched_too_late():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-10"], events, "SA1", tolerance=pd.Timedelta(days=7)
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["label"] == "Unmatch"
+    assert result.iloc[0]["matched_event_id"] is None
+    assert pd.isna(result.iloc[0]["delay_days"])
+
+
+def test_match_unmatch_pre_event_detection_is_unmatched():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-02-25"], events, "SA1", tolerance=pd.Timedelta(days=7)
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["label"] == "Unmatch"
+
+
+def test_match_unmatch_one_to_one_chronological():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-03-05", "2020-03-05", "day", "SA1"),
+        ]
+    )
+    # Mar 3 is inside E1's window [Mar 1, Mar 8] but before E2 starts;
+    # Mar 7 is inside both windows, but E2 can only take the first unused
+    # one (Mar 3 is already taken by E1).
+    result = match_unmatch(
+        ["2020-03-03", "2020-03-07"],
+        events,
+        "SA1",
+        tolerance=pd.Timedelta(days=7),
+    )
+
+    assert result[result["label"] == "Match"]["matched_event_id"].tolist() == [
+        "E1",
+        "E2",
+    ]
+
+
+def test_match_unmatch_one_detection_per_event():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-02", "2020-03-03"],
+        events,
+        "SA1",
+        tolerance=pd.Timedelta(days=7),
+    )
+
+    matched = result[result["label"] == "Match"]
+    assert len(matched) == 1
+    assert matched.iloc[0]["matched_event_id"] == "E1"
+    assert len(result[result["label"] == "Unmatch"]) == 1
+
+
+def test_match_unmatch_range_event_matched_within_window():
+    events = _aemo_events(
+        [
+            ("E1", "2020-04-01", "2020-05-17", "date_range", "NEM"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-05-20"], events, "NEM", tolerance=pd.Timedelta(days=7)
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["label"] == "Match"
+    assert result.iloc[0]["matched_event_id"] == "E1"
+
+
+def test_match_unmatch_no_detections():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch([], events, "SA1")
+
+    assert len(result) == 0
+
+
+def test_match_unmatch_different_tolerance():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    # 3-day tolerance: detection 5 days later is unmatched
+    result3 = match_unmatch(
+        ["2020-03-06"], events, "SA1", tolerance=pd.Timedelta(days=3)
+    )
+    assert result3.iloc[0]["label"] == "Unmatch"
+
+    # 7-day tolerance: same detection is matched
+    result7 = match_unmatch(
+        ["2020-03-06"], events, "SA1", tolerance=pd.Timedelta(days=7)
+    )
+    assert result7.iloc[0]["label"] == "Match"
+
+
+# --- evaluate_aemo_detections ---------------------------------------------
+
+
+def test_evaluate_aemo_detections_returns_all_keys():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = evaluate_aemo_detections(["2020-03-03"], events, "SA1")
+
+    assert "match_results" in result
+    assert "regime_labels" in result
+    assert "metrics" in result
+    m = result["metrics"]
+    assert m["n_total_detections"] == 1
+    assert m["n_matched_events"] == 1
+    assert m["n_unmatched_events"] == 0
+    assert m["n_matched_detections"] == 1
+    assert m["n_unmatched_detections"] == 0
+    assert m["precision"] == pytest.approx(1.0)
+    assert m["event_recall"] == pytest.approx(1.0)
+
+
+def test_evaluate_aemo_detections_no_match():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = evaluate_aemo_detections(["2020-06-01"], events, "SA1")
+    m = result["metrics"]
+
+    assert m["n_matched_events"] == 0
+    assert m["n_unmatched_events"] == 1
+    assert m["n_unmatched_detections"] == 1
+    assert m["precision"] == pytest.approx(0.0)
+    assert m["event_recall"] == pytest.approx(0.0)
+
+
+# --- calculate_event_metrics ----------------------------------------------
+
+
+def test_calculate_event_metrics_basic():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-06-01", "2020-06-01", "day", "SA1"),
+        ]
+    )
+    m = calculate_event_metrics(
+        ["2020-03-03", "2020-06-05", "2020-09-01"],
+        events,
+        "SA1",
+        tolerance=pd.Timedelta(days=7),
+    )
+
+    assert m["n_total_detections"] == 3
+    assert m["n_matched_events"] == 2
+    assert m["n_unmatched_events"] == 0
+    assert m["n_matched_detections"] == 2
+    assert m["n_unmatched_detections"] == 1
+    assert m["precision"] == pytest.approx(2 / 3)
+    assert m["event_recall"] == pytest.approx(1.0)
+
+
+def test_calculate_event_metrics_no_detections():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    m = calculate_event_metrics([], events, "SA1")
+
+    assert m["n_total_detections"] == 0
+    assert m["n_matched_events"] == 0
+    assert m["n_unmatched_events"] == 1
+    assert np.isnan(m["precision"])
+    assert m["event_recall"] == pytest.approx(0.0)
+
+
 # --- guard ----------------------------------------------------------------
+
 
 def test_no_metric_code_outside_evaluation_module():
     repo = Path(__file__).resolve().parents[1]

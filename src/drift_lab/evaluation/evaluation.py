@@ -255,6 +255,7 @@ import pandas as pd
 
 # Forecast evaluation metrics
 
+
 def calculate_mae(y_true, y_pred):
     """
     Calculate Mean Absolute Error (MAE) using the shared
@@ -278,25 +279,15 @@ def calculate_mae(y_true, y_pred):
     y_pred = pd.Series(y_pred, dtype=float)
 
     if len(y_true) != len(y_pred):
-        raise ValueError(
-            "y_true and y_pred must have the same length."
-        )
+        raise ValueError("y_true and y_pred must have the same length.")
 
     if y_true.isna().any() or y_pred.isna().any():
-        raise ValueError(
-            "y_true and y_pred must not contain missing values."
-        )
+        raise ValueError("y_true and y_pred must not contain missing values.")
 
-    return float(
-        (y_true - y_pred).abs().mean()
-    )
+    return float((y_true - y_pred).abs().mean())
 
 
-def calculate_rolling_mae(
-    y_true,
-    y_pred,
-    window=48 * 7
-):
+def calculate_rolling_mae(y_true, y_pred, window=48 * 7):
     """
     Calculate rolling Mean Absolute Error.
 
@@ -324,26 +315,18 @@ def calculate_rolling_mae(
     y_pred = pd.Series(y_pred, dtype=float)
 
     if len(y_true) != len(y_pred):
-        raise ValueError(
-            "y_true and y_pred must have the same length."
-        )
+        raise ValueError("y_true and y_pred must have the same length.")
 
     if y_true.isna().any() or y_pred.isna().any():
-        raise ValueError(
-            "y_true and y_pred must not contain missing values."
-        )
+        raise ValueError("y_true and y_pred must not contain missing values.")
 
-    absolute_error = (
-        y_true - y_pred
-    ).abs()
+    absolute_error = (y_true - y_pred).abs()
 
-    return absolute_error.rolling(
-        window=window
-    ).mean()
-
+    return absolute_error.rolling(window=window).mean()
 
 
 # Detection evaluation metrics
+
 
 def _validate_changepoints(changepoints, n_observations, name):
     """
@@ -445,8 +428,7 @@ def _match_detections(
         "recurring",
     }:
         raise ValueError(
-            "drift_type must be 'none', 'sudden', "
-            "'gradual', or 'recurring'."
+            "drift_type must be 'none', 'sudden', 'gradual', or 'recurring'."
         )
 
     if tolerance < 0:
@@ -472,9 +454,7 @@ def _match_detections(
 
     if drift_type == "none":
         if truth:
-            raise ValueError(
-                "No-drift evaluation requires true_changepoints=[]"
-            )
+            raise ValueError("No-drift evaluation requires true_changepoints=[]")
 
         return {
             "matched_pairs": [],
@@ -485,19 +465,13 @@ def _match_detections(
         }
 
     if drift_type == "sudden" and len(truth) != 1:
-        raise ValueError(
-            "Sudden drift requires exactly one true changepoint."
-        )
+        raise ValueError("Sudden drift requires exactly one true changepoint.")
 
     if drift_type == "gradual" and len(truth) != 2:
-        raise ValueError(
-            "Gradual drift requires [drift_start, drift_end]."
-        )
+        raise ValueError("Gradual drift requires [drift_start, drift_end].")
 
     if drift_type == "recurring" and len(truth) != 2:
-        raise ValueError(
-            "Recurring drift requires exactly two true changepoints."
-        )
+        raise ValueError("Recurring drift requires exactly two true changepoints.")
 
     unused = set(detected)
     matched_pairs = []
@@ -512,8 +486,7 @@ def _match_detections(
         )
 
         candidates = [
-            cp for cp in detected
-            if cp in unused and drift_start <= cp <= match_end
+            cp for cp in detected if cp in unused and drift_start <= cp <= match_end
         ]
 
         if candidates:
@@ -542,8 +515,7 @@ def _match_detections(
             )
 
             candidates = [
-                cp for cp in detected
-                if cp in unused and true_cp <= cp <= match_end
+                cp for cp in detected if cp in unused and true_cp <= cp <= match_end
             ]
 
             if candidates:
@@ -562,10 +534,7 @@ def _match_detections(
 
         n_true_events = len(truth)
 
-    false_alarm_indices = [
-        cp for cp in detected
-        if cp in unused
-    ]
+    false_alarm_indices = [cp for cp in detected if cp in unused]
 
     return {
         "matched_pairs": matched_pairs,
@@ -631,15 +600,9 @@ def calculate_false_alarms_per_10000(
         gradual_grace=gradual_grace,
     )
 
-    n_false_alarms = len(
-        result["false_alarm_indices"]
-    )
+    n_false_alarms = len(result["false_alarm_indices"])
 
-    return float(
-        n_false_alarms
-        / n_observations
-        * 10000
-    )
+    return float(n_false_alarms / n_observations * 10000)
 
 
 def calculate_missed_detections(
@@ -662,9 +625,7 @@ def calculate_missed_detections(
         gradual_grace=gradual_grace,
     )
 
-    return int(
-        result["missed_true_events"]
-    )
+    return int(result["missed_true_events"])
 
 
 def evaluate_detections(
@@ -708,21 +669,18 @@ def evaluate_detections(
         detection_delay = float("nan")
 
     false_alarms_per_10000 = float(
-        len(result["false_alarm_indices"])
-        / n_observations
-        * 10000
+        len(result["false_alarm_indices"]) / n_observations * 10000
     )
 
     return {
         "detection_delay": detection_delay,
         "false_alarms_per_10000": false_alarms_per_10000,
-        "missed_detections": int(
-            result["missed_true_events"]
-        ),
+        "missed_detections": int(result["missed_true_events"]),
         "matched_pairs": result["matched_pairs"],
         "false_alarm_indices": result["false_alarm_indices"],
         "delays": result["delays"],
     }
+
 
 # Planned evaluation metrics
 #
@@ -831,9 +789,7 @@ def match_detections_to_events(
     if missing:
         raise ValueError(f"events is missing columns: {missing}")
 
-    detected = pd.DatetimeIndex(
-        pd.to_datetime(list(detected_timestamps))
-    ).sort_values()
+    detected = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
 
     catalogue = events.loc[:, list(_REQUIRED_EVENT_COLUMNS)].copy()
     catalogue["start_date"] = pd.to_datetime(catalogue["start_date"])
@@ -849,7 +805,7 @@ def match_detections_to_events(
     matched = []
     unmatched_events = []
 
-    for event in catalogue.itertuples(index=False): 
+    for event in catalogue.itertuples(index=False):
         start = event.start_date
         if str(event.date_precision).lower() == "day":
             window_end = start + point_tolerance
@@ -891,6 +847,321 @@ def match_detections_to_events(
         "n_unmatched_detections": len(unmatched_detections),
         "mean_delay_days": float(pd.Series(delays).mean()) if delays else float("nan"),
         "precision": len(matched) / len(detected) if len(detected) else float("nan"),
+    }
+
+
+REGIME_PRE_DRIFT_DAYS = 7
+REGIME_POST_DRIFT_DAYS = 7
+DEFAULT_AEMO_TOLERANCE = pd.Timedelta(days=7)
+
+
+def build_event_windows(
+    events,
+    region,
+    pre_drift_days=REGIME_PRE_DRIFT_DAYS,
+    post_drift_days=REGIME_POST_DRIFT_DAYS,
+):
+    """
+    Build pre-drift, drift, and post-drift windows for documented events.
+
+    Parameters
+    ----------
+    events : pandas.DataFrame
+        Must contain columns: event_id, start_date, end_date,
+        date_precision, region.
+    region : str
+        Filter events to this region before building windows.
+    pre_drift_days : int
+        Days before event start to begin pre-drift window.
+    post_drift_days : int
+        Days after event end to extend post-drift window.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per event with columns: event_id, start_date, end_date,
+        drift_start, drift_end, pre_drift_start, post_drift_end,
+        date_precision.
+    """
+    df = events[events["region"] == region].copy()
+    df["start_date"] = pd.to_datetime(df["start_date"])
+    df["end_date"] = pd.to_datetime(df["end_date"])
+    df = df.sort_values("start_date").reset_index(drop=True)
+
+    df["drift_start"] = df["start_date"]
+    df["drift_end"] = df["end_date"]
+    df["pre_drift_start"] = df["start_date"] - pd.Timedelta(days=pre_drift_days)
+    df["post_drift_end"] = df["end_date"] + pd.Timedelta(days=post_drift_days)
+
+    return df[
+        [
+            "event_id",
+            "start_date",
+            "end_date",
+            "drift_start",
+            "drift_end",
+            "pre_drift_start",
+            "post_drift_end",
+            "date_precision",
+        ]
+    ]
+
+
+def assign_regime(detected_timestamps, event_windows):
+    """
+    Label each detection with its regime relative to every event.
+
+    Parameters
+    ----------
+    detected_timestamps : array-like of datetime-like
+        Timestamps the detector flagged as changepoints.
+    event_windows : pandas.DataFrame
+        Output of build_event_windows().
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per detection with columns: timestamp, event_id, regime.
+        A detection is listed once per event it overlaps.
+        regime is one of: pre_drift, drift, post_drift.
+    """
+    ts = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
+    records = []
+
+    for _, row in event_windows.iterrows():
+        for t in ts:
+            if t < row["pre_drift_start"]:
+                continue
+            if t < row["drift_start"]:
+                regime = "pre_drift"
+            elif t <= row["drift_end"]:
+                regime = "drift"
+            elif t <= row["post_drift_end"]:
+                regime = "post_drift"
+            else:
+                continue
+            records.append(
+                {
+                    "timestamp": t,
+                    "event_id": row["event_id"],
+                    "regime": regime,
+                }
+            )
+
+    return pd.DataFrame(records)
+
+
+def match_unmatch(
+    detected_timestamps, events, region, tolerance=DEFAULT_AEMO_TOLERANCE
+):
+    """
+    Classify each detection as Match or Unmatch.
+
+    Matching rules:
+    - Single-date event (date_precision == day): match window is
+      [event_start, event_start + tolerance].
+    - Long event (date_precision != day): match window is
+      [event_start, event_end + tolerance].
+    - Pre-event detections cannot match.
+    - Matching is chronological and one-to-one: the first unused
+      detection inside a window is assigned to that event.
+    - One detection matches at most one event.
+
+    Parameters
+    ----------
+    detected_timestamps : array-like of datetime-like
+        Detector output timestamps.
+    events : pandas.DataFrame
+        Must contain: event_id, start_date, end_date, date_precision,
+        region.
+    region : str
+        Filter events to this region.
+    tolerance : pandas.Timedelta
+        Post-event matching tolerance.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: timestamp, label (Match/Unmatch), matched_event_id
+        (event_id or None), delay_days (float or NaN).
+    """
+    catalogue = events[events["region"] == region].copy()
+    catalogue["start_date"] = pd.to_datetime(catalogue["start_date"])
+    catalogue["end_date"] = pd.to_datetime(catalogue["end_date"])
+    catalogue = catalogue.sort_values("start_date").reset_index(drop=True)
+
+    detected = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
+
+    used = [False] * len(detected)
+    results = []
+
+    for event in catalogue.itertuples(index=False):
+        start = event.start_date
+        if str(event.date_precision).lower() == "day":
+            window_end = start + tolerance
+        else:
+            window_end = event.end_date + tolerance
+
+        hit = next(
+            (
+                i
+                for i, timestamp in enumerate(detected)
+                if not used[i] and start <= timestamp <= window_end
+            ),
+            None,
+        )
+        if hit is not None:
+            used[hit] = True
+            delay = (detected[hit] - start) / pd.Timedelta(days=1)
+            results.append(
+                {
+                    "timestamp": detected[hit],
+                    "label": "Match",
+                    "matched_event_id": event.event_id,
+                    "delay_days": delay,
+                }
+            )
+
+    for i, timestamp in enumerate(detected):
+        if not used[i]:
+            results.append(
+                {
+                    "timestamp": timestamp,
+                    "label": "Unmatch",
+                    "matched_event_id": None,
+                    "delay_days": float("nan"),
+                }
+            )
+
+    return pd.DataFrame(
+        results,
+        columns=["timestamp", "label", "matched_event_id", "delay_days"],
+    )
+
+
+def evaluate_aemo_detections(
+    detected_timestamps,
+    events,
+    region,
+    tolerance=DEFAULT_AEMO_TOLERANCE,
+    pre_drift_days=REGIME_PRE_DRIFT_DAYS,
+    post_drift_days=REGIME_POST_DRIFT_DAYS,
+):
+    """
+    Full evaluation pipeline: regime labels, match/unmatch, metrics.
+
+    Parameters
+    ----------
+    detected_timestamps : array-like of datetime-like
+        Detector output timestamps.
+    events : pandas.DataFrame
+        Full events catalogue with region column.
+    region : str
+        Filter events to this region.
+    tolerance : pandas.Timedelta
+        Post-event matching tolerance.
+    pre_drift_days : int
+        Days before event for pre-drift window.
+    post_drift_days : int
+        Days after event for post-drift window.
+
+    Returns
+    -------
+    dict
+        match_results : pandas.DataFrame from match_unmatch()
+        regime_labels : pandas.DataFrame from assign_regime()
+        metrics : dict from calculate_event_metrics()
+    """
+    match_results = match_unmatch(detected_timestamps, events, region, tolerance)
+
+    event_windows = build_event_windows(events, region, pre_drift_days, post_drift_days)
+    regime_labels = assign_regime(detected_timestamps, event_windows)
+
+    matched_df = match_results[match_results["label"] == "Match"]
+    n_events = len(event_windows)
+    n_matched_events = matched_df["matched_event_id"].nunique()
+    n_unmatched_events = n_events - n_matched_events
+    n_total_detections = len(match_results)
+    n_matched_detections = len(matched_df)
+    n_unmatched_detections = len(match_results[match_results["label"] == "Unmatch"])
+    mean_delay = (
+        float(matched_df["delay_days"].mean())
+        if n_matched_detections > 0
+        else float("nan")
+    )
+    precision = (
+        n_matched_detections / n_total_detections
+        if n_total_detections > 0
+        else float("nan")
+    )
+    event_recall = n_matched_events / n_events if n_events > 0 else float("nan")
+
+    metrics = {
+        "n_total_detections": n_total_detections,
+        "n_matched_events": n_matched_events,
+        "n_unmatched_events": n_unmatched_events,
+        "n_matched_detections": n_matched_detections,
+        "n_unmatched_detections": n_unmatched_detections,
+        "mean_delay_days": mean_delay,
+        "precision": precision,
+        "event_recall": event_recall,
+    }
+
+    return {
+        "match_results": match_results,
+        "regime_labels": regime_labels,
+        "metrics": metrics,
+    }
+
+
+def calculate_event_metrics(
+    detected_timestamps, events, region, tolerance=DEFAULT_AEMO_TOLERANCE
+):
+    """
+    Calculate all evaluation metrics for documented-event matching.
+
+    Parameters
+    ----------
+    detected_timestamps : array-like of datetime-like
+        Detector output timestamps.
+    events : pandas.DataFrame
+        Full events catalogue.
+    region : str
+        Filter events to this region.
+    tolerance : pandas.Timedelta
+        Post-event matching tolerance.
+
+    Returns
+    -------
+    dict
+        n_total_detections : int
+        n_matched_events : int
+        n_unmatched_events : int
+        n_matched_detections : int
+        n_unmatched_detections : int
+        mean_delay_days : float
+        precision : float (n_matched_detections / n_total_detections)
+        event_recall : float (n_matched_events / n_events)
+    """
+    result = match_unmatch(detected_timestamps, events, region, tolerance)
+    matched = result[result["label"] == "Match"]
+
+    catalogue = events[events["region"] == region]
+    n_events = len(catalogue)
+    n_total = len(result)
+    n_matched_events = matched["matched_event_id"].nunique()
+
+    return {
+        "n_total_detections": n_total,
+        "n_matched_events": n_matched_events,
+        "n_unmatched_events": n_events - n_matched_events,
+        "n_matched_detections": len(matched),
+        "n_unmatched_detections": n_total - len(matched),
+        "mean_delay_days": (
+            float(matched["delay_days"].mean()) if len(matched) > 0 else float("nan")
+        ),
+        "precision": (len(matched) / n_total if n_total > 0 else float("nan")),
+        "event_recall": (n_matched_events / n_events if n_events > 0 else float("nan")),
     }
 
 
