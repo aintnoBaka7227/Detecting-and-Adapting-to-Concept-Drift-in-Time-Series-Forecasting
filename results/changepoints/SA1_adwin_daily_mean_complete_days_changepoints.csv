@@ -1,0 +1,10 @@
+region,detector,input_processing,detection_number,changepoint_index,changepoint_timestamp,demand_value
+SA1,adwin,daily_mean_complete_days,1,95,2020-06-04,1557.8164583333335
+SA1,adwin,daily_mean_complete_days,2,191,2020-09-08,1253.220625
+SA1,adwin,daily_mean_complete_days,3,479,2021-06-23,1438.8585416666667
+SA1,adwin,daily_mean_complete_days,4,575,2021-09-27,1035.8489583333333
+SA1,adwin,daily_mean_complete_days,5,703,2022-02-02,1152.9468402777777
+SA1,adwin,daily_mean_complete_days,6,831,2022-06-10,1627.5289583333333
+SA1,adwin,daily_mean_complete_days,7,959,2022-10-16,858.9050694444444
+SA1,adwin,daily_mean_complete_days,8,1183,2023-05-28,1402.8984722222222
+SA1,adwin,daily_mean_complete_days,9,1279,2023-09-01,1348.2184027777778

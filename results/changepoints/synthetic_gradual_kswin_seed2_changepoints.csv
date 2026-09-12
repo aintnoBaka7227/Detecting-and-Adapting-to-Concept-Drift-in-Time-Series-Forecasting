@@ -1,0 +1,5 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+kswin,gradual,2,true,5000,24.01915372856298,
+kswin,gradual,2,true,6000,26.698741087318545,
+kswin,gradual,2,detected_matched,5411,18.16445065390295,True
+kswin,gradual,2,detected_false_alarm,5894,20.614971094473177,False

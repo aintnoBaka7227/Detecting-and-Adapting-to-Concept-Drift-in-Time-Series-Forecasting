@@ -1,0 +1,13 @@
+region,detector,input_processing,detection_number,changepoint_index,changepoint_timestamp,demand_value
+NSW1,adwin,daily_mean_complete_days,1,95,2020-06-04,8832.461666666666
+NSW1,adwin,daily_mean_complete_days,2,191,2020-09-08,7326.423958333333
+NSW1,adwin,daily_mean_complete_days,3,383,2021-03-19,7474.971875
+NSW1,adwin,daily_mean_complete_days,4,447,2021-05-22,7751.727708333333
+NSW1,adwin,daily_mean_complete_days,5,543,2021-08-26,8089.180833333333
+NSW1,adwin,daily_mean_complete_days,6,703,2022-02-02,8113.127083333333
+NSW1,adwin,daily_mean_complete_days,7,831,2022-06-10,9126.020069444445
+NSW1,adwin,daily_mean_complete_days,8,927,2022-09-14,7732.0162152777775
+NSW1,adwin,daily_mean_complete_days,9,1023,2022-12-19,6663.029062500001
+NSW1,adwin,daily_mean_complete_days,10,1087,2023-02-21,8383.329305555555
+NSW1,adwin,daily_mean_complete_days,11,1151,2023-04-26,7216.620451388889
+NSW1,adwin,daily_mean_complete_days,12,1311,2023-10-03,7291.594548611111

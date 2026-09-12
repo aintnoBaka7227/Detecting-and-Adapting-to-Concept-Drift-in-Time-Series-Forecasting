@@ -1,0 +1,3 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+adwin,sudden,3,true,5000,32.4773840520539,
+adwin,sudden,3,detected_matched,5023,24.108165238055623,True

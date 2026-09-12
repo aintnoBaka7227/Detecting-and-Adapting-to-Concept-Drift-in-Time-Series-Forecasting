@@ -1,0 +1,5 @@
+region,detector,input_processing,detection_number,changepoint_index,changepoint_timestamp,demand_value
+SA1,kswin,daily_mean_complete_days,1,300,2020-12-26,1147.755625
+SA1,kswin,daily_mean_complete_days,2,600,2021-10-22,996.9618402777778
+SA1,kswin,daily_mean_complete_days,3,900,2022-08-18,1602.2946527777779
+SA1,kswin,daily_mean_complete_days,4,1200,2023-06-14,1619.1566666666668

@@ -1,0 +1,5 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+page_hinkley,recurring,1,true,6666,24.141936239544748,
+page_hinkley,recurring,1,true,13333,14.992241868616235,
+page_hinkley,recurring,1,detected_matched,6695,29.737991218988274,True
+page_hinkley,recurring,1,detected_matched,13376,14.334769752917603,True

@@ -1,0 +1,6 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+page_hinkley,gradual,5,true,5000,27.603354739116266,
+page_hinkley,gradual,5,true,6000,25.214057163493667,
+page_hinkley,gradual,5,detected_matched,5293,28.28948016611858,True
+page_hinkley,gradual,5,detected_false_alarm,5724,29.826259548552667,False
+page_hinkley,gradual,5,detected_false_alarm,6257,32.46300206157354,False

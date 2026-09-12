@@ -1,0 +1,2 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+kswin,none,5,detected_false_alarm,10360,14.502816745594185,False

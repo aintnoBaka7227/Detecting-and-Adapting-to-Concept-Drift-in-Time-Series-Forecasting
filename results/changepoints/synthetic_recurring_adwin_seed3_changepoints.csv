@@ -1,0 +1,5 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+adwin,recurring,3,true,6666,25.334987157722537,
+adwin,recurring,3,true,13333,16.232461367222083,
+adwin,recurring,3,detected_matched,6687,32.514183081110836,True
+adwin,recurring,3,detected_matched,13343,20.521875962648597,True

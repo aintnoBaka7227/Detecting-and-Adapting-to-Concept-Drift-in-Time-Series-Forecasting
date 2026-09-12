@@ -18,6 +18,7 @@ import pandas as pd
 
 from drift_lab.aemo import loader
 from drift_lab.config import REGIONS
+from drift_lab.data.deseasonalise import aggregate_daily_demand
 from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
@@ -27,23 +28,22 @@ SPLIT_ID = "aemo_frozen_v1"
 
 
 def make_frozen_detectors():
-    """Return detector settings selected using synthetic data only."""
+    """Return final detector settings selected using synthetic data only."""
 
     return (
-        ADWINDetector(delta=0.001),
+        ADWINDetector(delta=0.00075),
         KSWINDetector(
             alpha=0.005,
             window_size=300,
-            stat_size=30,
+            stat_size=48,
             seed=42,
         ),
         PageHinkleyDetector(
             min_instances=30,
             delta=0.005,
-            threshold=200.0,
+            threshold=400.0,
         ),
     )
-
 
 def run_frozen_daily(region: str, stream: pd.Series) -> None:
     """Run synthetic-selected detector configurations on daily AEMO demand."""
@@ -94,22 +94,6 @@ def demand_series(frame: pd.DataFrame) -> pd.Series:
     )
 
 
-def daily_mean(series):
-    """Aggregate to daily mean demand using complete 48-sample days only."""
-
-    grouped = series.resample("1D")
-    counts = grouped.count()
-    daily = grouped.mean()
-
-    daily = daily[counts == 48]
-
-    if daily.empty:
-        raise ValueError("Daily aggregation produced no complete days.")
-
-    if daily.isna().any():
-        raise ValueError("Daily aggregation produced missing values.")
-
-    return daily
 
 
 def make_detectors():
@@ -182,7 +166,7 @@ def main() -> None:
         _, _, test = loader.load(region)
 
         raw = demand_series(test)
-        daily = daily_mean(raw)
+        daily = aggregate_daily_demand(raw)
 
         print(
             f"\n{region} | complete daily processing | "

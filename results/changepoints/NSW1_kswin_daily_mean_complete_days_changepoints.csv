@@ -1,0 +1,5 @@
+region,detector,input_processing,detection_number,changepoint_index,changepoint_timestamp,demand_value
+NSW1,kswin,daily_mean_complete_days,1,320,2021-01-15,8114.848333333332
+NSW1,kswin,daily_mean_complete_days,2,620,2021-11-11,7424.270659722223
+NSW1,kswin,daily_mean_complete_days,3,920,2022-09-07,7905.485104166666
+NSW1,kswin,daily_mean_complete_days,4,1220,2023-07-04,9094.008715277778

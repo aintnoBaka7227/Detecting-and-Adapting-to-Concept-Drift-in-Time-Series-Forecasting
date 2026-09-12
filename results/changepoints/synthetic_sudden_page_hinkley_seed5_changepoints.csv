@@ -1,0 +1,3 @@
+detector,drift_type,seed,point_type,changepoint_index,value,matched
+page_hinkley,sudden,5,true,5000,35.60335473911626,
+page_hinkley,sudden,5,detected_matched,5043,29.588736144500587,True
