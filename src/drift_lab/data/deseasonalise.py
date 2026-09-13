@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-
 HALF_HOURS_PER_DAY = 48
 
 

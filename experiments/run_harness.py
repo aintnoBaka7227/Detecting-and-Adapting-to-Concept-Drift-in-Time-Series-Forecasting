@@ -46,9 +46,12 @@ def record_run(
     Pass exactly one of:
       forecast  = (y_true, y_pred, index)        -> group "baseline"
       detection = (detected, truth, n_samples)   -> group "detection"
-        `truth=None` means no ground truth is available (AEMO): only
-        `n_detections` is logged. Otherwise `dataset` must be
-        "synthetic_<drift_type>" and evaluation.evaluate_detections scores it.
+        `truth` a list of int indices  -> synthetic; `dataset` must be
+          "synthetic_<drift_type>" and evaluation.evaluate_detections scores it.
+        `truth` a DataFrame            -> AEMO documented-event matching
+          (Table T2); `detected` is timestamps, the frame is the event
+          catalogue filtered to the tier/region being scored.
+        `truth=None`                   -> no scoring, just log `n_detections`.
 
     `seed=None` for a deterministic run (no stochasticity to average over) —
     written as NaN, never a fabricated seed value.
@@ -127,10 +130,13 @@ def build_detection_rows(dataset, detection, common) -> list[dict]:
     detected, truth, n_samples = detection
     common = {**common, "group": "detection"}
 
+    if isinstance(truth, pd.DataFrame):
+        # AEMO: `truth` is a documented-event catalogue (the caller filtered
+        # it to the tier + region being scored), `detected` is timestamps.
+        return build_documented_event_rows(detected, truth, common)
+
     if truth is None:
-        # No ground truth (AEMO): nothing to match against yet, so just log
-        # how many changepoints the detector raised. T2's documented-event
-        # scoring replaces this once the Tier 1/2 matcher exists.
+        # No ground truth and no event catalogue: just log the count.
         return [build_row(common, "n_detections", len(detected), "full")]
 
     if not dataset.startswith("synthetic_"):
@@ -148,6 +154,30 @@ def build_detection_rows(dataset, detection, common) -> list[dict]:
         build_row(common, name, result[name], "full")
         for name in ("detection_delay", "false_alarms_per_10000", "missed_detections")
     ]
+
+
+def build_documented_event_rows(detected_timestamps, events, common) -> list[dict]:
+    """AEMO documented-event matching (Table T2). The events are NOT ground
+    truth — an unmatched detection is `unmatched`, never a false positive.
+    Raw timestamps are dumped for the figure / re-derivation; runs.csv gets
+    the scalar match metrics plus one `delay_<event_id>` row per match."""
+    result = evaluation.match_detections_to_events(detected_timestamps, events)
+    results_io.dump_detections(
+        common["config_hash"], "aemo", common["region"], common["seed"], detected_timestamps
+    )
+    rows = [
+        build_row(common, "n_detections", result["n_detections"], "full"),
+        build_row(common, "n_matched", result["n_matched"], "full"),
+        build_row(common, "n_unmatched_events", result["n_unmatched_events"], "full"),
+        build_row(common, "n_unmatched_detections", result["n_unmatched_detections"], "full"),
+        build_row(common, "precision", result["precision"], "full"),
+        build_row(common, "mean_delay_days", result["mean_delay_days"], "full"),
+    ]
+    rows += [
+        build_row(common, f"delay_{match['event_id']}", match["delay_days"], "full")
+        for match in result["matched"]
+    ]
+    return rows
 
 
 def label_regimes(changepoints, n: int, margin: int) -> np.ndarray:

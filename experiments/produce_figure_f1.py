@@ -2,9 +2,8 @@
 
 Reads results/runs.csv for each baseline's config_hash, the curve dump that
 hash points to, and the documented events catalogue. No metric is computed
-here — every line is a curve `run_aemo_baselines.py` (or, for nhits,
-`run_aemo_nhits.py`) already produced; this script doesn't care which
-split_id a method's rows came from, just group/dataset/region/method.
+here — every line is a curve a `run_*.py` script already produced. Rows are
+matched by group/dataset/region/method only, not split_id.
 
 Writes:
   f1_degradation_<region>.png   one per region, the full test period, markers only
@@ -26,7 +25,9 @@ MODEL_STYLE = {
     "seasonal_naive": ("Seasonal naive (lag 48)", "tab:green"),
     "xgboost": ("XGBoost (lag + calendar)", "tab:blue"),
     "dhr_arima": ("DHR + ARIMA", "tab:orange"),
-    "nhits": ("NHITS (pilot, weekly re-grounded)", "tab:purple"),
+    # NHITS re-anchors on real data every 7-day block — a more forgiving
+    # protocol than the others' blind rollout; not apples-to-apples.
+    "nhits": ("NHITS (7-day blocks)", "tab:purple"),
 }
 
 EVENT_COLOR = "tab:red"

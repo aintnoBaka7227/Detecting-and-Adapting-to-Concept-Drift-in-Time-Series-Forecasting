@@ -13,14 +13,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from river import drift
 
 from drift_lab.aemo import loader
 from drift_lab.config import REGIONS
 from drift_lab.data.deseasonalise import aggregate_daily_demand
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = REPO_ROOT / "results"

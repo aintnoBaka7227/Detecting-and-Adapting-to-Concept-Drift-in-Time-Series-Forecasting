@@ -10,6 +10,7 @@ from drift_lab.evaluation import (
     calculate_mae,
     calculate_rolling_mae,
     evaluate_detections,
+    match_detections_to_events,
 )
 
 # --- forecast metrics -------------------------------------------------------
@@ -94,6 +95,113 @@ def test_validation_rejects_out_of_range_and_wrong_count():
         evaluate_detections([50], [9999], 2000, "sudden")
     with pytest.raises(ValueError):
         evaluate_detections([50], [100, 200], 2000, "sudden")  # sudden needs 1
+
+
+# --- real-data (documented-event) detection ------------------------------
+# Tolerances are passed explicitly: the module defaults are an evaluation
+# design choice the team is still tuning, so these test the matching logic,
+# not whatever DOCUMENTED_POINT_TOLERANCE / _PERIOD_GRACE currently are.
+
+POINT_TOL = pd.Timedelta(days=14)
+PERIOD_GRACE = pd.Timedelta(days=60)
+
+
+def _events(rows):
+    return pd.DataFrame(
+        rows, columns=["event_id", "start_date", "end_date", "date_precision"]
+    )
+
+
+def _match(detected, events, **kw):
+    kw.setdefault("point_tolerance", POINT_TOL)
+    kw.setdefault("period_grace", PERIOD_GRACE)
+    return match_detections_to_events(detected, events, **kw)
+
+
+def test_point_event_matched_within_tolerance_with_delay():
+    events = _events([("E1", "2020-03-01", "2020-03-01", "day")])
+    result = _match(["2020-03-13"], events)  # 12 days later, tolerance 14
+
+    assert result["n_matched"] == 1
+    assert result["matched"][0]["event_id"] == "E1"
+    assert result["matched"][0]["delay_days"] == pytest.approx(12.0)
+    assert result["mean_delay_days"] == pytest.approx(12.0)
+    assert result["n_unmatched_events"] == 0
+    assert result["n_unmatched_detections"] == 0
+    assert result["precision"] == pytest.approx(1.0)
+
+
+def test_point_event_missed_when_detection_too_late():
+    events = _events([("E1", "2020-03-01", "2020-03-01", "day")])
+    result = _match(["2020-04-01"], events)  # 31 days > tolerance 14
+
+    assert result["n_matched"] == 0
+    assert result["unmatched_events"] == ["E1"]
+    assert result["n_unmatched_detections"] == 1
+    assert np.isnan(result["mean_delay_days"])
+    assert result["precision"] == pytest.approx(0.0)
+
+
+def test_detection_before_event_does_not_match():
+    events = _events([("E1", "2020-03-01", "2020-03-01", "day")])
+    result = _match(["2020-02-25"], events)
+
+    assert result["n_matched"] == 0
+    assert result["n_unmatched_events"] == 1
+    assert result["n_unmatched_detections"] == 1
+
+
+def test_period_event_matched_mid_interval_delay_from_start():
+    # A months-long trend: detection lands 106 days after the start, inside
+    # the interval, so it matches regardless of grace.
+    events = _events([("SOLAR", "2020-12-01", "2021-06-30", "date_range")])
+    result = _match(["2021-03-17"], events)
+
+    assert result["n_matched"] == 1
+    assert result["matched"][0]["delay_days"] == pytest.approx(106.0)
+
+
+def test_period_event_matched_within_grace_after_end():
+    events = _events([("E1", "2020-04-01", "2020-05-17", "date_range")])
+    result = _match(["2020-06-30"], events)  # 44 days past end, grace 60
+
+    assert result["n_matched"] == 1
+
+
+def test_each_detection_and_event_used_at_most_once():
+    events = _events(
+        [
+            ("A", "2020-01-01", "2020-01-01", "day"),
+            ("B", "2020-01-05", "2020-01-05", "day"),
+        ]
+    )
+    # One detection in A's window, one shared by both, one spare.
+    result = _match(["2020-01-03", "2020-01-08", "2020-06-01"], events)
+
+    assert result["n_matched"] == 2
+    assert {m["event_id"] for m in result["matched"]} == {"A", "B"}
+    assert [str(ts.date()) for ts in result["unmatched_detections"]] == ["2020-06-01"]
+
+
+def test_no_detections_leaves_every_event_unmatched():
+    events = _events(
+        [
+            ("A", "2020-01-01", "2020-01-01", "day"),
+            ("B", "2021-01-01", "2021-01-31", "month"),
+        ]
+    )
+    result = match_detections_to_events([], events)
+
+    assert result["n_matched"] == 0
+    assert result["n_unmatched_events"] == 2
+    assert result["n_unmatched_detections"] == 0
+    assert np.isnan(result["precision"])
+
+
+def test_missing_event_column_raises():
+    bad = pd.DataFrame({"event_id": ["E1"], "start_date": ["2020-01-01"]})
+    with pytest.raises(ValueError):
+        match_detections_to_events(["2020-01-02"], bad)
 
 
 # --- guard ----------------------------------------------------------------

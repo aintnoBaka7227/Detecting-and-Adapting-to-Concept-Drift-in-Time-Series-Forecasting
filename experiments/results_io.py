@@ -86,6 +86,32 @@ def dump_curve(
     return path
 
 
+def detections_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
+    """Where dump_detections() writes / a figure script reads a detector's
+    raw flagged points. Same seed-token convention as curve_path()."""
+    seed_token = "none" if seed is None else str(seed)
+    return RUNS_DIR / config_hash_ / f"detections_{dataset}_{region or '-'}_{seed_token}.csv"
+
+
+def dump_detections(
+    config_hash_: str,
+    dataset: str,
+    region: str | None,
+    seed: int | None,
+    detected_timestamps,
+) -> Path:
+    """Persist one detector's flagged changepoint timestamps so a figure can
+    mark them and so T2 can be re-derived if the matching tolerance changes.
+    runs.csv keeps only the scalar match metrics, not this list."""
+    path = detections_path(config_hash_, dataset, region, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stamps = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps)))
+    stamps.to_frame(index=False, name="timestamp").to_csv(path, index=False)
+    return path
+
+
 @contextlib.contextmanager
 def locked_file(path: Path):
     lock_path = path.with_name(path.name + ".lock")
