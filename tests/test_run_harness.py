@@ -118,6 +118,7 @@ def test_aemo_documented_event_matching_rows(results_in_tmp):
             "start_date": pd.to_datetime(["2020-04-01", "2021-10-01"]),
             "end_date": pd.to_datetime(["2020-04-01", "2021-10-01"]),
             "date_precision": ["day", "day"],
+            "region": ["SA1", "SA1"],
         }
     )
     # E1 detected on the day (robust to whatever the default tolerance is),
@@ -140,6 +141,10 @@ def test_aemo_documented_event_matching_rows(results_in_tmp):
     assert value["n_unmatched_detections"] == 1  # the 2020-07-01 detection
     assert value["delay_E1"] == pytest.approx(0.0)
     assert value["precision"] == pytest.approx(0.5)
+    # no "tier" column on `events` -> both events default to Tier 2
+    assert value["n_matched_t1"] == 0
+    assert value["n_matched_t2"] == 1
+    assert value["event_recall"] == pytest.approx(0.5)  # 1 of 2 events matched
 
     dump = results_io.detections_path(rows["config_hash"].iloc[0], "aemo", "SA1", None)
     assert dump.exists()
