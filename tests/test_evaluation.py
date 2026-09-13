@@ -627,7 +627,8 @@ def test_evaluate_aemo_detections_returns_all_keys():
     assert "metrics" in result
     m = result["metrics"]
     assert m["n_total_detections"] == 1
-    assert m["n_matched_events"] == 1
+    assert m["n_matched_t1"] == 0
+    assert m["n_matched_t2"] == 1
     assert m["n_unmatched_events"] == 0
     assert m["n_matched_detections"] == 1
     assert m["n_unmatched_detections"] == 0
@@ -644,7 +645,8 @@ def test_evaluate_aemo_detections_no_match():
     result = evaluate_aemo_detections(["2020-06-01"], events, "SA1")
     m = result["metrics"]
 
-    assert m["n_matched_events"] == 0
+    assert m["n_matched_t1"] == 0
+    assert m["n_matched_t2"] == 0
     assert m["n_unmatched_events"] == 1
     assert m["n_unmatched_detections"] == 1
     assert m["precision"] == pytest.approx(0.0)
@@ -669,7 +671,8 @@ def test_calculate_event_metrics_basic():
     )
 
     assert m["n_total_detections"] == 3
-    assert m["n_matched_events"] == 2
+    assert m["n_matched_t1"] == 0
+    assert m["n_matched_t2"] == 2
     assert m["n_unmatched_events"] == 0
     assert m["n_matched_detections"] == 2
     assert m["n_unmatched_detections"] == 1
@@ -686,10 +689,34 @@ def test_calculate_event_metrics_no_detections():
     m = calculate_event_metrics([], events, "SA1")
 
     assert m["n_total_detections"] == 0
-    assert m["n_matched_events"] == 0
+    assert m["n_matched_t1"] == 0
+    assert m["n_matched_t2"] == 0
     assert m["n_unmatched_events"] == 1
     assert np.isnan(m["precision"])
     assert m["event_recall"] == pytest.approx(0.0)
+
+
+def test_calculate_event_metrics_counts_by_tier():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-06-01", "2020-06-01", "day", "SA1"),
+            ("E3", "2020-09-01", "2020-09-01", "day", "SA1"),
+        ]
+    )
+    events["tier"] = [1, 2, 2]
+    m = calculate_event_metrics(
+        ["2020-03-03", "2020-06-05"],
+        events,
+        "SA1",
+        tolerance=pd.Timedelta(days=7),
+    )
+
+    assert m["n_matched_t1"] == 1
+    assert m["n_matched_t2"] == 1
+    assert m["n_matched_detections"] == 2
+    assert m["n_unmatched_events"] == 1
+    assert m["event_recall"] == pytest.approx(2 / 3)
 
 
 # --- guard ----------------------------------------------------------------

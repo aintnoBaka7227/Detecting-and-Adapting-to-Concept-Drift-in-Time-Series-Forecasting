@@ -1120,35 +1120,9 @@ def evaluate_aemo_detections(
     event_windows = build_event_windows(events, region, pre_drift_days, post_drift_days)
     regime_labels = assign_regime(detected_timestamps, event_windows)
 
-    matched_df = match_results[match_results["label"] == "Match"]
-    n_events = len(event_windows)
-    n_matched_events = matched_df["event_id"].nunique()
-    n_unmatched_events = n_events - n_matched_events
-    n_total_detections = len(match_results)
-    n_matched_detections = len(matched_df)
-    n_unmatched_detections = len(match_results[match_results["label"] == "Unmatch"])
-    mean_delay = (
-        float(matched_df["delay_days"].mean())
-        if n_matched_detections > 0
-        else float("nan")
+    metrics = calculate_event_metrics(
+        detected_timestamps, events, region, tolerance
     )
-    precision = (
-        n_matched_detections / n_total_detections
-        if n_total_detections > 0
-        else float("nan")
-    )
-    event_recall = n_matched_events / n_events if n_events > 0 else float("nan")
-
-    metrics = {
-        "n_total_detections": n_total_detections,
-        "n_matched_events": n_matched_events,
-        "n_unmatched_events": n_unmatched_events,
-        "n_matched_detections": n_matched_detections,
-        "n_unmatched_detections": n_unmatched_detections,
-        "mean_delay_days": mean_delay,
-        "precision": precision,
-        "event_recall": event_recall,
-    }
 
     return {
         "match_results": match_results,
@@ -1178,13 +1152,14 @@ def calculate_event_metrics(
     -------
     dict
         n_total_detections : int
-        n_matched_events : int
+        n_matched_t1 : int (number of distinct matched Tier 1 events)
+        n_matched_t2 : int (number of distinct matched Tier 2 events)
         n_unmatched_events : int
         n_matched_detections : int
         n_unmatched_detections : int
         mean_delay_days : float
         precision : float (n_matched_detections / n_total_detections)
-        event_recall : float (n_matched_events / n_events)
+        event_recall : float ((n_matched_t1 + n_matched_t2) / n_events)
     """
     result = match_unmatch(detected_timestamps, events, region, tolerance)
     matched = result[result["label"] == "Match"]
@@ -1192,11 +1167,14 @@ def calculate_event_metrics(
     catalogue = events[events["region"] == region]
     n_events = len(catalogue)
     n_total = len(result)
-    n_matched_events = matched["event_id"].nunique()
+    n_matched_t1 = matched.loc[matched["tier"] == 1, "event_id"].nunique()
+    n_matched_t2 = matched.loc[matched["tier"] == 2, "event_id"].nunique()
+    n_matched_events = n_matched_t1 + n_matched_t2
 
     return {
         "n_total_detections": n_total,
-        "n_matched_events": n_matched_events,
+        "n_matched_t1": n_matched_t1,
+        "n_matched_t2": n_matched_t2,
         "n_unmatched_events": n_events - n_matched_events,
         "n_matched_detections": len(matched),
         "n_unmatched_detections": n_total - len(matched),
