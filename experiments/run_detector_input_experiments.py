@@ -42,7 +42,7 @@ from drift_lab.evaluation.evaluation import (
 from experiments import results_io
 from experiments.run_harness import config_of, record_run
 
-SPLIT_ID = "aemo_frozen_v1"
+SPLIT_ID = "aemo_detector_input_v1"
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = REPO_ROOT / "results"
