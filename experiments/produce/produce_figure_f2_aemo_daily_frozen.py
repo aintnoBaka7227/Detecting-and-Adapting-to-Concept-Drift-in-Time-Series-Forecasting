@@ -1,9 +1,7 @@
-"""Figure F2 for AEMO drift detection, one figure per detector and region.
+"""Figure F2 for daily-aggregated demand and frozen detector configs.
 
-Plots test-period daily mean demand with Tier 1 documented events and stored
-matched or unmatched detections from the raw half-hourly detector run.
-Documented events provide context and are not ground truth. Detections are
-read from their dumps and are never recomputed here.
+Creates one figure per detector and region from stored experiment outputs.
+Detections are read from their dumps and are never recomputed here.
 """
 
 from __future__ import annotations
@@ -16,10 +14,11 @@ from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
 
 from drift_lab.aemo import loader
+from drift_lab.aemo.deseasonalise import aggregate_daily_demand
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
 from experiments.results_io import FIGURES_DIR, RUNS_CSV, detections_path
 
-SPLIT_ID = "aemo_detect_full_v1"
+SPLIT_ID = "aemo_detect_daily_frozen_v1"
 DETECTORS = ("adwin", "kswin", "page_hinkley")
 DAILY_MEAN_WINDOW = 15
 
@@ -55,7 +54,7 @@ def latest_metrics() -> pd.DataFrame:
     if not RUNS_CSV.exists():
         raise SystemExit(
             f"{RUNS_CSV} not found -- run "
-            "experiments.run_aemo_detectors first"
+            "experiments.run.detection.run_aemo_detectors_daily_frozen first"
         )
 
     runs = pd.read_csv(RUNS_CSV)
@@ -68,7 +67,7 @@ def latest_metrics() -> pd.DataFrame:
     if detections.empty:
         raise SystemExit(
             f"no rows for split_id={SPLIT_ID!r} in runs.csv -- run "
-            "experiments.run_aemo_detectors first"
+            "experiments.run.detection.run_aemo_detectors_daily_frozen first"
         )
 
     detections["timestamp"] = pd.to_datetime(
@@ -89,9 +88,9 @@ def demand_series(frame: pd.DataFrame) -> pd.Series:
 
 
 def daily_demand(region: str) -> pd.Series:
-    """Return daily mean demand for displaying the half-hourly detector run."""
+    """Return the exact daily input used by the frozen detector run."""
     test = loader.load(region)[2]
-    return demand_series(test).resample("1D").mean().dropna()
+    return aggregate_daily_demand(demand_series(test))
 
 
 def smoothed(values: np.ndarray, window: int) -> np.ndarray:
@@ -268,8 +267,8 @@ def plot(
             zorder=7,
         )
 
-    # Draw unmatched detections as red dashed lines without text labels.
-    for detected in unmatched:
+    # Draw only genuinely unmatched detections in red.
+    for detection_number, detected in enumerate(unmatched):
         ax.axvline(
             detected,
             color=FALSE_ALARM_COLOR,
@@ -277,6 +276,26 @@ def plot(
             lw=0.9,
             alpha=0.65,
             zorder=4,
+        )
+        ax.text(
+            detected,
+            0.70 - 0.055 * (detection_number % 3),
+            "NO MATCH",
+            transform=label_transform,
+            rotation=90,
+            ha="right",
+            va="top",
+            fontsize=6.2,
+            color=FALSE_ALARM_COLOR,
+            fontweight="bold",
+            bbox={
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.65,
+                "pad": 0.8,
+            },
+            clip_on=True,
+            zorder=8,
         )
 
     # Matched detections are green and display the linked event and delay.
@@ -320,7 +339,7 @@ def plot(
     ax.text(
         0,
         1.015,
-        "Default detector configuration on raw half-hourly test demand",
+        "Frozen configuration on daily-aggregated test demand",
         transform=ax.transAxes,
         fontsize=9,
         color="#555555",
@@ -394,7 +413,9 @@ def plot(
     )
 
     fig.tight_layout()
-    out = FIGURES_DIR / f"f2_detection_{method}_{region}.png"
+    out = FIGURES_DIR / (
+        f"f2_detection_daily_frozen_{method}_{region}.png"
+    )
     fig.savefig(out, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"wrote {out}")

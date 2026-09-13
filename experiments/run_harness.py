@@ -56,8 +56,8 @@ def record_run(
         `truth=None`                   -> no scoring, just log `n_detections`.
 
     `point_tolerance` / `period_grace`, documented-event matching only:
-    override `evaluation.match_detections_to_events`'s defaults
-    (`DOCUMENTED_POINT_TOLERANCE` / `DOCUMENTED_PERIOD_GRACE`). Leave unset
+    override `evaluation.match_unmatch`'s defaults
+    (`POINT_WINDOW` / `INTERVAL_GRACE`). Leave unset
     for the frozen Table T2 run — the supervisor's rule there is to fix the
     matching tolerance *before* seeing results, not loosen it after. An
     override belongs to an explicitly exploratory script that says so in
@@ -100,7 +100,7 @@ def record_run(
     if forecast is not None:
         rows = build_forecast_rows(dataset, seed, region, forecast, changepoints, common)
     else:
-        rows = build_detection_rows(dataset, detection, common, point_tolerance, period_grace)
+        rows = build_detection_rows(dataset, detection, common, region, point_tolerance, period_grace)
 
     results_io.append_runs(rows)
     return pd.DataFrame(rows, columns=results_io.RUN_COLUMNS)
@@ -138,14 +138,16 @@ def build_forecast_rows(dataset, seed, region, forecast, changepoints, common) -
     return rows
 
 
-def build_detection_rows(dataset, detection, common, point_tolerance=None, period_grace=None) -> list[dict]:
+def build_detection_rows(
+    dataset, detection, common, region, point_tolerance=None, period_grace=None
+) -> list[dict]:
     detected, truth, n_samples = detection
     common = {**common, "group": "detection"}
 
     if isinstance(truth, pd.DataFrame):
         # AEMO: `truth` is a documented-event catalogue (the caller filtered
         # it to the tier + region being scored), `detected` is timestamps.
-        return build_documented_event_rows(detected, truth, common, point_tolerance, period_grace)
+        return build_documented_event_rows(detected, truth, common, region, point_tolerance, period_grace)
 
     if truth is None:
         # No ground truth and no event catalogue: just log the count.
@@ -169,32 +171,41 @@ def build_detection_rows(dataset, detection, common, point_tolerance=None, perio
 
 
 def build_documented_event_rows(
-    detected_timestamps, events, common, point_tolerance=None, period_grace=None
+    detected_timestamps, events, common, region, point_tolerance=None, period_grace=None
 ) -> list[dict]:
     """AEMO documented-event matching (Table T2). The events are NOT ground
     truth — an unmatched detection is `unmatched`, never a false positive.
     Raw timestamps are dumped for the figure / re-derivation; runs.csv gets
-    the scalar match metrics plus one `delay_<event_id>` row per match."""
-    tolerance_kwargs = {
-        k: v
-        for k, v in {"point_tolerance": point_tolerance, "period_grace": period_grace}.items()
-        if v is not None
-    }
-    result = evaluation.match_detections_to_events(detected_timestamps, events, **tolerance_kwargs)
+    every scalar `calculate_event_metrics` produces (including the
+    Tier 1/Tier 2 breakdown and `event_recall`) plus one `delay_<event_id>`
+    row per match."""
+    window_kwargs = {}
+    if point_tolerance is not None:
+        window_kwargs["point_window"] = point_tolerance
+    if period_grace is not None:
+        window_kwargs["interval_grace"] = period_grace
+
+    match_results = evaluation.match_unmatch(detected_timestamps, events, region, **window_kwargs)
+    metrics = evaluation.calculate_event_metrics(match_results, events, region)
+
     results_io.dump_detections(
         common["config_hash"], "aemo", common["region"], common["seed"], detected_timestamps
     )
     rows = [
-        build_row(common, "n_detections", result["n_detections"], "full"),
-        build_row(common, "n_matched", result["n_matched"], "full"),
-        build_row(common, "n_unmatched_events", result["n_unmatched_events"], "full"),
-        build_row(common, "n_unmatched_detections", result["n_unmatched_detections"], "full"),
-        build_row(common, "precision", result["precision"], "full"),
-        build_row(common, "mean_delay_days", result["mean_delay_days"], "full"),
+        build_row(common, "n_detections", metrics["n_total_detections"], "full"),
+        build_row(common, "n_matched", metrics["n_matched_detections"], "full"),
+        build_row(common, "n_matched_t1", metrics["n_matched_t1"], "full"),
+        build_row(common, "n_matched_t2", metrics["n_matched_t2"], "full"),
+        build_row(common, "n_unmatched_events", metrics["n_unmatched_events"], "full"),
+        build_row(common, "n_unmatched_detections", metrics["n_unmatched_detections"], "full"),
+        build_row(common, "precision", metrics["precision"], "full"),
+        build_row(common, "event_recall", metrics["event_recall"], "full"),
+        build_row(common, "mean_delay_days", metrics["mean_delay_days"], "full"),
     ]
+    matched = match_results[match_results["label"] == "Match"]
     rows += [
-        build_row(common, f"delay_{match['event_id']}", match["delay_days"], "full")
-        for match in result["matched"]
+        build_row(common, f"delay_{row.event_id}", row.delay_days, "full")
+        for row in matched.itertuples()
     ]
     return rows
 

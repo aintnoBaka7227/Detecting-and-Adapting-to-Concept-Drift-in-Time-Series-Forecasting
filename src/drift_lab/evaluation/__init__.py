@@ -6,10 +6,10 @@ from drift_lab.evaluation.evaluation import (
     calculate_false_alarms_per_10000,
     calculate_mae,
     calculate_missed_detections,
+    calculate_regime_metrics,
     calculate_rolling_mae,
     evaluate_aemo_detections,
     evaluate_detections,
-    match_detections_to_events,
     match_unmatch,
 )
 
@@ -21,9 +21,9 @@ __all__ = [
     "calculate_false_alarms_per_10000",
     "calculate_mae",
     "calculate_missed_detections",
+    "calculate_regime_metrics",
     "calculate_rolling_mae",
     "evaluate_aemo_detections",
     "evaluate_detections",
-    "match_detections_to_events",
     "match_unmatch",
 ]

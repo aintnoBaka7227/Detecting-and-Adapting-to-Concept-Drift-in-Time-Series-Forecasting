@@ -1,10 +1,8 @@
 # Detecting and Adapting to Concept Drift in Time Series Forecasting
 
-Design and implement an automated software pipeline that detects when
-concept drift occurs in a time series and adapts the underlying
-forecasting model in response, while also reporting how confident its
-predictions are and flagging cases where a human should review the
-output.
+This project builds an automated pipeline that detects concept drift in a
+time series and adapts the forecasting model when drift occurs. It also
+reports prediction confidence and flags results that may need human review.
 
 The pipeline, conceptually:
 
@@ -23,10 +21,9 @@ synthetic benchmark with known ground-truth drift.
 pip install -e ".[dev]"
 ```
 
-This installs the `drift_lab` package (from `src/`) in editable mode, so
-`import drift_lab...` works from anywhere — notebooks, tests, your own
-scripts — without path hacks. It also pulls in `pytest`/`ruff` (`dev`
-extra).
+This installs the `drift_lab` package from `src/` in editable mode. You can
+then import it from notebooks, tests or scripts without changing Python paths.
+It also installs the `pytest` and `ruff` development tools.
 
 The AEMO raw CSVs are already committed under `data/raw/{SA1,NSW1}/` —
 there's no download step. `data/processed/`, `data/synthetic/` and
@@ -40,10 +37,10 @@ gitignored (see [`.gitignore`](.gitignore)); `results/runs.csv` itself
 
 ```bash
 # Fit the three frozen baselines on both AEMO regions, log to runs.csv
-python -m experiments.run.run_aemo_baselines
+python -m experiments.run.forecasting.run_aemo_baselines
 
 # Run the three detectors against the synthetic benchmark (5 seeds x 4 drift types)
-python -m experiments.run.run_synthetic_detectors
+python -m experiments.run.detection.run_synthetic_detectors
 
 # Turn runs.csv into the deliverables
 python -m experiments.produce.produce_table_t1     # results/tables/table_t1_synthetic_detection.csv
@@ -53,10 +50,9 @@ python -m experiments.produce.produce_figure_f1    # results/figures/f1_degradat
 pytest
 ```
 
-Everything under `results/figures/`, `results/tables/` and `results/runs/`
-is *derived* — delete it and regenerate it from `results/runs.csv` (or
-regenerate `runs.csv` itself by re-running the `run_*.py` scripts) at any
-time.
+Everything under `results/figures/`, `results/tables/` and `results/runs/` is
+generated output. It can be recreated from `results/runs.csv`. The ledger can
+also be recreated by running the `run_*.py` scripts again.
 
 ---
 
@@ -101,13 +97,16 @@ time.
 │   ├── results_io.py                   runs.csv / config.json / curve-dump filesystem plumbing
 │   │                                    (both shared by everything below — not experiment scripts themselves)
 │   │
-│   ├── run/                          one file per experiment, run with `python -m experiments.run.<name>`
-│   │   ├── run_aemo_baselines.py       fits seasonal_naive + xgboost + dhr_arima on AEMO
-│   │   ├── run_synthetic_detectors.py  runs adwin/kswin/page_hinkley on the synthetic benchmark
-│   │   ├── run_synthetic_generator.py  plots the synthetic benchmark itself (no runs.csv row)
-│   │   ├── run_aemo_detectors_daily.py adwin/kswin/page_hinkley on aggregate_daily_demand(test), both regions
-│   │   ├── run_aemo_nhits_retrain3mo_kswin_nsw.py   NHITS + kswin + RetrainUsing3MonthWindows, NSW1
-│   │   └── run_aemo_nhits_retrain3mo_kswin_sa.py    same, SA1
+│   ├── run/                          split further by what the script exercises:
+│   │   ├── forecasting/               a Forecaster is the thing under test (record_run(forecast=...))
+│   │   │   ├── run_aemo_baselines.py     fits seasonal_naive + xgboost + dhr_arima on AEMO
+│   │   │   ├── run_aemo_nhits.py         NHITS baseline on AEMO
+│   │   │   ├── run_aemo_nhits_retrain3mo_kswin_nsw.py   NHITS + kswin + RetrainUsing3MonthWindows, NSW1
+│   │   │   └── run_aemo_nhits_retrain3mo_kswin_sa.py    same, SA1
+│   │   └── detection/                 a DriftDetector is the thing under test (record_run(detection=...))
+│   │       ├── run_synthetic_detectors.py  runs adwin/kswin/page_hinkley on the synthetic benchmark
+│   │       ├── run_synthetic_generator.py  plots the synthetic benchmark itself (no runs.csv row)
+│   │       └── run_aemo_detectors_daily_frozen.py  adwin/kswin/page_hinkley, tuned configs, both-tier matching -- feeds T2
 │   │
 │   └── produce/                      one file per table/figure, run with `python -m experiments.produce.<name>`
 │       ├── produce_table_t1.py         synthetic detection table, grouped from runs.csv
@@ -130,8 +129,8 @@ time.
 
 ## The interfaces
 
-Three contracts were frozen early so multiple people could build against
-them in parallel without breaking each other's code:
+Three interfaces were agreed early so team members could work in parallel
+without breaking each other's code:
 
 ```python
 detector(stream) -> changepoint indices
@@ -139,14 +138,13 @@ adapter(changepoints, model, data) -> updated model
 uq(point_forecast, calibration_residuals) -> lower bound, upper bound, escalate flag
 ```
 
-A fourth, `Forecaster` (`fit`/`predict`), isn't on the original slide but
-is required by `adapter`'s signature — every model needs the same shape
-so an adapter can retrain any of them interchangeably. Full rationale in
+A fourth interface, `Forecaster` (`fit`/`predict`), is required by the
+adapter signature. Giving every model the same interface allows an adapter to
+retrain any of them. The full explanation is in
 [`docs/interfaces.md`](docs/interfaces.md).
 
-**There is no registry.** To use a model or detector, just import the
-class and instantiate it — no `get_forecaster("xgboost")` lookup
-anywhere:
+**There is no registry.** Import the required model or detector class and
+create it directly:
 
 ```python
 from drift_lab.forecasting.xgboost_forecaster import XGBoostForecaster
@@ -299,15 +297,59 @@ treats every detection as a false alarm. See the module's own docstring
 for the full matching protocol — it's long and precise on purpose,
 because this is the part every table in the report depends on.
 
+### AEMO documented-event matching
+
+AEMO has no ground-truth changepoints the way the synthetic benchmark
+does, so a different set of functions handles it — matching a detector's
+output timestamps against the documented events in `aemo/events.csv`
+instead of scoring against a known drift point:
+
+```python
+from drift_lab.evaluation import (
+    match_unmatch,             # classify each detection as Match / Unmatch against events
+    calculate_event_metrics,   # precision, recall, unmatched counts, from match_unmatch's output
+    build_event_windows,       # turn each event into a pre-drift / drift / post-drift date range
+    assign_regime,             # label each detection with which of those windows it falls in
+    calculate_regime_metrics,  # match/unmatch counts broken down by regime
+    evaluate_aemo_detections,  # runs everything above together, returns it all in one dict
+)
+```
+
+**Matching** (`match_unmatch`): a detection matches when it falls within an
+event's matching window. For a single-day event, `POINT_WINDOW` covers the
+seven days after the event starts. For a multi-day event, `INTERVAL_GRACE`
+covers the seven days after it ends. Tier 1 events are checked first, followed
+by Tier 2 events. A detection outside these windows is labelled `Unmatch`, not
+a false positive, because the documented events are not complete ground truth.
+
+**Regime labelling** (`assign_regime`) describes where a detection falls in an
+event's lifecycle. Each detection is labelled `drift` (during an event),
+`pre_drift` (before an event), or `post_drift` (after an event). Across all
+events, the priority is `drift > pre_drift > post_drift`.
+
+For example, assume one event occurs on 1 March and another on 10 March, each
+with a seven-day pre-drift window. A detection on 5 March is after the first
+event but also before the second. It is labelled `pre_drift` and attributed to
+the second event because `pre_drift` has priority over `post_drift`.
+
+Each `drift` or `pre_drift` label records the event whose window produced it.
+`post_drift` detections and detections before any event use
+`event_id="unassigned"`. This text value behaves consistently when results are
+grouped, joined or sorted.
+
+One known gap is that `post_drift` currently has no end. After an event starts,
+later detections remain `post_drift` unless another event's `drift` or
+`pre_drift` window applies. This remains an open team decision in
+`DECISIONS.md` and is recorded as an `xfail` test so it stays visible.
+
 ---
 
 ## The experiment harness
 
-`experiments/run_harness.py::record_run(...)` is the **only** function
-allowed to append to `results/runs.csv`. It doesn't run anything itself —
-a `run_*.py` script fits/predicts or detects, then hands the resulting
-arrays to `record_run`, which routes them through `evaluation/` and
-writes the schema rows.
+`experiments/run_harness.py::record_run(...)` is the only function that appends
+to `results/runs.csv`. A `run_*.py` script fits, predicts or detects, then sends
+the resulting arrays to `record_run`. It calculates metrics through
+`evaluation/` and writes rows using the shared schema.
 
 ```python
 record_run(
@@ -356,7 +398,7 @@ than overwriting old ones. `produce_*.py` scripts take the latest row per
 
 ## Running experiments
 
-Each of these is a standalone script — run with `python -m experiments.run.<name>`:
+Each of these is a standalone script — run with `python -m experiments.run.forecasting.<name>` or `python -m experiments.run.detection.<name>`, whichever folder it's in below:
 
 | Script | What it does |
 |---|---|
@@ -364,9 +406,9 @@ Each of these is a standalone script — run with `python -m experiments.run.<na
 | `run_synthetic_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` against `make_series` for every `(drift_type, seed)` in `{none, sudden, gradual, recurring} × SEEDS`. `split_id` embeds the actual changepoint positions, so a future change to the generator's drift geometry can't silently mix with old rows. |
 | `run_synthetic_generator.py` | Plots the synthetic benchmark itself (one figure per drift type, one panel per seed) — visual sanity check, not a `runs.csv` producer. |
 | `run_aemo_nhits.py` | NHITS on both AEMO regions, its own `split_id` (`aemo_nhits_block7d_v1` / `aemo_nhits_blind_v1` depending on the `BLIND` flag) — kept separate from `run_aemo_baselines.py` since its evaluation protocol isn't the same yet. |
-| `run_aemo_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` on each region's full raw half-hourly demand (2018-2023, so detectors are warmed up before the test window), scores only test-window detections against Tier 1 documented events. `split_id="aemo_detect_full_v1"`. |
+| `run_aemo_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` on each region's full raw half-hourly demand (2018-2023, so detectors are warmed up before the test window), scores only test-window detections against the *full* event catalogue (Tier 1 **and** Tier 2). `split_id="aemo_detect_full_v1"`. Feeds Figure F2 only — no longer Table T2's source, see `run_aemo_detectors_daily_frozen.py`. |
 | `run_aemo_error_stream_detectors.py` | Same three detectors, fed each frozen baseline's 7-day rolling-MAE *error* curve instead of raw demand — sparser, more drift-shaped signal. One `split_id` per baseline (`aemo_errstream_<baseline>_v1`). |
-| `run_aemo_detectors_daily.py` | Same three detectors again, fed `aggregate_daily_demand(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per complete calendar day, test split only, no warmup (`train_samples=0`). Removes the intraday seasonality that makes raw-demand detection fire so often. `split_id="aemo_detect_daily_test_v1"`. |
+| `run_aemo_detectors_daily_frozen.py` | Fed `aggregate_daily_demand(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per complete calendar day, test split only, no warmup (`train_samples=0`), which removes the intraday seasonality that makes raw-demand detection fire so often. Each detector uses the frozen config chosen by `run_detector_budget_tuning.py`'s synthetic-only sweep, and matches against the *full* event catalogue (Tier 1 **and** Tier 2), not Tier 1 only — the input `produce_table_t2.py` actually reads. Three detectors, three independent `record_run` calls per region — never pooled into one combined detection stream. `split_id="aemo_detect_daily_frozen_v1"`. |
 | `run_aemo_nhits_retrain3mo_kswin_nsw.py` / `..._sa.py` | Adaptation-arm smoke test: `NHITSForecaster` + `KSWINDetector` + `RetrainUsing3MonthWindows`, one file per region. Detection runs once, fully upfront, on `aggregate_daily_demand(test)` (not raw half-hourly demand — every firing here costs a full retrain, see `DECISIONS.md`). Same BLOCK rolling-forecast protocol as `run_aemo_nhits.py`, except a block is cut short exactly at a changepoint's day when one falls inside what would otherwise be a full 7-day block — the model retrains there, then resumes a normal 7-day cadence from the next day. Logged under its own `split_id="aemo_nhits_retrain3mo_kswin_v1"`, with `changepoints=` set so `runs.csv` gets pre-drift/drift/post-drift regime rows too, and `n_retrains` = the adapter's `retrain_count`. |
 
 ---
@@ -381,9 +423,10 @@ produce.
 | Script | Output |
 |---|---|
 | `produce_table_t1.py` | `results/tables/table_t1_synthetic_detection.csv` — one row per (detector, drift type): delay (mean ± sd), false alarms/10k, missed, threshold, seed count. |
-| `produce_table_t2.py` | `results/tables/table_t2_aemo_events.csv` — one row per (detector, region), one column per Tier 1 event (delay, or `"not detected"`), plus unmatched/missed counts and precision. Pinned to `run_aemo_detectors.py`'s `split_id`. |
-| `produce_figure_f1.py` | `results/figures/f1_degradation_{SA1,NSW1}.png` (full test period, event markers) and `f1_degradation_{2020,2021,2022,2023}.png` (one file per year, both regions stacked, event markers **and** names). |
-| `produce_figure_f2_aemo.py` | `results/figures/f2_detection_<detector>_<region>.png` — detector flags plotted against the AEMO series with documented events marked. |
+| `produce_table_t2.py` | `results/tables/table_t2_aemo_events.csv` — one row per (detector, region), one column per Tier 1 event **by name**, in date order (delay, or `"not detected"`), then `tier1_unmatched` (Tier 1 events this detector missed), `unmatched` (unmatched events across **both** tiers), and `precision`. Built with `groupby(["method","region","metric_name"]).unstack()`, not manual filtering. Pinned to `run_aemo_detectors_daily_frozen.py`'s `split_id`. |
+| `produce_figure_f1.py` | `results/figures/f1_degradation_{2020,2021,2022,2023}.png` — one file per year, both regions stacked, event markers **and** names. (There used to also be a `f1_degradation_{SA1,NSW1}.png` full-test-period figure with markers only; it was dropped as redundant with the per-year ones.) |
+| `produce_figure_f2_aemo.py` | `results/figures/f2_detection_<detector>_<region>.png` — detector flags plotted against the raw AEMO series with documented events marked. Reads `run_aemo_detectors.py`'s run. Palette/layout matches the briefing's Figure D (light-blue raw + blue smoothed demand, black event lines, orange period shading, bold green `MATCHED` / red `FALSE ALARM` labels) — wording says "documented event", not "true changepoint", since AEMO events are not ground truth. |
+| `produce_figure_f2_aemo_daily_frozen.py` | Same figure, same formatting, different source: `results/figures/f2_detection_daily_frozen_<detector>_<region>.png`, plotted against `aggregate_daily_demand` (the exact series the detector saw) and reading `run_aemo_detectors_daily_frozen.py`'s frozen-config, both-tier-matched run. A sibling of the original, not a replacement — neither script's output overwrites the other's. |
 
 To add a new one: read `runs.csv`, `groupby` what you need, write a table
 to `results/tables/` or a figure to `results/figures/`. Never re-derive a
@@ -420,7 +463,7 @@ Notes:
 | A retraining policy (adaptation arm) | `adaptation/<your_arm>.py` | `Adapter` | `adaptation/base.py` |
 | A UQ method | `uncertainty/<your_method>.py` | `UncertaintyQuantifier` | `uncertainty/base.py` |
 | A metric used anywhere in the pipeline | add it to `evaluation/evaluation.py`, re-export from `evaluation/__init__.py` | plain function | the grep-guard test above |
-| A script that runs an experiment | `experiments/run/run_<name>.py` | — | an existing `run_*.py` for the pattern |
+| A script that runs an experiment | `experiments/run/forecasting/run_<name>.py` or `experiments/run/detection/run_<name>.py`, whichever the script exercises | — | an existing `run_*.py` for the pattern |
 | A table/figure derived from `runs.csv` | `experiments/produce/produce_<name>.py` | — | an existing `produce_*.py` for the pattern |
 
 A few rules that keep several people from stepping on each other:
