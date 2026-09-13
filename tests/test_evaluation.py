@@ -361,9 +361,22 @@ def test_assign_regime_overlapping_events():
     windows = build_event_windows(events, "SA1")
     labels = assign_regime(["2020-03-05"], windows)
 
-    assert len(labels) == 2
-    assert set(labels["event_id"]) == {"E1", "E2"}
-    assert set(labels["regime"]) == {"post_drift", "pre_drift"}
+    assert len(labels) == 1
+    assert labels.iloc[0]["event_id"] == "E1"
+    assert labels.iloc[0]["regime"] == "post_drift"
+
+
+def test_assign_regime_each_timestamp_at_most_once():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-03-10", "2020-03-10", "day", "SA1"),
+        ]
+    )
+    windows = build_event_windows(events, "SA1")
+    labels = assign_regime(["2020-03-05", "2020-03-05"], windows)
+
+    assert len(labels) == 1
 
 
 def test_assign_regime_range_event():
@@ -394,7 +407,7 @@ def test_match_unmatch_point_event_matched():
 
     assert len(result) == 1
     assert result.iloc[0]["label"] == "Match"
-    assert result.iloc[0]["matched_event_id"] == "E1"
+    assert result.iloc[0]["event_id"] == "E1"
     assert result.iloc[0]["delay_days"] == pytest.approx(2.0)
 
 
@@ -410,7 +423,7 @@ def test_match_unmatch_point_event_unmatched_too_late():
 
     assert len(result) == 1
     assert result.iloc[0]["label"] == "Unmatch"
-    assert result.iloc[0]["matched_event_id"] is None
+    assert result.iloc[0]["event_id"] is None
     assert pd.isna(result.iloc[0]["delay_days"])
 
 
@@ -445,7 +458,7 @@ def test_match_unmatch_one_to_one_chronological():
         tolerance=pd.Timedelta(days=7),
     )
 
-    assert result[result["label"] == "Match"]["matched_event_id"].tolist() == [
+    assert result[result["label"] == "Match"]["event_id"].tolist() == [
         "E1",
         "E2",
     ]
@@ -466,7 +479,7 @@ def test_match_unmatch_one_detection_per_event():
 
     matched = result[result["label"] == "Match"]
     assert len(matched) == 1
-    assert matched.iloc[0]["matched_event_id"] == "E1"
+    assert matched.iloc[0]["event_id"] == "E1"
     assert len(result[result["label"] == "Unmatch"]) == 1
 
 
@@ -482,7 +495,7 @@ def test_match_unmatch_range_event_matched_within_window():
 
     assert len(result) == 1
     assert result.iloc[0]["label"] == "Match"
-    assert result.iloc[0]["matched_event_id"] == "E1"
+    assert result.iloc[0]["event_id"] == "E1"
 
 
 def test_match_unmatch_no_detections():
@@ -513,6 +526,89 @@ def test_match_unmatch_different_tolerance():
         ["2020-03-06"], events, "SA1", tolerance=pd.Timedelta(days=7)
     )
     assert result7.iloc[0]["label"] == "Match"
+
+
+def _tiered_events(rows):
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "event_id",
+            "start_date",
+            "end_date",
+            "date_precision",
+            "region",
+            "tier",
+        ],
+    )
+
+
+def test_match_unmatch_tier1_preferred_over_tier2():
+    # E2 (Tier 2) starts earlier and would win under pure chronology; the
+    # tier ordering must give the detection to the later Tier 1 event E1.
+    events = _tiered_events(
+        [
+            ("E2", "2020-03-01", "2020-03-01", "day", "SA1", 2),
+            ("E1", "2020-03-05", "2020-03-05", "day", "SA1", 1),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-06"], events, "SA1", tolerance=pd.Timedelta(days=7)
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["label"] == "Match"
+    assert result.iloc[0]["event_id"] == "E1"
+    assert result.iloc[0]["tier"] == 1
+
+
+def test_match_unmatch_tier2_event_still_counts_as_match():
+    events = _tiered_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1", 2),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-03"], events, "SA1", tolerance=pd.Timedelta(days=7)
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["label"] == "Match"
+    assert result.iloc[0]["event_id"] == "E1"
+    assert result.iloc[0]["tier"] == 2
+
+
+def test_match_unmatch_rejects_invalid_tier():
+    events = _tiered_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1", 3),
+        ]
+    )
+    with pytest.raises(ValueError):
+        match_unmatch(["2020-03-03"], events, "SA1")
+
+
+def test_match_unmatch_output_is_tier_ranked():
+    # Tier-2 event comes first chronologically, but the output must list
+    # the Tier-1 match first, then the Tier-2 match, then Unmatch.
+    events = _tiered_events(
+        [
+            ("E2", "2020-03-01", "2020-03-01", "day", "SA1", 2),
+            ("E1", "2020-03-05", "2020-03-05", "day", "SA1", 1),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-03", "2020-03-06", "2021-01-01"],
+        events,
+        "SA1",
+        tolerance=pd.Timedelta(days=7),
+    )
+
+    assert result.iloc[0]["tier"] == 1
+    assert result.iloc[0]["event_id"] == "E1"
+    assert result.iloc[1]["tier"] == 2
+    assert result.iloc[1]["event_id"] == "E2"
+    assert result.iloc[2]["label"] == "Unmatch"
+    assert pd.isna(result.iloc[2]["tier"])
 
 
 # --- evaluate_aemo_detections ---------------------------------------------

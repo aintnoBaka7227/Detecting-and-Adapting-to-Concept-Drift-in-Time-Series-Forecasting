@@ -909,7 +909,10 @@ def build_event_windows(
 
 def assign_regime(detected_timestamps, event_windows):
     """
-    Label each detection with its regime relative to every event.
+    Label each detection with its regime relative to an event.
+
+    Each detection is assigned to at most one event: the earliest event
+    (by drift_start) whose window contains it.
 
     Parameters
     ----------
@@ -922,14 +925,21 @@ def assign_regime(detected_timestamps, event_windows):
     -------
     pandas.DataFrame
         One row per detection with columns: timestamp, event_id, regime.
-        A detection is listed once per event it overlaps.
+        A detection is listed at most once.
         regime is one of: pre_drift, drift, post_drift.
     """
     ts = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
     records = []
+    assigned = set()
 
-    for _, row in event_windows.iterrows():
+    windows = event_windows.sort_values("drift_start")
+
+    for _, row in windows.iterrows():
+        if len(assigned) == len(ts):
+            break
         for t in ts:
+            if t in assigned:
+                continue
             if t < row["pre_drift_start"]:
                 continue
             if t < row["drift_start"]:
@@ -940,6 +950,7 @@ def assign_regime(detected_timestamps, event_windows):
                 regime = "post_drift"
             else:
                 continue
+            assigned.add(t)
             records.append(
                 {
                     "timestamp": t,
@@ -963,9 +974,17 @@ def match_unmatch(
     - Long event (date_precision != day): match window is
       [event_start, event_end + tolerance].
     - Pre-event detections cannot match.
-    - Matching is chronological and one-to-one: the first unused
-      detection inside a window is assigned to that event.
-    - One detection matches at most one event.
+    - Tier 1 events are ranked above Tier 2 and are allocated before any
+      Tier 2 event can take a detection. Matching within each tier is
+      chronological. A detection that could match both a Tier 1 and a
+      Tier 2 event is therefore always attributed to the Tier 1 event.
+    - Matching is one-to-one: the first unused detection inside a window
+      is assigned to that event.
+    - One detection matches at most one event. Matched Tier 1 and Tier 2
+      detections both count as Match.
+
+    Output rows are tier-ranked: Tier 1 matches first, then Tier 2
+    matches, then Unmatch rows.
 
     Parameters
     ----------
@@ -973,7 +992,8 @@ def match_unmatch(
         Detector output timestamps.
     events : pandas.DataFrame
         Must contain: event_id, start_date, end_date, date_precision,
-        region.
+        region. If it contains a tier column, tiers must be 1 or 2;
+        otherwise every event is treated as Tier 2.
     region : str
         Filter events to this region.
     tolerance : pandas.Timedelta
@@ -982,13 +1002,26 @@ def match_unmatch(
     Returns
     -------
     pandas.DataFrame
-        Columns: timestamp, label (Match/Unmatch), matched_event_id
-        (event_id or None), delay_days (float or NaN).
+        Columns: timestamp, label (Match/Unmatch), event_id
+        (event_id or None), tier (1 or 2 for a Match, None for an
+        Unmatch), delay_days (float or NaN). Rows are sorted by
+        tier (Tier 1 before Tier 2, Unmatch last), then timestamp.
     """
     catalogue = events[events["region"] == region].copy()
     catalogue["start_date"] = pd.to_datetime(catalogue["start_date"])
     catalogue["end_date"] = pd.to_datetime(catalogue["end_date"])
-    catalogue = catalogue.sort_values("start_date").reset_index(drop=True)
+
+    if "tier" in catalogue.columns:
+        tiers = pd.to_numeric(catalogue["tier"], errors="raise")
+        if tiers.isna().any() or not tiers.isin([1, 2]).all():
+            raise ValueError("Event tiers must be 1 or 2.")
+        catalogue["tier"] = tiers.astype(int)
+    else:
+        catalogue["tier"] = 2
+
+    catalogue = catalogue.sort_values(
+        ["tier", "start_date", "event_id"]
+    ).reset_index(drop=True)
 
     detected = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
 
@@ -1017,7 +1050,8 @@ def match_unmatch(
                 {
                     "timestamp": detected[hit],
                     "label": "Match",
-                    "matched_event_id": event.event_id,
+                    "event_id": event.event_id,
+                    "tier": event.tier,
                     "delay_days": delay,
                 }
             )
@@ -1028,15 +1062,24 @@ def match_unmatch(
                 {
                     "timestamp": timestamp,
                     "label": "Unmatch",
-                    "matched_event_id": None,
+                    "event_id": None,
+                    "tier": None,
                     "delay_days": float("nan"),
                 }
             )
 
     return pd.DataFrame(
         results,
-        columns=["timestamp", "label", "matched_event_id", "delay_days"],
-    )
+        columns=[
+            "timestamp",
+            "label",
+            "event_id",
+            "tier",
+            "delay_days",
+        ],
+    ).sort_values(
+        ["tier", "timestamp"], na_position="last"
+    ).reset_index(drop=True)
 
 
 def evaluate_aemo_detections(
@@ -1079,7 +1122,7 @@ def evaluate_aemo_detections(
 
     matched_df = match_results[match_results["label"] == "Match"]
     n_events = len(event_windows)
-    n_matched_events = matched_df["matched_event_id"].nunique()
+    n_matched_events = matched_df["event_id"].nunique()
     n_unmatched_events = n_events - n_matched_events
     n_total_detections = len(match_results)
     n_matched_detections = len(matched_df)
@@ -1149,7 +1192,7 @@ def calculate_event_metrics(
     catalogue = events[events["region"] == region]
     n_events = len(catalogue)
     n_total = len(result)
-    n_matched_events = matched["matched_event_id"].nunique()
+    n_matched_events = matched["event_id"].nunique()
 
     return {
         "n_total_detections": n_total,
