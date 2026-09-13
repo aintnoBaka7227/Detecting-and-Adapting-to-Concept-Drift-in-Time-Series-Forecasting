@@ -10,7 +10,6 @@ AEMO data and AEMO events are not used for tuning.
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pandas as pd
@@ -21,7 +20,7 @@ from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
 from drift_lab.evaluation.evaluation import evaluate_detections
 from drift_lab.synthetic.generator import make_series
-from experiments.run_harness import config_of, record_run
+from experiments.run_harness import config_of
 
 KINDS = ("none", "sudden", "gradual", "recurring")
 
@@ -106,9 +105,7 @@ def main() -> None:
                     seed=seed,
                 )
 
-                t0 = time.perf_counter()
                 detected = detector.detect(series)
-                wall_clock_s = time.perf_counter() - t0
 
                 evaluation = evaluate_detections(
                     detected_changepoints=detected,
@@ -137,30 +134,7 @@ def main() -> None:
 
                 accepted = budget_met and no_misses
 
-                config = {
-                    **detector_config,
-                    "tuning_sweep": sweep_name,
-                    "parameter_selection": "synthetic_only",
-                    "false_alarm_budget_per_year": (
-                        FALSE_ALARM_BUDGET_PER_YEAR
-                    ),
-                    "samples_per_year": SAMPLES_PER_YEAR,
-                }
 
-                record_run(
-                    method=detector.name,
-                    dataset=f"synthetic_{kind}",
-                    region=None,
-                    seed=seed,
-                    config=config,
-                    wall_clock_s=wall_clock_s,
-                    split_id=SPLIT_ID,
-                    detection=(
-                        detected,
-                        truth,
-                        len(series),
-                    ),
-                )
 
                 rows.append(
                     {
