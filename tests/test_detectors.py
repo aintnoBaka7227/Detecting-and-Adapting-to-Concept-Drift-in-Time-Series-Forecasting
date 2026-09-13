@@ -15,7 +15,7 @@ CASES = [
     (ADWINDetector(), lambda: drift.ADWIN(delta=0.002), "adwin"),
     (
         KSWINDetector(),
-        lambda: drift.KSWIN(alpha=0.005, window_size=200, stat_size=50, seed=42),
+        lambda: drift.KSWIN(alpha=0.005, window_size=100, stat_size=30, seed=42),
         "kswin",
     ),
     (
@@ -47,8 +47,11 @@ def test_wrapper_matches_raw_river_and_exposes_name(detector, factory, name):
 def test_detects_the_sudden_changepoint(detector, factory, name):
     y, changepoints = make_series("sudden", n=20000, noise=1.0, seed=2)
     result = evaluate_detections(
-        detector.detect(y), changepoints, n_observations=len(y),
-        drift_type="sudden", tolerance=500,
+        detector.detect(y),
+        changepoints,
+        n_observations=len(y),
+        drift_type="sudden",
+        tolerance=500,
     )
     assert result["missed_detections"] == 0
     assert np.isfinite(result["detection_delay"])
@@ -64,6 +67,9 @@ def test_no_drift_series_produces_few_false_alarms():
     y, changepoints = make_series("none", n=20000, noise=1.0, seed=3)
     assert changepoints == []
     result = evaluate_detections(
-        ADWINDetector().detect(y), changepoints, n_observations=len(y), drift_type="none"
+        ADWINDetector().detect(y),
+        changepoints,
+        n_observations=len(y),
+        drift_type="none",
     )
     assert result["false_alarms_per_10000"] < 5.0

@@ -849,7 +849,7 @@ def match_detections_to_events(
     matched = []
     unmatched_events = []
 
-    for event in catalogue.itertuples(index=False): 
+    for event in catalogue.itertuples(index=False):
         start = event.start_date
         if str(event.date_precision).lower() == "day":
             window_end = start + point_tolerance
