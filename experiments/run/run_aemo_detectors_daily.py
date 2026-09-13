@@ -2,11 +2,11 @@
 
 Companion to `run_aemo_detectors.py`, which feeds all three detectors the
 full half-hourly series (warmed up on 2018-2023). This one feeds them
-`daily_aggregate(test)` instead -- one point/day, test split only, no
-warmup -- since raw half-hourly demand fires mostly on ordinary
-seasonality rather than genuine drift. Matched against Tier 1 documented
-events the same way, under its own `split_id` so the two never mix.
-`train_samples=0`: no warmup here, unlike `run_aemo_detectors.py`.
+`aggregate_daily_demand(test)` instead -- one point/complete day, test
+split only, no warmup -- since raw half-hourly demand fires mostly on
+ordinary seasonality rather than genuine drift. Matched against Tier 1
+documented events the same way, under its own `split_id` so the two
+never mix. `train_samples=0`: no warmup here, unlike `run_aemo_detectors.py`.
 
 Uses a widened 7-day tolerance for both point and period events (vs. the
 frozen T2 defaults of 1/7 days), passed explicitly to `record_run` rather
@@ -23,7 +23,7 @@ import time
 import pandas as pd
 
 from drift_lab.aemo import loader
-from drift_lab.aemo.deseasonalise import daily_aggregate
+from drift_lab.aemo.deseasonalise import aggregate_daily_demand
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
 from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
@@ -37,6 +37,14 @@ POINT_TOLERANCE = pd.Timedelta(days=7)
 PERIOD_GRACE = pd.Timedelta(days=7)
 
 
+def demand_series(frame: pd.DataFrame) -> pd.Series:
+    return pd.Series(
+        frame[TARGET_COLUMN].to_numpy(dtype=float),
+        index=pd.DatetimeIndex(frame["SETTLEMENTDATE"]),
+        name=TARGET_COLUMN,
+    ).sort_index()
+
+
 def tier1_events(region: str) -> pd.DataFrame:
     events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
     return events[
@@ -47,7 +55,7 @@ def tier1_events(region: str) -> pd.DataFrame:
 def main() -> None:
     for region in REGIONS:
         _train, _calibration, test = loader.load(region)
-        daily_test = daily_aggregate(test, column=TARGET_COLUMN)
+        daily_test = aggregate_daily_demand(demand_series(test))
         events = tier1_events(region)
 
         for detector in DETECTORS:

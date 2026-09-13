@@ -41,7 +41,7 @@ SAMPLES_PER_YEAR = SAMPLES_PER_DAY * DAYS_PER_YEAR
 
 FALSE_ALARM_BUDGET_PER_YEAR = 2.0
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = REPO_ROOT / "results"
 CHANGEPOINT_DIR = RESULTS_DIR / "changepoints"
 FIGURE_DIR = RESULTS_DIR / "figures"

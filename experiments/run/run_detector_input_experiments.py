@@ -27,11 +27,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from drift_lab.aemo import loader
-from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from drift_lab.data.deseasonalise import (
+from drift_lab.aemo.deseasonalise import (
     aggregate_daily_demand,
     remove_daily_weekly_profile,
 )
+from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
 from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
@@ -44,7 +44,7 @@ from experiments.run_harness import config_of, record_run
 
 SPLIT_ID = "aemo_detector_input_v1"
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = REPO_ROOT / "results"
 FIGURE_DIR = RESULTS_DIR / "figures"
 TABLE_DIR = RESULTS_DIR / "tables"

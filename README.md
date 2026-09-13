@@ -69,7 +69,7 @@ time.
 │   │
 │   ├── aemo/                        # AEMO demand data
 │   │   ├── loader.py                  load(region) -> (train, calibration, test); load_processed(region)
-│   │   ├── deseasonalise.py           daily_aggregate(split, column, agg) -> one point/day, for detectors
+│   │   ├── deseasonalise.py           aggregate_daily_demand(series) / remove_daily_weekly_profile(series, reference) -- for detectors
 │   │   └── events.csv                 documented AEMO/AER events, tiered (see docs/event_tiering_criteria.md)
 │   │
 │   ├── synthetic/                   # synthetic drift benchmark
@@ -105,7 +105,7 @@ time.
 │   │   ├── run_aemo_baselines.py       fits seasonal_naive + xgboost + dhr_arima on AEMO
 │   │   ├── run_synthetic_detectors.py  runs adwin/kswin/page_hinkley on the synthetic benchmark
 │   │   ├── run_synthetic_generator.py  plots the synthetic benchmark itself (no runs.csv row)
-│   │   ├── run_aemo_detectors_daily.py adwin/kswin/page_hinkley on daily_aggregate(test), both regions
+│   │   ├── run_aemo_detectors_daily.py adwin/kswin/page_hinkley on aggregate_daily_demand(test), both regions
 │   │   ├── run_aemo_nhits_retrain3mo_kswin_nsw.py   NHITS + kswin + RetrainUsing3MonthWindows, NSW1
 │   │   └── run_aemo_nhits_retrain3mo_kswin_sa.py    same, SA1
 │   │
@@ -366,8 +366,8 @@ Each of these is a standalone script — run with `python -m experiments.run.<na
 | `run_aemo_nhits.py` | NHITS on both AEMO regions, its own `split_id` (`aemo_nhits_block7d_v1` / `aemo_nhits_blind_v1` depending on the `BLIND` flag) — kept separate from `run_aemo_baselines.py` since its evaluation protocol isn't the same yet. |
 | `run_aemo_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` on each region's full raw half-hourly demand (2018-2023, so detectors are warmed up before the test window), scores only test-window detections against Tier 1 documented events. `split_id="aemo_detect_full_v1"`. |
 | `run_aemo_error_stream_detectors.py` | Same three detectors, fed each frozen baseline's 7-day rolling-MAE *error* curve instead of raw demand — sparser, more drift-shaped signal. One `split_id` per baseline (`aemo_errstream_<baseline>_v1`). |
-| `run_aemo_detectors_daily.py` | Same three detectors again, fed `daily_aggregate(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per calendar day, test split only, no warmup (`train_samples=0`). Removes the intraday seasonality that makes raw-demand detection fire so often. `split_id="aemo_detect_daily_test_v1"`. |
-| `run_aemo_nhits_retrain3mo_kswin_nsw.py` / `..._sa.py` | Adaptation-arm smoke test: `NHITSForecaster` + `KSWINDetector` + `RetrainUsing3MonthWindows`, one file per region. Detection runs once, fully upfront, on `daily_aggregate(test)` (not raw half-hourly demand — every firing here costs a full retrain, see `DECISIONS.md`). Same BLOCK rolling-forecast protocol as `run_aemo_nhits.py`, except a block is cut short exactly at a changepoint's day when one falls inside what would otherwise be a full 7-day block — the model retrains there, then resumes a normal 7-day cadence from the next day. Logged under its own `split_id="aemo_nhits_retrain3mo_kswin_v1"`, with `changepoints=` set so `runs.csv` gets pre-drift/drift/post-drift regime rows too, and `n_retrains` = the adapter's `retrain_count`. |
+| `run_aemo_detectors_daily.py` | Same three detectors again, fed `aggregate_daily_demand(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per complete calendar day, test split only, no warmup (`train_samples=0`). Removes the intraday seasonality that makes raw-demand detection fire so often. `split_id="aemo_detect_daily_test_v1"`. |
+| `run_aemo_nhits_retrain3mo_kswin_nsw.py` / `..._sa.py` | Adaptation-arm smoke test: `NHITSForecaster` + `KSWINDetector` + `RetrainUsing3MonthWindows`, one file per region. Detection runs once, fully upfront, on `aggregate_daily_demand(test)` (not raw half-hourly demand — every firing here costs a full retrain, see `DECISIONS.md`). Same BLOCK rolling-forecast protocol as `run_aemo_nhits.py`, except a block is cut short exactly at a changepoint's day when one falls inside what would otherwise be a full 7-day block — the model retrains there, then resumes a normal 7-day cadence from the next day. Logged under its own `split_id="aemo_nhits_retrain3mo_kswin_v1"`, with `changepoints=` set so `runs.csv` gets pre-drift/drift/post-drift regime rows too, and `n_retrains` = the adapter's `retrain_count`. |
 
 ---
 

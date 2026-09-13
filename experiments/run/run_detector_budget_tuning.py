@@ -31,7 +31,7 @@ SPLIT_ID = "synth_n20000"
 SAMPLES_PER_YEAR = 48 * 365
 FALSE_ALARM_BUDGET_PER_YEAR = 2.0
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = (
     REPO_ROOT
     / "results"

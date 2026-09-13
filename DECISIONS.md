@@ -265,21 +265,38 @@ ordinary daily/weekly seasonality rather than genuine drift (see
 `run_aemo_detectors.py`'s own docstring: "thousands of unmatched
 detections"). That's a cosmetic problem for a detection-only experiment,
 but a real cost problem once every detection triggers a full model
-retrain. **`aemo/deseasonalise.py::daily_aggregate(split, column,
-agg)`** exists to fix that at the source: it collapses one AEMO split
-(train/calibration/test, or the full processed frame — reusable across
-any of them, and any column) to one row per calendar day before a
-detector ever sees it. This changes only what the *detector* watches —
-the retrain window and the forecaster's own predictions still run on the
-real half-hourly grid. It intentionally does not live in `evaluation/`
-(it computes no metric) or as a `Forecaster`/`DriftDetector`/`Adapter`
-implementation (it isn't one) — it lives next to `aemo/loader.py` because
-it is AEMO-split-shape-specific data reshaping, unlike the adapter above.
+retrain. **`aemo/deseasonalise.py`** exists to fix that at the source, by
+reshaping what a *detector* watches — the retrain window and the
+forecaster's own predictions still run on the real half-hourly grid
+either way. It intentionally does not live in `evaluation/` (it computes
+no metric) or as a `Forecaster`/`DriftDetector`/`Adapter` implementation
+(it isn't one) — it lives next to `aemo/loader.py` because it is
+AEMO-data-shaping code, unlike the adapter above.
 
-`run_aemo_detectors_daily.py` is a second, detection-only consumer of
-`daily_aggregate` — same three detectors as `run_aemo_detectors.py`, same
-Tier 1 event matching, but on `daily_aggregate(test)` instead of the full
-raw half-hourly 2018-2023 series. Its own `split_id`
+**Two independent implementations of this idea were built in parallel**
+(one on this branch, one on a teammate's `feature/S3-adaptation-arm-D`
+work merged in via PR #27) — `aemo/deseasonalise.py::daily_aggregate`
+(mean of however many half-hourly points a day had, dropping only
+all-NaN days) and `data/deseasonalise.py::aggregate_daily_demand` (mean
+only over *complete* days — exactly 48 observations, or the day is
+dropped — with upfront `TypeError`/`ValueError` validation on the input).
+Checked empirically: for any day both would keep, they compute the
+identical `.resample("D").mean()` — the only real difference is which
+incomplete days survive. **`aggregate_daily_demand` was kept as the one
+canonical implementation** (stricter is safer here — a partial day's mean
+is a biased estimate of that day's true demand), and `daily_aggregate`
+was retired. The teammate's `data/` package also contained a second,
+unrelated technique with no counterpart on this branch —
+**`remove_daily_weekly_profile`** (subtracts an expected weekday/half-hour
+demand profile, learned from a separate historical `reference` period, to
+get residuals at full half-hourly resolution instead of coarsening to
+daily) — both functions now live together in `aemo/deseasonalise.py`, and
+the `data/` package was deleted rather than kept alongside it.
+
+`run_aemo_detectors_daily.py` is a detection-only consumer of
+`aggregate_daily_demand` — same three detectors as `run_aemo_detectors.py`,
+same Tier 1 event matching, but on the daily-aggregated test split
+instead of the full raw half-hourly 2018-2023 series. Its own `split_id`
 (`aemo_detect_daily_test_v1`) and `train_samples=0` (no warmup — unlike
 `run_aemo_detectors.py`, which warms up on everything before the test
 window) keep it from ever being grouped with either

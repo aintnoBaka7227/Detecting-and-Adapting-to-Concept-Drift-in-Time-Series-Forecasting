@@ -1,7 +1,7 @@
 """NHITS + KSWIN + RetrainUsing3MonthWindows adaptation arm -- NSW1 only.
 
 Smoke test, not a reviewed comparison. KSWIN watches
-`daily_aggregate(test)` (raw half-hourly demand fires on ordinary
+`aggregate_daily_demand(test)` (raw half-hourly demand fires on ordinary
 seasonality, and every firing here costs a full retrain -- see
 DECISIONS.md). Detection runs once, fully upfront (not leakage: an online
 detector's flag at day i only depends on data up to i).
@@ -26,7 +26,7 @@ from drift_lab.adaptation.retrain_using_3_month_windows import (
     RetrainUsing3MonthWindows,
 )
 from drift_lab.aemo import loader
-from drift_lab.aemo.deseasonalise import daily_aggregate
+from drift_lab.aemo.deseasonalise import aggregate_daily_demand
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.forecasting.nhits_forecaster import NHITSForecaster
 from experiments.run_harness import config_of, record_run
@@ -60,7 +60,7 @@ def main() -> None:
 
     # Detect changepoints upfront on the daily-aggregated stream (see docstring).
     detector = KSWINDetector()
-    daily_test = daily_aggregate(test, column=TARGET_COLUMN)
+    daily_test = aggregate_daily_demand(test_y)
     flagged_days = detector.detect(daily_test.to_numpy())
     changepoint_days = sorted(daily_test.index[i] for i in flagged_days)
     print(
