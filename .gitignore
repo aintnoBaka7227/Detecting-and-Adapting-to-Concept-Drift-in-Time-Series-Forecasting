@@ -24,3 +24,6 @@ results/runs/
 results/figures/
 results/tables/
 results/*.lock
+
+# PyTorch Lightning training logs (NHITS) -- large, regenerated per run.
+lightning_logs/
