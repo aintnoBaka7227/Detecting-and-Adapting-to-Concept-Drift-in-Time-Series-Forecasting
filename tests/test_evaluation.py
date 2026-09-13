@@ -327,7 +327,7 @@ def test_assign_regime_detection_in_post_drift():
     assert labels.iloc[0]["regime"] == "post_drift"
 
 
-def test_assign_regime_detection_outside_all_windows():
+def test_assign_regime_detection_outside_all_windows_is_pre_drift():
     events = _aemo_events(
         [
             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
@@ -336,7 +336,9 @@ def test_assign_regime_detection_outside_all_windows():
     windows = build_event_windows(events, "SA1")
     labels = assign_regime(["2020-06-01"], windows)
 
-    assert len(labels) == 0
+    assert len(labels) == 1
+    assert labels.iloc[0]["regime"] == "pre_drift"
+    assert labels.iloc[0]["event_id"] is None
 
 
 def test_assign_regime_no_detections():

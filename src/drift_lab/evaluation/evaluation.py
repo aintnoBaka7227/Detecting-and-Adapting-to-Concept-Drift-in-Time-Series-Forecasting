@@ -927,6 +927,8 @@ def assign_regime(detected_timestamps, event_windows):
         One row per detection with columns: timestamp, event_id, regime.
         A detection is listed at most once.
         regime is one of: pre_drift, drift, post_drift.
+        A detection that falls inside no event window is labelled
+        pre_drift with event_id None.
     """
     ts = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
     records = []
@@ -956,6 +958,16 @@ def assign_regime(detected_timestamps, event_windows):
                     "timestamp": t,
                     "event_id": row["event_id"],
                     "regime": regime,
+                }
+            )
+
+    for t in ts:
+        if t not in assigned:
+            records.append(
+                {
+                    "timestamp": t,
+                    "event_id": None,
+                    "regime": "pre_drift",
                 }
             )
 
