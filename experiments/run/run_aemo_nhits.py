@@ -57,7 +57,7 @@ from experiments.run_harness import config_of, record_run
 #   -> ~1e37 MW then NaN by ~2022, which makes record_run() raise on the NaN.
 #   Use only over a shorter test window, or to demonstrate the divergence.
 SPLIT_ID = "aemo_nhits_blind_v1"
-BLIND = True
+BLIND = False
 # -----------------------------------------------------------------------------
 
 

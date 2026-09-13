@@ -195,14 +195,97 @@ number duplicated across files:
 
 ---
 
-## `adaptation/` and `uncertainty/` — scaffolded, not implemented
+## `adaptation/` — Adapter implementations
 
-Both packages contain only their frozen `base.py` contract and a worked
-example in its docstring. This is deliberate current-sprint scope, not an
-oversight: forecasting + detection were built end to end first;
-adaptation arms and UQ methods are each a teammate's own file, added in
-the sprint that needs them. Nobody should pre-create those files for
-someone else.
+`uncertainty/` is still scaffold-only (frozen `base.py` + worked example,
+no arm implemented) — deliberate current-sprint scope, not an oversight.
+Nobody should pre-create a file there for someone else.
+
+`adaptation/` has its first arm: **`RetrainUsing3MonthWindows`**
+(`retrain_using_3_month_windows.py`) — "retrain on drift with a recent
+window" from the Step 5 briefing.
+
+- **No change to the frozen `adapt(changepoints, model, data)` signature
+  was needed.** `adaptation/base.py`'s own worked example already
+  establishes the convention this arm follows: `data` is whatever history
+  the *caller* has sliced up to "now"; the arm's job is only to decide how
+  much of it to retrain on, and whether to at all. Any future arm should
+  follow the same convention rather than asking for a signature change.
+- **The retrain window anchors on the changepoint's date, not on `data`'s
+  last row.** Concretely: `adapt()` retrains on the `window_months`
+  (default 3) calendar months ending at
+  `data.index[max(changepoints)]`, then clips anything in `data` that
+  falls after that date — even if the caller's `data` extends further
+  (e.g. a whole week's worth of already-revealed test observations sitting
+  past the actual changepoint day). This means a `run_*.py` caller doesn't
+  have to carefully truncate `data` before calling `adapt()`; the arm
+  enforces the leakage boundary itself. When several changepoints arrive
+  in one call, it anchors on the **most recent** one — a documented
+  simplification (see `test_retrain_using_3_month_windows.py`), not a
+  claim that earlier ones in the same batch are ignored by any caller.
+- **Reaching back across split boundaries is intentional, not a leak.**
+  The 3-month window is free to dip into calibration, or even the
+  training window, because that data was already genuinely observable by
+  "now" — the only rule respected is the same one everywhere else in this
+  codebase: never use anything *after* the point being reacted to.
+- **No retrain throttle/cooldown lives in the arm.** Every call with a
+  non-empty `changepoints` retrains, however often that is. This was a
+  deliberate choice over adding a `min_gap_days`-style knob: throttling
+  belongs to whatever decides *when the detector fires*, not to the
+  retraining policy itself, so the arm stays a single, simple, reusable
+  piece of logic regardless of which detector or cadence feeds it. See
+  `aemo/deseasonalise.py` below for where that concern actually lives for
+  AEMO experiments.
+- **`data` is expected to carry a `DatetimeIndex`** with the target as
+  either its only column or `target_column` — matching how every
+  `Forecaster.fit(X, y)` in this codebase is already called elsewhere
+  (`pd.DataFrame(index=y.index)` alongside `y`), not the raw AEMO
+  `SETTLEMENTDATE`-column split shape `aemo/loader.py` returns. This is
+  what makes the arm callable against `SeasonalNaive`, `XGBoostForecaster`,
+  `DHRArima` and `NHITSForecaster` unchanged — it never needs
+  model-specific feature columns, since every `Forecaster.fit` already
+  builds its own features internally from `y`.
+- **`retrain_count` is exposed as a read-only property backed by
+  `self._retrain_count`** (underscore-prefixed), not a plain public
+  attribute — otherwise it would leak into `config_hash` /
+  `config.json` via `config_of()` and make every run with a different
+  retrain count look like a different *configuration* rather than a
+  different *outcome* of the same configuration.
+
+**For AEMO experiments specifically, this team's detectors consume the
+demand stream itself (optionally daily-aggregated), never a rolling-error
+stream.** `run_aemo_error_stream_detectors.py` (feeding a detector a
+baseline's rolling-MAE curve instead of raw demand) was considered but
+deliberately not used for adaptation-arm experiments — the demand stream
+keeps every adaptation-arm run decoupled from needing a separate baseline
+run to already exist and its curve dump to already be on disk.
+
+Raw half-hourly demand fed straight to a detector fires mostly on
+ordinary daily/weekly seasonality rather than genuine drift (see
+`run_aemo_detectors.py`'s own docstring: "thousands of unmatched
+detections"). That's a cosmetic problem for a detection-only experiment,
+but a real cost problem once every detection triggers a full model
+retrain. **`aemo/deseasonalise.py::daily_aggregate(split, column,
+agg)`** exists to fix that at the source: it collapses one AEMO split
+(train/calibration/test, or the full processed frame — reusable across
+any of them, and any column) to one row per calendar day before a
+detector ever sees it. This changes only what the *detector* watches —
+the retrain window and the forecaster's own predictions still run on the
+real half-hourly grid. It intentionally does not live in `evaluation/`
+(it computes no metric) or as a `Forecaster`/`DriftDetector`/`Adapter`
+implementation (it isn't one) — it lives next to `aemo/loader.py` because
+it is AEMO-split-shape-specific data reshaping, unlike the adapter above.
+
+`run_aemo_detectors_daily.py` is a second, detection-only consumer of
+`daily_aggregate` — same three detectors as `run_aemo_detectors.py`, same
+Tier 1 event matching, but on `daily_aggregate(test)` instead of the full
+raw half-hourly 2018-2023 series. Its own `split_id`
+(`aemo_detect_daily_test_v1`) and `train_samples=0` (no warmup — unlike
+`run_aemo_detectors.py`, which warms up on everything before the test
+window) keep it from ever being grouped with either
+`run_aemo_detectors.py`'s or the adaptation arm's rows. This is what was
+run to sanity-check how much daily aggregation actually cuts detection
+volume before committing to it as the adaptation arm's default input.
 
 ---
 
@@ -281,11 +364,15 @@ results/
   consistency matters). `produce_table_t1.py`, by contrast, never touches
   a curve dump — a table of detection metrics is entirely a `groupby` of
   scalars already in `runs.csv`.
-- **`results/figures/` is the only legal write target for a
-  `produce_*.py` script.** Nothing it produces belongs in `data/`,
-  `notebooks/`, the repo root, or a new folder invented per-script — use
-  the `FIGURES_DIR` constant from `experiments/results_io.py`, don't
-  hardcode a path.
+- **`results/tables/` (tables) and `results/figures/` (plots) are the
+  only legal write targets for a `produce_*.py` script.** Nothing it
+  produces belongs in `data/`, `notebooks/`, the repo root, or a new
+  folder invented per-script — use the `TABLES_DIR` / `FIGURES_DIR`
+  constants from `experiments/results_io.py`, don't hardcode a path. Split
+  into two directories (rather than one shared `figures/` for both, as it
+  was originally) purely so a table CSV and a plot PNG aren't mixed
+  together in the same listing — same gitignore treatment either way,
+  both fully derived from `runs.csv`.
 - **No `run_*.py` script writes a file directly, ever.** It calls
   `record_run(...)`; `record_run` is the only thing that touches
   `results_io.append_runs` / `dump_config` / `dump_curve`. If a script is

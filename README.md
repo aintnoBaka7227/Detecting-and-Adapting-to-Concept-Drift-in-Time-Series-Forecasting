@@ -40,22 +40,23 @@ gitignored (see [`.gitignore`](.gitignore)); `results/runs.csv` itself
 
 ```bash
 # Fit the three frozen baselines on both AEMO regions, log to runs.csv
-python -m experiments.run_aemo_baselines
+python -m experiments.run.run_aemo_baselines
 
 # Run the three detectors against the synthetic benchmark (5 seeds x 4 drift types)
-python -m experiments.run_synthetic_detectors
+python -m experiments.run.run_synthetic_detectors
 
 # Turn runs.csv into the deliverables
-python -m experiments.produce_table_t1     # results/figures/table_t1_synthetic_detection.csv
-python -m experiments.produce_figure_f1    # results/figures/f1_degradation_*.png
+python -m experiments.produce.produce_table_t1     # results/tables/table_t1_synthetic_detection.csv
+python -m experiments.produce.produce_figure_f1    # results/figures/f1_degradation_*.png
 
 # Run the test suite
 pytest
 ```
 
-Everything under `results/figures/` and `results/runs/` is *derived* —
-delete it and regenerate it from `results/runs.csv` (or regenerate
-`runs.csv` itself by re-running the `run_*.py` scripts) at any time.
+Everything under `results/figures/`, `results/tables/` and `results/runs/`
+is *derived* — delete it and regenerate it from `results/runs.csv` (or
+regenerate `runs.csv` itself by re-running the `run_*.py` scripts) at any
+time.
 
 ---
 
@@ -68,6 +69,7 @@ delete it and regenerate it from `results/runs.csv` (or regenerate
 │   │
 │   ├── aemo/                        # AEMO demand data
 │   │   ├── loader.py                  load(region) -> (train, calibration, test); load_processed(region)
+│   │   ├── deseasonalise.py           daily_aggregate(split, column, agg) -> one point/day, for detectors
 │   │   └── events.csv                 documented AEMO/AER events, tiered (see docs/event_tiering_criteria.md)
 │   │
 │   ├── synthetic/                   # synthetic drift benchmark
@@ -83,8 +85,9 @@ delete it and regenerate it from `results/runs.csv` (or regenerate
 │   │   ├── base.py                    the frozen contract + detect_with_river() shared helper
 │   │   ├── adwin.py, kswin.py, page_hinkley.py    river-backed detectors
 │   │
-│   ├── adaptation/                  # Adapter contract — scaffold only, no arms implemented yet
-│   │   └── base.py
+│   ├── adaptation/                  # Adapter implementations (adapt(changepoints, model, data) -> model)
+│   │   ├── base.py                    the frozen contract
+│   │   └── retrain_using_3_month_windows.py   retrain on drift, trailing 3 calendar months
 │   │
 │   ├── uncertainty/                 # UncertaintyQuantifier contract — scaffold only
 │   │   └── base.py
@@ -96,16 +99,25 @@ delete it and regenerate it from `results/runs.csv` (or regenerate
 ├── experiments/                     # the only place that runs anything or writes to results/
 │   ├── run_harness.py                 record_run() — turns one run's arrays into runs.csv rows
 │   ├── results_io.py                   runs.csv / config.json / curve-dump filesystem plumbing
-│   ├── run_aemo_baselines.py           fits seasonal_naive + xgboost + dhr_arima on AEMO
-│   ├── run_synthetic_detectors.py      runs adwin/kswin/page_hinkley on the synthetic benchmark
-│   ├── run_synthetic_generator.py      plots the synthetic benchmark itself (no runs.csv row)
-│   ├── produce_table_t1.py             synthetic detection table, grouped from runs.csv
-│   └── produce_figure_f1.py            AEMO rolling-MAE degradation figures, grouped from runs.csv
+│   │                                    (both shared by everything below — not experiment scripts themselves)
+│   │
+│   ├── run/                          one file per experiment, run with `python -m experiments.run.<name>`
+│   │   ├── run_aemo_baselines.py       fits seasonal_naive + xgboost + dhr_arima on AEMO
+│   │   ├── run_synthetic_detectors.py  runs adwin/kswin/page_hinkley on the synthetic benchmark
+│   │   ├── run_synthetic_generator.py  plots the synthetic benchmark itself (no runs.csv row)
+│   │   ├── run_aemo_detectors_daily.py adwin/kswin/page_hinkley on daily_aggregate(test), both regions
+│   │   ├── run_aemo_nhits_retrain3mo_kswin_nsw.py   NHITS + kswin + RetrainUsing3MonthWindows, NSW1
+│   │   └── run_aemo_nhits_retrain3mo_kswin_sa.py    same, SA1
+│   │
+│   └── produce/                      one file per table/figure, run with `python -m experiments.produce.<name>`
+│       ├── produce_table_t1.py         synthetic detection table, grouped from runs.csv
+│       └── produce_figure_f1.py        AEMO rolling-MAE degradation figures, grouped from runs.csv
 │
 ├── results/
 │   ├── runs.csv                       the experiment ledger — tracked in git
 │   ├── runs/<config_hash>/             config.json + per-run curve dumps — gitignored
-│   └── figures/                       generated tables/figures — gitignored
+│   ├── tables/                        generated tables (produce_table_*.py) — gitignored
+│   └── figures/                       generated figures (produce_figure_*.py) — gitignored
 │
 ├── tests/                           # pytest, one file per package/module it covers
 ├── data/                            # raw/ (committed), processed/ + synthetic/ (generated, gitignored)
@@ -190,12 +202,33 @@ through one value at a time, collects the indices where
 `drift_detected` fires. New detectors should reuse that helper rather
 than reimplementing the loop.
 
-### `Adapter` and `UncertaintyQuantifier` — scaffolded, not implemented
+### `Adapter` (`src/drift_lab/adaptation/base.py`)
 
-`adaptation/base.py` and `uncertainty/base.py` define the frozen
-contracts and a worked example each, but no concrete arm/method exists
-yet. This is deliberate scope for the current sprint (forecasting +
-detection first) — see `docs/refactor.md` for the plan.
+```python
+class Adapter(ABC):
+    def adapt(self, changepoints: Sequence[int], model: Forecaster, data: pd.DataFrame) -> Forecaster: ...
+```
+
+| Arm | File | Policy |
+|---|---|---|
+| `RetrainUsing3MonthWindows` | `retrain_using_3_month_windows.py` | On any non-empty `changepoints`, refit `model` from scratch on the 3 calendar months ending at the most recent flagged date. No cooldown — every call with detections retrains. |
+
+`data` must carry a `DatetimeIndex` with the target as its only column
+(or pass `target_column=`) — the same shape every `Forecaster.fit(X, y)`
+in this codebase already expects (`pd.DataFrame(index=y.index)` alongside
+`y`), which is what makes this arm callable against any model
+unchanged: `SeasonalNaive`, `XGBoostForecaster`, `DHRArima`, or
+`NHITSForecaster`. The retrain window is free to reach back across split
+boundaries (into calibration, even training) — that data was already
+observable by "now", so it isn't leakage; the arm just never uses
+anything *after* the changepoint it's reacting to. Full rationale,
+including why there's no throttle here, in `DECISIONS.md`.
+
+### `UncertaintyQuantifier` — scaffolded, not implemented
+
+`uncertainty/base.py` defines the frozen contract and a worked example,
+but no concrete method exists yet. This is deliberate scope for the
+current sprint — see `docs/refactor.md` for the plan.
 
 ---
 
@@ -323,13 +356,18 @@ than overwriting old ones. `produce_*.py` scripts take the latest row per
 
 ## Running experiments
 
-Each of these is a standalone script — run with `python -m experiments.<name>`:
+Each of these is a standalone script — run with `python -m experiments.run.<name>`:
 
 | Script | What it does |
 |---|---|
 | `run_aemo_baselines.py` | Fits `SeasonalNaive`, `XGBoostForecaster`, `DHRArima` on both AEMO regions, frozen split (`split_id="aemo_frozen_v1"`), `seed=None` (deterministic). |
 | `run_synthetic_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` against `make_series` for every `(drift_type, seed)` in `{none, sudden, gradual, recurring} × SEEDS`. `split_id` embeds the actual changepoint positions, so a future change to the generator's drift geometry can't silently mix with old rows. |
 | `run_synthetic_generator.py` | Plots the synthetic benchmark itself (one figure per drift type, one panel per seed) — visual sanity check, not a `runs.csv` producer. |
+| `run_aemo_nhits.py` | NHITS on both AEMO regions, its own `split_id` (`aemo_nhits_block7d_v1` / `aemo_nhits_blind_v1` depending on the `BLIND` flag) — kept separate from `run_aemo_baselines.py` since its evaluation protocol isn't the same yet. |
+| `run_aemo_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` on each region's full raw half-hourly demand (2018-2023, so detectors are warmed up before the test window), scores only test-window detections against Tier 1 documented events. `split_id="aemo_detect_full_v1"`. |
+| `run_aemo_error_stream_detectors.py` | Same three detectors, fed each frozen baseline's 7-day rolling-MAE *error* curve instead of raw demand — sparser, more drift-shaped signal. One `split_id` per baseline (`aemo_errstream_<baseline>_v1`). |
+| `run_aemo_detectors_daily.py` | Same three detectors again, fed `daily_aggregate(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per calendar day, test split only, no warmup (`train_samples=0`). Removes the intraday seasonality that makes raw-demand detection fire so often. `split_id="aemo_detect_daily_test_v1"`. |
+| `run_aemo_nhits_retrain3mo_kswin_nsw.py` / `..._sa.py` | Adaptation-arm smoke test: `NHITSForecaster` + `KSWINDetector` + `RetrainUsing3MonthWindows`, one file per region. Detection runs once, fully upfront, on `daily_aggregate(test)` (not raw half-hourly demand — every firing here costs a full retrain, see `DECISIONS.md`). Same BLOCK rolling-forecast protocol as `run_aemo_nhits.py`, except a block is cut short exactly at a changepoint's day when one falls inside what would otherwise be a full 7-day block — the model retrains there, then resumes a normal 7-day cadence from the next day. Logged under its own `split_id="aemo_nhits_retrain3mo_kswin_v1"`, with `changepoints=` set so `runs.csv` gets pre-drift/drift/post-drift regime rows too, and `n_retrains` = the adapter's `retrain_count`. |
 
 ---
 
@@ -342,11 +380,14 @@ produce.
 
 | Script | Output |
 |---|---|
-| `produce_table_t1.py` | `results/figures/table_t1_synthetic_detection.csv` — one row per (detector, drift type): delay (mean ± sd), false alarms/10k, missed, threshold, seed count. |
+| `produce_table_t1.py` | `results/tables/table_t1_synthetic_detection.csv` — one row per (detector, drift type): delay (mean ± sd), false alarms/10k, missed, threshold, seed count. |
+| `produce_table_t2.py` | `results/tables/table_t2_aemo_events.csv` — one row per (detector, region), one column per Tier 1 event (delay, or `"not detected"`), plus unmatched/missed counts and precision. Pinned to `run_aemo_detectors.py`'s `split_id`. |
 | `produce_figure_f1.py` | `results/figures/f1_degradation_{SA1,NSW1}.png` (full test period, event markers) and `f1_degradation_{2020,2021,2022,2023}.png` (one file per year, both regions stacked, event markers **and** names). |
+| `produce_figure_f2_aemo.py` | `results/figures/f2_detection_<detector>_<region>.png` — detector flags plotted against the AEMO series with documented events marked. |
 
-To add a new one: read `runs.csv`, `groupby` what you need, write to
-`results/figures/`. Never re-derive a metric by hand here — if
+To add a new one: read `runs.csv`, `groupby` what you need, write a table
+to `results/tables/` or a figure to `results/figures/`. Never re-derive a
+metric by hand here — if
 `evaluation.py` doesn't expose what you need yet, that's a new function
 there, not inline code in a `produce_*.py`.
 
@@ -379,8 +420,8 @@ Notes:
 | A retraining policy (adaptation arm) | `adaptation/<your_arm>.py` | `Adapter` | `adaptation/base.py` |
 | A UQ method | `uncertainty/<your_method>.py` | `UncertaintyQuantifier` | `uncertainty/base.py` |
 | A metric used anywhere in the pipeline | add it to `evaluation/evaluation.py`, re-export from `evaluation/__init__.py` | plain function | the grep-guard test above |
-| A script that runs an experiment | `experiments/run_<name>.py` | — | an existing `run_*.py` for the pattern |
-| A table/figure derived from `runs.csv` | `experiments/produce_<name>.py` | — | an existing `produce_*.py` for the pattern |
+| A script that runs an experiment | `experiments/run/run_<name>.py` | — | an existing `run_*.py` for the pattern |
+| A table/figure derived from `runs.csv` | `experiments/produce/produce_<name>.py` | — | an existing `produce_*.py` for the pattern |
 
 A few rules that keep several people from stepping on each other:
 

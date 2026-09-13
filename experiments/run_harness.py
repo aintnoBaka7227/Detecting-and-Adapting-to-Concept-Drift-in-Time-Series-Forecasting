@@ -40,6 +40,8 @@ def record_run(
     forecast: tuple | None = None,
     detection: tuple | None = None,
     changepoints: list[int] | None = None,
+    point_tolerance: pd.Timedelta | None = None,
+    period_grace: pd.Timedelta | None = None,
 ) -> pd.DataFrame:
     """Append one method's metrics to runs.csv and return the rows.
 
@@ -52,6 +54,16 @@ def record_run(
           (Table T2); `detected` is timestamps, the frame is the event
           catalogue filtered to the tier/region being scored.
         `truth=None`                   -> no scoring, just log `n_detections`.
+
+    `point_tolerance` / `period_grace`, documented-event matching only:
+    override `evaluation.match_detections_to_events`'s defaults
+    (`DOCUMENTED_POINT_TOLERANCE` / `DOCUMENTED_PERIOD_GRACE`). Leave unset
+    for the frozen Table T2 run — the supervisor's rule there is to fix the
+    matching tolerance *before* seeing results, not loosen it after. An
+    override belongs to an explicitly exploratory script that says so in
+    its own docstring; it lands in the run's `config`, so it still gets its
+    own `config_hash` and never silently mixes with the frozen tolerance's
+    rows.
 
     `seed=None` for a deterministic run (no stochasticity to average over) —
     written as NaN, never a fabricated seed value.
@@ -88,7 +100,7 @@ def record_run(
     if forecast is not None:
         rows = build_forecast_rows(dataset, seed, region, forecast, changepoints, common)
     else:
-        rows = build_detection_rows(dataset, detection, common)
+        rows = build_detection_rows(dataset, detection, common, point_tolerance, period_grace)
 
     results_io.append_runs(rows)
     return pd.DataFrame(rows, columns=results_io.RUN_COLUMNS)
@@ -126,14 +138,14 @@ def build_forecast_rows(dataset, seed, region, forecast, changepoints, common) -
     return rows
 
 
-def build_detection_rows(dataset, detection, common) -> list[dict]:
+def build_detection_rows(dataset, detection, common, point_tolerance=None, period_grace=None) -> list[dict]:
     detected, truth, n_samples = detection
     common = {**common, "group": "detection"}
 
     if isinstance(truth, pd.DataFrame):
         # AEMO: `truth` is a documented-event catalogue (the caller filtered
         # it to the tier + region being scored), `detected` is timestamps.
-        return build_documented_event_rows(detected, truth, common)
+        return build_documented_event_rows(detected, truth, common, point_tolerance, period_grace)
 
     if truth is None:
         # No ground truth and no event catalogue: just log the count.
@@ -156,12 +168,19 @@ def build_detection_rows(dataset, detection, common) -> list[dict]:
     ]
 
 
-def build_documented_event_rows(detected_timestamps, events, common) -> list[dict]:
+def build_documented_event_rows(
+    detected_timestamps, events, common, point_tolerance=None, period_grace=None
+) -> list[dict]:
     """AEMO documented-event matching (Table T2). The events are NOT ground
     truth — an unmatched detection is `unmatched`, never a false positive.
     Raw timestamps are dumped for the figure / re-derivation; runs.csv gets
     the scalar match metrics plus one `delay_<event_id>` row per match."""
-    result = evaluation.match_detections_to_events(detected_timestamps, events)
+    tolerance_kwargs = {
+        k: v
+        for k, v in {"point_tolerance": point_tolerance, "period_grace": period_grace}.items()
+        if v is not None
+    }
+    result = evaluation.match_detections_to_events(detected_timestamps, events, **tolerance_kwargs)
     results_io.dump_detections(
         common["config_hash"], "aemo", common["region"], common["seed"], detected_timestamps
     )

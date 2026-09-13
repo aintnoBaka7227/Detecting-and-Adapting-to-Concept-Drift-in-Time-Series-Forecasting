@@ -19,7 +19,8 @@ src/drift_forecasting/**/plot_output/
 src/drift_forecasting/**/drift_examples.png
 
 # Experiment outputs. runs.csv (the ledger) is trackable; per-run curve dumps,
-# figures and lock files are not.
+# figures, tables and lock files are not.
 results/runs/
 results/figures/
+results/tables/
 results/*.lock

@@ -17,7 +17,7 @@ from __future__ import annotations
 import pandas as pd
 
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from experiments.results_io import FIGURES_DIR, RUNS_CSV
+from experiments.results_io import RUNS_CSV, TABLES_DIR
 
 # Must match run_aemo_detectors.py::SPLIT_ID. Pinning it means running some
 # other detection experiment (a different protocol / split) never silently
@@ -91,8 +91,8 @@ def build_table() -> pd.DataFrame:
 
 def main() -> None:
     table = build_table()
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    out = FIGURES_DIR / "table_t2_aemo_events.csv"
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    out = TABLES_DIR / "table_t2_aemo_events.csv"
     table.to_csv(out, index=False)
 
     print(table.to_string(index=False))

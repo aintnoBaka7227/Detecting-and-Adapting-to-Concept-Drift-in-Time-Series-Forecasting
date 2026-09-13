@@ -16,6 +16,7 @@ RESULTS_DIR = REPO_ROOT / "results"
 RUNS_CSV = RESULTS_DIR / "runs.csv"
 RUNS_DIR = RESULTS_DIR / "runs"
 FIGURES_DIR = RESULTS_DIR / "figures"
+TABLES_DIR = RESULTS_DIR / "tables"
 
 RUN_COLUMNS = [
     "group",

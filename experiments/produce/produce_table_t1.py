@@ -10,7 +10,7 @@ import json
 
 import pandas as pd
 
-from experiments.results_io import FIGURES_DIR, RUNS_CSV, RUNS_DIR
+from experiments.results_io import RUNS_CSV, RUNS_DIR, TABLES_DIR
 
 THRESHOLD_LABEL_BY_METHOD = {
     "adwin": lambda c: f"delta = {c['delta']}",
@@ -71,8 +71,8 @@ def build_table() -> pd.DataFrame:
 
 def main() -> None:
     table = build_table()
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = FIGURES_DIR / "table_t1_synthetic_detection.csv"
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = TABLES_DIR / "table_t1_synthetic_detection.csv"
     table.to_csv(out_path, index=False)
     print(table.to_string(index=False))
     print(f"\nwrote {out_path}")
