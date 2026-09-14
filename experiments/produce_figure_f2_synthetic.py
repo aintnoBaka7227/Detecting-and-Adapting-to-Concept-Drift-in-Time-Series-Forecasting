@@ -20,8 +20,8 @@ import pandas as pd
 from drift_lab.synthetic.generator import make_series
 from experiments.results_io import (
     FIGURES_DIR,
+    RESULTS_DIR,
     RUNS_CSV,
-    synthetic_detections_path,
 )
 
 SEED = 1
@@ -46,25 +46,17 @@ TOLERANCE = 336
 
 
 def smooth_series(values: np.ndarray, window: int) -> np.ndarray:
-    """Return a centred moving average for visualisation only."""
-
-    pad = window // 2
-
-    padded = np.concatenate(
-        [
-            np.full(pad, values[0]),
-            values,
-            np.full(pad, values[-1]),
-        ]
+    """Return a centred rolling mean for visualisation only."""
+    return (
+        pd.Series(values)
+        .rolling(
+            window=window,
+            center=True,
+            min_periods=1,
+        )
+        .mean()
+        .to_numpy()
     )
-
-    kernel = np.ones(window) / window
-
-    return np.convolve(
-        padded,
-        kernel,
-        mode="valid",
-    )[: len(values)]
 
 
 def load_runs() -> pd.DataFrame:
@@ -83,7 +75,7 @@ def load_alarm_data(
     dataset: str,
     seed: int = SEED,
 ) -> dict[str, pd.DataFrame]:
-    """Load persisted alarm indices for all three detectors."""
+    """Load persisted frozen-synthetic detections for all three detectors."""
 
     alarm_data: dict[str, pd.DataFrame] = {}
 
@@ -103,18 +95,43 @@ def load_alarm_data(
                 f"No recorded run found for {dataset}, {method}, seed={seed}"
             )
 
-        config_hash = rows.iloc[0]["config_hash"]
+        config_hashes = rows["config_hash"].dropna().unique()
 
-        path = synthetic_detections_path(
-            config_hash,
-            dataset,
-            seed,
+        if len(config_hashes) != 1:
+            raise RuntimeError(
+                f"Expected one config_hash for {dataset}, {method}, seed={seed}, "
+                f"found {config_hashes.tolist()}"
+            )
+
+        path = (
+            RESULTS_DIR
+            / "changepoints"
+            / f"{dataset}_{method}_seed{seed}_changepoints.csv"
         )
 
         if not path.exists():
-            raise FileNotFoundError(f"Persisted detections not found: {path}")
+            raise FileNotFoundError(f"Frozen changepoint results not found: {path}")
 
-        alarm_data[method] = pd.read_csv(path)
+        frame = pd.read_csv(path)
+
+        required_columns = {
+            "point_type",
+            "changepoint_index",
+        }
+        missing = required_columns - set(frame.columns)
+
+        if missing:
+            raise RuntimeError(f"{path} is missing required columns: {sorted(missing)}")
+
+        # F2 needs detector alarms only. True changepoints are already
+        # supplied by the deterministic synthetic generator.
+        detected = frame[
+            frame["point_type"].astype(str).str.startswith("detected")
+        ].copy()
+
+        detected["observation"] = detected["changepoint_index"].astype(int)
+
+        alarm_data[method] = detected
 
     return alarm_data
 
@@ -302,7 +319,7 @@ def plot_sudden(
         )
 
     summary = (
-        "Current configuration — unmatched detections\n"
+        "Frozen configuration — unmatched detections\n"
         f"ADWIN: {len(unmatched['adwin'])}  ·  "
         f"KSWIN: {len(unmatched['kswin'])}  ·  "
         f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
@@ -455,6 +472,47 @@ def plot_gradual(
         fontsize=9,
         fontweight="bold",
     )
+    unmatched_styles = {
+        "adwin": {
+            "marker": "x",
+            "label": "ADWIN unmatched",
+        },
+        "kswin": {
+            "marker": "^",
+            "label": "KSWIN unmatched",
+        },
+        "page_hinkley": {
+            "marker": "s",
+            "label": "Page-Hinkley unmatched",
+        },
+    }
+
+    unmatched_y = {
+        "adwin": ymin + 0.10 * yrange,
+        "kswin": ymin + 0.14 * yrange,
+        "page_hinkley": ymin + 0.18 * yrange,
+    }
+
+    used_unmatched_labels: set[str] = set()
+
+    for method, alarms in unmatched.items():
+        if not alarms:
+            continue
+
+        style = unmatched_styles[method]
+        label = style["label"]
+
+        ax.scatter(
+            alarms,
+            [unmatched_y[method]] * len(alarms),
+            marker=style["marker"],
+            s=70,
+            linewidths=1.8,
+            zorder=5,
+            label=label if label not in used_unmatched_labels else None,
+        )
+
+        used_unmatched_labels.add(label)
 
     # Matched detections
     for detection in matched.values():
@@ -511,7 +569,7 @@ def plot_gradual(
     )
 
     summary = (
-        "Current configuration — unmatched detections\n"
+        "Frozen configuration — unmatched detections\n"
         f"ADWIN: {len(unmatched['adwin'])}  ·  "
         f"KSWIN: {len(unmatched['kswin'])}  ·  "
         f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
@@ -763,7 +821,7 @@ def plot_recurring(
     )
 
     summary = (
-        "Current configuration — unmatched detections\n"
+        "Frozen configuration — unmatched detections\n"
         f"ADWIN: {len(unmatched['adwin'])}  ·  "
         f"KSWIN: {len(unmatched['kswin'])}  ·  "
         f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
@@ -839,7 +897,7 @@ def main() -> None:
     print()
     print("Synthetic F2 figures completed.")
     print(
-        "Current detector configurations were used. "
+        "Frozen detector configurations were used."
         "Regenerate after hyperparameter optimisation."
     )
 
