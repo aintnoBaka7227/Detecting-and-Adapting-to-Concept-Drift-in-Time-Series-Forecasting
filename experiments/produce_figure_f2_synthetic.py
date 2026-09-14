@@ -27,7 +27,7 @@ from experiments.results_io import (
 SEED = 1
 N = 20_000
 NOISE = 1.0
-SPLIT_ID = "synth_n20000"
+SPLIT_ID = "synthetic_full_series_20000_observations"
 
 # 48 observations per synthetic daily cycle.
 # 15 days is used only as a visual smoothing overlay.
@@ -89,6 +89,7 @@ def load_alarm_data(
             (runs["dataset"] == dataset)
             & (runs["seed"] == seed)
             & (runs["method"] == method)
+            & (runs["split_id"] == SPLIT_ID)
         ]
 
         if rows.empty:
