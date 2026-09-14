@@ -27,6 +27,7 @@ from experiments.results_io import (
 SEED = 1
 N = 20_000
 NOISE = 1.0
+SPLIT_ID = "synth_n20000"
 
 # 48 observations per synthetic daily cycle.
 # 15 days is used only as a visual smoothing overlay.
@@ -102,7 +103,13 @@ def load_alarm_data(
                 f"Expected one config_hash for {dataset}, {method}, seed={seed}, "
                 f"found {config_hashes.tolist()}"
             )
+        split_ids = rows["split_id"].dropna().unique()
 
+        if len(split_ids) != 1 or split_ids[0] != SPLIT_ID:
+            raise RuntimeError(
+                f"Expected split_id {SPLIT_ID} for {dataset}, {method}, seed={seed}, "
+                f"found {split_ids.tolist()}"
+            )
         path = (
             RESULTS_DIR
             / "changepoints"
