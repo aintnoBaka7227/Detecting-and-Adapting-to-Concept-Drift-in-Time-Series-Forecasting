@@ -33,7 +33,7 @@ KINDS = ("none", "sudden", "gradual", "recurring")
 
 N = 20_000
 NOISE = 1.0
-SPLIT_ID = "synth_n20000"
+SPLIT_ID = "synthetic_full_series_20000_observations"
 
 SAMPLES_PER_DAY = 48
 DAYS_PER_YEAR = 365
