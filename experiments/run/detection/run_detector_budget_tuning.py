@@ -26,7 +26,7 @@ KINDS = ("none", "sudden", "gradual", "recurring")
 
 N = 20_000
 NOISE = 1.0
-SPLIT_ID = "synth_n20000"
+SPLIT_ID = "synth_n20000_tuning"
 
 SAMPLES_PER_YEAR = 48 * 365
 FALSE_ALARM_BUDGET_PER_YEAR = 2.0
