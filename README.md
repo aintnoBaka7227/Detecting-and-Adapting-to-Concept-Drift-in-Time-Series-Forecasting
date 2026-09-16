@@ -40,10 +40,10 @@ gitignored (see [`.gitignore`](.gitignore)); `results/runs.csv` itself
 python -m experiments.run.forecasting.run_aemo_baselines
 
 # Run the three detectors against the synthetic benchmark (5 seeds x 4 drift types)
-python -m experiments.run.detection.run_synthetic_detectors
+python -m experiments.run.detection.run_pre_tune_on_synthetic
 
 # Turn runs.csv into the deliverables
-python -m experiments.produce.produce_table_t1     # results/tables/table_t1_synthetic_detection.csv
+python -m experiments.produce.produce_table_t1_pre_tune     # results/tables/table_t1_pre_tune_synthetic_detection.csv
 python -m experiments.produce.produce_figure_f1    # results/figures/f1_degradation_*.png
 
 # Run the test suite
@@ -111,21 +111,35 @@ there."
 │   │   │   ├── run_aemo_nhits_retrain3mo_kswin_nsw.py   NHITS + kswin + RetrainUsing3MonthWindows, NSW1
 │   │   │   └── run_aemo_nhits_retrain3mo_kswin_sa.py    same, SA1
 │   │   └── detection/                 a DriftDetector is the thing under test (record_run(detection=...))
-│   │       ├── run_aemo_detectors.py            adwin/kswin/page_hinkley on raw half-hourly AEMO demand -- feeds Figure F2
-│   │       ├── run_aemo_detectors_daily_frozen.py  same three, daily-aggregated + frozen configs, both-tier matching -- feeds Table T2
-│   │       ├── run_detector_budget_tuning.py    synthetic-only sweep that picks the frozen configs above
-│   │       ├── run_detector_input_experiments.py   compares raw / daily-mean / deseasonalised AEMO demand as detector input
-│   │       ├── run_synthetic_detectors.py       runs adwin/kswin/page_hinkley on the synthetic benchmark (Step 4 / T1 deliverable)
-│   │       ├── run_synthetic_detector_experiments.py  the canonical all-three-detectors synthetic sweep (split_id="synth_n20000")
+│   │       ├── run_aemo_detectors_raw_pre_tune.py   adwin/kswin/page_hinkley, default configs, raw half-hourly AEMO demand -- feeds Figure F2 and Table T2 (pre-tuning, raw)
+│   │       ├── run_aemo_detectors_raw_post_tune.py  sibling -- raw half-hourly + post-tuning configs -- feeds Table T2 (post-tuning, raw)
+│   │       ├── run_aemo_detectors_daily_pre_tune.py  sibling -- daily-aggregated + default configs -- feeds Table T2 (pre-tuning, daily)
+│   │       ├── run_aemo_detectors_daily_post_tune.py  sibling -- daily-aggregated + post-tuning configs -- feeds Table T2 (post-tuning, daily, canonical)
+│   │       ├── run_aemo_detectors_deseasonalized_pre_tune.py  sibling -- deseasonalised (remove_daily_weekly_profile) + default configs -- feeds Table T2 (pre-tuning, deseasonalized)
+│   │       ├── run_aemo_detectors_deseasonalized_post_tune.py  sibling -- deseasonalised + post-tuning configs -- feeds Table T2 (post-tuning, deseasonalized)
+│   │       ├── run_fine_tune_on_synthetic.py    synthetic-only sweep that picks the post-tuning configs below
+│   │       ├── post_tune_detector_configs.py    make_post_tune_detectors() -- single source of truth for the sweep's winning configs, read by every post-tuning run script above/below
+│   │       ├── run_pre_tune_on_synthetic.py     runs adwin/kswin/page_hinkley, default configs, on the synthetic benchmark -- feeds Table T1 (pre-tuning)
+│   │       ├── run_post_tune_on_synthetic.py    same three, post-tuning configs, on the synthetic benchmark -- feeds Table T1 (post-tuning)
 │   │       ├── run_synthetic_adwin.py, run_synthetic_kswin.py   single-detector synthetic runs, one script per detector
 │   │       └── run_synthetic_generator.py       plots the synthetic benchmark itself (no runs.csv row)
 │   │
 │   └── produce/                      one file per table/figure, run with `python -m experiments.produce.<name>`
-│       ├── produce_table_t1.py         synthetic detection table, grouped from runs.csv
-│       ├── produce_table_t2.py         AEMO detector-vs-documented-event table, grouped from runs.csv
+│       ├── produce_table_t1_pre_tune.py / produce_table_t1_post_tune.py   synthetic detection table, pre-/post-tuning pair, grouped from runs.csv
+│       ├── produce_table_t2_raw_pre_tune.py / produce_table_t2_raw_post_tune.py   AEMO detector-vs-documented-event table, raw 30-minute, pre-/post-tuning pair
+│       ├── produce_table_t2_daily_pre_tune.py / produce_table_t2_daily_post_tune.py   same, daily-aggregated pair (post-tuning one is the canonical Table T2)
+│       ├── produce_table_t2_deseasonalized_pre_tune.py / produce_table_t2_deseasonalized_post_tune.py   same, deseasonalized pair
+│       ├── produce_table_t2_all_streams_post_tune.py   same columns plus `input_stream_type`, one combined table across the three post-tuning input streams
+│       ├── produce_table_t2_all_streams_all_tuning.py   same again plus a `fine_tuned` boolean, one combined table across all six (input stream x tuning stage) combinations
+│       ├── table_t1_common.py / table_t2_common.py   shared columns/aggregation logic behind each table's siblings
+│       ├── table_image.py              shared matplotlib table-PNG renderer used by every produce_table_*.py
 │       ├── produce_figure_f1.py        AEMO rolling-MAE degradation figures, grouped from runs.csv
-│       ├── produce_figure_f2_aemo.py           detection figure per (detector, region), raw half-hourly run
-│       ├── produce_figure_f2_aemo_daily_frozen.py   same figure, daily-aggregated + frozen-config run
+│       ├── produce_figure_f2_aemo_raw_pre_tune.py / produce_figure_f2_aemo_raw_post_tune.py   detection figure per (detector, region), raw half-hourly, pre-/post-tuning pair
+│       ├── produce_figure_f2_aemo_daily_pre_tune.py / produce_figure_f2_aemo_daily_post_tune.py   same, daily-aggregated pair (post-tuning one is the canonical AEMO F2 pair)
+│       ├── produce_figure_f2_aemo_deseasonalized_pre_tune.py / produce_figure_f2_aemo_deseasonalized_post_tune.py   same, deseasonalized pair
+│       ├── figure_f2_aemo_common.py    shared plotting logic behind all six AEMO F2 producers above
+│       ├── produce_figure_f2_synthetic_pre_tune.py / produce_figure_f2_synthetic_post_tune.py   one figure per drift type (sudden/gradual/recurring), one panel per seed, matching via evaluation.evaluate_detections()
+│       ├── figure_f2_synthetic_common.py   shared panel/figure logic behind the synthetic F2 pair
 │       ├── produce_adwin_results.py    ⚠ pre-refactor: synthetic-only ADWIN summary, not part of the T1/T2/F1/F2 pipeline above
 │       └── produce_kswin_results.py    ⚠ pre-refactor: synthetic-only KSWIN summary, same caveat
 │
@@ -155,7 +169,7 @@ there."
 `⚠` marks the two files this tree lists for completeness but that the rest of
 this README doesn't otherwise document: `produce_adwin_results.py` /
 `produce_kswin_results.py` summarise synthetic-only ADWIN/KSWIN runs from
-before the team settled on `produce_table_t1.py` as the one canonical
+before the team settled on `produce_table_t1_pre_tune.py` as the one canonical
 synthetic-detection table. They still run against today's `runs.csv` schema,
 but nothing downstream depends on their output.
 
@@ -290,11 +304,11 @@ expects for that `kind` — nothing needs reshaping between the two:
 
 `seed` controls only the noise draw (`np.random.default_rng(seed)`) — the
 changepoint positions themselves are deterministic given `kind`/`n`, which
-is what lets `run_synthetic_detectors.py` build a `split_id` from the
+is what lets `run_pre_tune_on_synthetic.py` build a `split_id` from the
 changepoints directly (see below) rather than from the seed.
 
 Two things read `make_series`, for two different purposes:
-- `run_synthetic_detectors.py` — runs the three detectors against it and
+- `run_pre_tune_on_synthetic.py` — runs the three detectors against it and
   logs metrics to `runs.csv` (the actual Step 4 deliverable).
 - `run_synthetic_generator.py` — just plots it (one figure per `kind`,
   one panel per seed, true changepoints marked) as a visual sanity check;
@@ -437,12 +451,18 @@ Each of these is a standalone script — run with `python -m experiments.run.for
 | Script | What it does |
 |---|---|
 | `run_aemo_baselines.py` | Fits `SeasonalNaive`, `XGBoostForecaster`, `DHRArima` on both AEMO regions, frozen split (`split_id="aemo_frozen_v1"`), `seed=None` (deterministic). |
-| `run_synthetic_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` against `make_series` for every `(drift_type, seed)` in `{none, sudden, gradual, recurring} × SEEDS`. `split_id` embeds the actual changepoint positions, so a future change to the generator's drift geometry can't silently mix with old rows. |
+| `run_pre_tune_on_synthetic.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` (class defaults, pre-tuning) against `make_series` for every `(drift_type, seed)` in `{none, sudden, gradual, recurring} × SEEDS`. `split_id` embeds the actual changepoint positions, so a future change to the generator's drift geometry can't silently mix with old rows. Feeds Table T1 (pre-tuning). |
+| `run_post_tune_on_synthetic.py` | Same three detectors and `make_series` grid, but with the post-tuning configs chosen by `run_fine_tune_on_synthetic.py`'s synthetic-only sweep. `split_id="synthetic_full_series_20000_observations"`. Feeds Table T1 (post-tuning) — its sibling, not a replacement, since T1 is meant to show tuning's effect. Persists detected indices via `results_io.dump_synthetic_detections()` (same `results/runs/<config_hash>/` convention as `run_pre_tune_on_synthetic.py`) and a representative plot per (detector, drift type); logs to `runs.csv` only, no table CSV of its own. |
+| `run_fine_tune_on_synthetic.py` | Synthetic-only sweep (one parameter varied at a time per detector) against a `<=2 false alarms/year, zero missed events` acceptance rule. AEMO data is never used. Picks the post-tuning configs `run_post_tune_on_synthetic.py`, `run_aemo_detectors_daily_post_tune.py`, `run_aemo_detectors_deseasonalized_post_tune.py`, and `run_aemo_detectors_raw_post_tune.py` all use. Writes its own sweep results directly to `results/tables/fine_tune_on_synthetic.csv` (not through `runs.csv` — it's a parameter search, not a reported result). |
 | `run_synthetic_generator.py` | Plots the synthetic benchmark itself (one figure per drift type, one panel per seed) — visual sanity check, not a `runs.csv` producer. |
 | `run_aemo_nhits.py` | NHITS on both AEMO regions, its own `split_id` (`aemo_nhits_block7d_v1` / `aemo_nhits_blind_v1` depending on the `BLIND` flag) — kept separate from `run_aemo_baselines.py` since its evaluation protocol isn't the same yet. |
-| `run_aemo_detectors.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` on each region's full raw half-hourly demand (2018-2023, so detectors are warmed up before the test window), scores only test-window detections against the *full* event catalogue (Tier 1 **and** Tier 2). `split_id="aemo_detect_full_v1"`. Feeds Figure F2 only — no longer Table T2's source, see `run_aemo_detectors_daily_frozen.py`. |
+| `run_aemo_detectors_raw_pre_tune.py` | Runs `ADWINDetector`, `KSWINDetector`, `PageHinkleyDetector` (class defaults, pre-tuning) on each region's full raw half-hourly demand (2018-2023, so detectors are warmed up before the test window), scores only test-window detections against the *full* event catalogue (Tier 1 **and** Tier 2). `split_id="aemo_detect_raw_pre_tune_v1"`. Feeds Figure F2, and (as a second, read-only consumer of the same rows) Table T2's pre-tuning + raw sibling. |
 | `run_aemo_error_stream_detectors.py` | Same three detectors, fed each frozen baseline's 7-day rolling-MAE *error* curve instead of raw demand — sparser, more drift-shaped signal. One `split_id` per baseline (`aemo_errstream_<baseline>_v1`). |
-| `run_aemo_detectors_daily_frozen.py` | Fed `aggregate_daily_demand(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per complete calendar day, test split only, no warmup (`train_samples=0`), which removes the intraday seasonality that makes raw-demand detection fire so often. Each detector uses the frozen config chosen by `run_detector_budget_tuning.py`'s synthetic-only sweep, and matches against the *full* event catalogue (Tier 1 **and** Tier 2), not Tier 1 only — the input `produce_table_t2.py` actually reads. Three detectors, three independent `record_run` calls per region — never pooled into one combined detection stream. `split_id="aemo_detect_daily_frozen_v1"`. |
+| `run_aemo_detectors_daily_post_tune.py` | Fed `aggregate_daily_demand(test)` (see `aemo/deseasonalise.py`) instead of raw half-hourly demand or an error stream — one point per complete calendar day, test split only, no warmup (`train_samples=0`), which removes the intraday seasonality that makes raw-demand detection fire so often. Each detector uses the post-tuning config chosen by `run_fine_tune_on_synthetic.py`'s synthetic-only sweep, and matches against the *full* event catalogue (Tier 1 **and** Tier 2), not Tier 1 only — the input `produce_table_t2_daily_post_tune.py` actually reads. Three detectors, three independent `record_run` calls per region — never pooled into one combined detection stream. `split_id="aemo_detect_daily_post_tune_v1"`. Feeds Table T2 (post-tuning, canonical). |
+| `run_aemo_detectors_daily_pre_tune.py` | Sibling of `run_aemo_detectors_daily_post_tune.py` — identical daily-aggregated input and both-tier matching, but class-default (pre-tuning) detector configs. `split_id="aemo_detect_daily_pre_tune_v1"`. Feeds Table T2's pre-tuning + daily sibling, isolating what tuning bought on the same input. |
+| `run_aemo_detectors_deseasonalized_post_tune.py` | Another sibling of `run_aemo_detectors_daily_post_tune.py` — same post-tuning configs and both-tier matching, but fed `remove_daily_weekly_profile(test, reference=train+calibration)` (half-hourly, seasonal profile removed) instead of `aggregate_daily_demand(test)`. `split_id="aemo_detect_deseasonalized_post_tune_v1"`. Feeds Table T2's post-tuning + deseasonalized sibling. |
+| `run_aemo_detectors_deseasonalized_pre_tune.py` | Sibling of `run_aemo_detectors_deseasonalized_post_tune.py` — identical deseasonalized input and both-tier matching, but class-default (pre-tuning) detector configs. `split_id="aemo_detect_deseasonalized_pre_tune_v1"`. Completes the pre/post-tuning comparison on the third input stream, alongside the raw and daily pairs. |
+| `run_aemo_detectors_raw_post_tune.py` | Sibling of `run_aemo_detectors_raw_pre_tune.py` — identical raw half-hourly input and both-tier matching, but post-tuning detector configs instead of class defaults. `split_id="aemo_detect_raw_post_tune_v1"`. Replaced the retired `run_post_tune_input_comparison_on_aemo.py` as the source of post-tuning raw-demand results — that script matched Tier 1 only, so it couldn't report a genuine tier2_contextual/unmatched breakdown (see `DECISIONS.md`). Feeds `produce_table_t2_all_streams_post_tune.py`. |
 | `run_aemo_nhits_retrain3mo_kswin_nsw.py` / `..._sa.py` | Adaptation-arm smoke test: `NHITSForecaster` + `KSWINDetector` + `RetrainUsing3MonthWindows`, one file per region. Detection runs once, fully upfront, on `aggregate_daily_demand(test)` (not raw half-hourly demand — every firing here costs a full retrain, see `DECISIONS.md`). Same BLOCK rolling-forecast protocol as `run_aemo_nhits.py`, except a block is cut short exactly at a changepoint's day when one falls inside what would otherwise be a full 7-day block — the model retrains there, then resumes a normal 7-day cadence from the next day. Logged under its own `split_id="aemo_nhits_retrain3mo_kswin_v1"`, with `changepoints=` set so `runs.csv` gets pre-drift/drift/post-drift regime rows too, and `n_retrains` = the adapter's `retrain_count`. |
 
 ---
@@ -456,11 +476,17 @@ produce.
 
 | Script | Output |
 |---|---|
-| `produce_table_t1.py` | `results/tables/table_t1_synthetic_detection.csv` — one row per (detector, drift type): delay (mean ± sd), false alarms/10k, missed, threshold, seed count. |
-| `produce_table_t2.py` | `results/tables/table_t2_aemo_events.csv` — one row per (detector, region), one column per Tier 1 event **by name**, in date order (delay, or `"not detected"`), then `tier1_unmatched` (Tier 1 events this detector missed), `unmatched` (unmatched events across **both** tiers), and `precision`. Built with `groupby(["method","region","metric_name"]).unstack()`, not manual filtering. Pinned to `run_aemo_detectors_daily_frozen.py`'s `split_id`. |
+| `produce_table_t1_pre_tune.py` / `produce_table_t1_post_tune.py` | `results/tables/table_t1_{pre_tune,post_tune}_synthetic_detection.csv` — one row per (detector, drift type): delay (mean ± sd), false alarms/10k, missed, threshold, seed count. Pinned to `run_pre_tune_on_synthetic.py`'s `split_id` family (`synth_n20000_cp*`) / `run_post_tune_on_synthetic.py`'s single `split_id`; shared columns/aggregation live in `table_t1_common.py`. |
+| `produce_table_t2_raw_pre_tune.py` / `produce_table_t2_raw_post_tune.py` | `results/tables/table_t2_aemo_events_raw_{pre_tune,post_tune}.csv` — one row per (detector, region), one column per Tier 1 event **by name**, in date order (delay, or `"not detected"`), then `tier1_unmatched` (Tier 1 events this detector missed), `tier2_contextual` (Tier 2 contextual events matched), `unmatched` (unmatched events across **both** tiers), and `precision`. Built with `groupby(["method","region","metric_name"]).unstack()`, not manual filtering. Pinned to `run_aemo_detectors_raw_pre_tune.py` / `run_aemo_detectors_raw_post_tune.py`'s `split_id`; shared columns/aggregation live in `table_t2_common.py`. |
+| `produce_table_t2_daily_pre_tune.py` / `produce_table_t2_daily_post_tune.py` | Same columns, daily-aggregated pair. Outputs `table_t2_aemo_events_daily_{pre_tune,post_tune}.csv`. The post-tuning one is the canonical Table T2. |
+| `produce_table_t2_deseasonalized_pre_tune.py` / `produce_table_t2_deseasonalized_post_tune.py` | Same columns again, deseasonalized (`remove_daily_weekly_profile`) pair. Outputs `table_t2_aemo_events_deseasonalized_{pre_tune,post_tune}.csv`. |
+| `produce_table_t2_all_streams_post_tune.py` | `results/tables/table_t2_aemo_events_all_streams_post_tune.csv` — the same T2 columns plus one new `input_stream_type` column, combining the three post-tuning single-input tables above into one — every post-tuning input stream, side by side. A pure concatenation, not a new metric. Does not overwrite any of the single-input tables. |
+| `produce_table_t2_all_streams_all_tuning.py` | `results/tables/table_t2_aemo_events_all_streams_all_tuning.csv` — the same T2 columns plus `input_stream_type` and a `fine_tuned` boolean, concatenating all six single-(stream, stage) tables — the full input-stream x tuning-stage matrix in one table. Does not overwrite any of the six, or `produce_table_t2_all_streams_post_tune.py`. |
 | `produce_figure_f1.py` | `results/figures/f1_degradation_{2020,2021,2022,2023}.png` — one file per year, both regions stacked, event markers **and** names. (There used to also be a `f1_degradation_{SA1,NSW1}.png` full-test-period figure with markers only; it was dropped as redundant with the per-year ones.) |
-| `produce_figure_f2_aemo.py` | `results/figures/f2_detection_<detector>_<region>.png` — detector flags plotted against the raw AEMO series with documented events marked. Reads `run_aemo_detectors.py`'s run. Palette/layout matches the briefing's Figure D (light-blue raw + blue smoothed demand, black event lines, orange period shading, bold green `MATCHED` / red `FALSE ALARM` labels) — wording says "documented event", not "true changepoint", since AEMO events are not ground truth. |
-| `produce_figure_f2_aemo_daily_frozen.py` | Same figure, same formatting, different source: `results/figures/f2_detection_daily_frozen_<detector>_<region>.png`, plotted against `aggregate_daily_demand` (the exact series the detector saw) and reading `run_aemo_detectors_daily_frozen.py`'s frozen-config, both-tier-matched run. A sibling of the original, not a replacement — neither script's output overwrites the other's. |
+| `produce_figure_f2_aemo_raw_pre_tune.py` / `produce_figure_f2_aemo_raw_post_tune.py` | `results/figures/f2_detection_raw_{pre_tune,post_tune}_<detector>_<region>.png` — detector flags plotted against a daily-mean resample of raw AEMO demand (for readability; the detector itself saw the full half-hourly stream) with documented events marked. Reads `run_aemo_detectors_raw_pre_tune.py` / `run_aemo_detectors_raw_post_tune.py`'s runs. Palette/layout matches the briefing's Figure D (light-blue raw + blue smoothed demand, black event lines, orange period shading, bold green `MATCHED` / red `FALSE ALARM` labels) — wording says "documented event", not "true changepoint", since AEMO events are not ground truth. Shared logic lives in `figure_f2_aemo_common.py`. |
+| `produce_figure_f2_aemo_daily_pre_tune.py` / `produce_figure_f2_aemo_daily_post_tune.py` | Same figure, same formatting, plotted against `aggregate_daily_demand` (the exact series the detector saw, not a separately-computed resample). Outputs `f2_detection_daily_{pre_tune,post_tune}_<detector>_<region>.png`. The post-tuning one is the canonical AEMO F2 pair. |
+| `produce_figure_f2_aemo_deseasonalized_pre_tune.py` / `produce_figure_f2_aemo_deseasonalized_post_tune.py` | Same figure again, plotted against a daily-mean resample of the deseasonalized half-hourly series (for readability, same reasoning as the raw pair). Outputs `f2_detection_deseasonalized_{pre_tune,post_tune}_<detector>_<region>.png`. |
+| `produce_figure_f2_synthetic_pre_tune.py` / `produce_figure_f2_synthetic_post_tune.py` | `results/figures/f2_synthetic_{pre_tune,post_tune}_{sudden,gradual,recurring}.png` — one figure per drift type with an actual changepoint (`none` has nothing to mark), one panel per seed, reading `run_pre_tune_on_synthetic.py` / `run_post_tune_on_synthetic.py`'s persisted detections. Each detector's matched detection is drawn as its own coloured line labelled with its delay; matching goes through `evaluation.evaluate_detections()` directly (not a hand-rolled tolerance window), so a delay shown here always matches what Table T1 reports. Shared logic lives in `figure_f2_synthetic_common.py`. |
 
 To add a new one: read `runs.csv`, `groupby` what you need, write a table
 to `results/tables/` or a figure to `results/figures/`. Never re-derive a

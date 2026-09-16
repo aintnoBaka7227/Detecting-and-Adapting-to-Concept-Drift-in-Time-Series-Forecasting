@@ -22,7 +22,7 @@ SPLIT_ID = "aemo_frozen_v1"
 
 # One instance per model, refit fresh for each region in turn (fit() fully
 # replaces prior state on all three — see forecasting/*.py) — same pattern
-# as DETECTORS in run_synthetic_detectors.py.
+# as DETECTORS in run_pre_tune_on_synthetic.py.
 MODELS = (SeasonalNaive(), XGBoostForecaster(), DHRArima())
 
 

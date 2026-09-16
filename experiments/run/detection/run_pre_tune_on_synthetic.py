@@ -1,8 +1,11 @@
-"""Step 4 / T1 — run the three detectors against the synthetic benchmark.
+"""Step 4 / T1 (pre-tuning) — run the three detectors, class-default
+hyperparameters, against the synthetic benchmark.
 
 One `record_run` call per (detector, drift_type, seed); nothing is computed
 here beyond `.detect()` — metrics come from `evaluation.evaluate_detections`
-inside `record_run`.
+inside `record_run`. Feeds Table T1's pre-tuning table
+(produce_table_t1_pre_tune.py); run_post_tune_on_synthetic.py is this
+script's post-tuning (frozen-config) sibling.
 """
 
 from __future__ import annotations

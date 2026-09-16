@@ -1,31 +1,27 @@
-"""AEMO detection on the daily-aggregated test split, frozen (tuned) configs.
+"""AEMO detection on the daily-aggregated test split, pre-tuning (class
+default) configs.
 
-Uses the frozen configurations chosen by `run_detector_budget_tuning.py`'s
-synthetic-only sweep -- the same `ADWINDetector(delta=0.00075)` /
-`KSWINDetector(alpha=0.005, window_size=300, stat_size=48, seed=42)` /
-`PageHinkleyDetector(min_instances=30, delta=0.005, threshold=400.0)`
-already used by `run_synthetic_detector_experiments.py` and
-`run_detector_input_experiments.py`. AEMO data and AEMO events were not
-used to choose these values.
+Sibling of run_aemo_detectors_daily_post_tune.py, same daily-aggregated
+input (`aggregate_daily_demand(test)`) and the same both-tier (Tier 1 and
+Tier 2) matching, but with plain `ADWINDetector()` / `KSWINDetector()` /
+`PageHinkleyDetector()` defaults instead of the post-tuning, synthetic-tuned
+configs -- so a produce script can compare pre- vs. post-tuning detection
+quality on the same daily-aggregated input, holding everything else fixed.
 
-Matched against the *full* event catalogue for the region -- Tier 1 and
-Tier 2, not Tier 1 only -- so a produce script can report both a
-Tier-1-specific unmatched count and an overall (both-tier) one from the
-same run, instead of needing a second, differently-scoped run. (An
-earlier `run_aemo_detectors_daily.py`, using plain class defaults and
-Tier-1-only matching, served as the one-off sanity check for how much
-daily aggregation cuts detection volume -- see DECISIONS.md -- and was
-retired once this script existed to replace it.)
+An earlier `run_aemo_detectors_daily.py` covered this same pre-tuning,
+daily-aggregated combination, but with Tier-1-only matching and its own
+`split_id="aemo_detect_daily_test_v1"`; it was retired once
+run_aemo_detectors_daily_post_tune.py existed to replace it as Table T2's
+source (see DECISIONS.md). This script revives that comparison under a
+new split_id, now matching both tiers like its post-tuning sibling so the
+same tier1_unmatched/tier2_contextual breakdown is available on both sides
+of the pre/post-tuning comparison.
 
-Each detector is run and logged completely independently: three
-detectors, three separate `record_run` calls per region, six rows total.
-Detections are never pooled or unioned across detectors before matching
--- each detector's output is matched against the event catalogue on its
-own, exactly as if the other two detectors did not exist.
-
-split_id "aemo_detect_daily_frozen_v1": its own id, distinct from
-`run_aemo_detectors.py`'s "aemo_detect_full_v1" (daily-aggregated vs. the
-full raw half-hourly stream).
+split_id "aemo_detect_daily_pre_tune_v1": its own id, distinct from both
+`run_aemo_detectors_daily_post_tune.py`'s "aemo_detect_daily_post_tune_v1"
+(daily-aggregated, post-tuning configs) and
+`run_aemo_detectors_raw_pre_tune.py`'s "aemo_detect_raw_pre_tune_v1" (raw
+half-hourly, pre-tuning configs).
 """
 
 from __future__ import annotations
@@ -42,18 +38,10 @@ from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
 from experiments.run_harness import config_of, record_run
 
-SPLIT_ID = "aemo_detect_daily_frozen_v1"
+SPLIT_ID = "aemo_detect_daily_pre_tune_v1"
 TARGET_COLUMN = "TOTALDEMAND"
 
-
-def make_frozen_detectors():
-    """Final detector settings selected using synthetic data only (see
-    run_detector_budget_tuning.py)."""
-    return (
-        ADWINDetector(delta=0.00075),
-        KSWINDetector(alpha=0.005, window_size=300, stat_size=48, seed=42),
-        PageHinkleyDetector(min_instances=30, delta=0.005, threshold=400.0),
-    )
+DETECTORS = (ADWINDetector(), KSWINDetector(), PageHinkleyDetector())
 
 
 def demand_series(frame: pd.DataFrame) -> pd.Series:
@@ -76,7 +64,7 @@ def main() -> None:
         daily_test = aggregate_daily_demand(demand_series(test))
         events = region_events(region)
 
-        for detector in make_frozen_detectors():
+        for detector in DETECTORS:
             t0 = time.perf_counter()
             flagged = detector.detect(daily_test.to_numpy())
             wall_clock_s = time.perf_counter() - t0
@@ -91,7 +79,7 @@ def main() -> None:
                 config={
                     **config_of(detector),
                     "input_stream": "daily_mean_demand",
-                    "parameter_selection": "synthetic_only_budget",
+                    "parameter_selection": "class_defaults",
                 },
                 wall_clock_s=wall_clock_s,
                 split_id=SPLIT_ID,

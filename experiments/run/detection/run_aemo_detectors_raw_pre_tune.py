@@ -9,12 +9,14 @@ scalar `calculate_event_metrics` produces (including the Tier 1/Tier 2
 breakdown and `event_recall`) plus one `delay_<event_id>` row per match;
 the raw detection timestamps are dumped alongside for F2.
 
-(No longer Table T2's source -- see `run_aemo_detectors_daily_frozen.py`
-for that. This script's own raw half-hourly, default-hyperparameter run
-still feeds Figure F2 only.)
+Feeds Figure F2, and (as a second, read-only consumer of the same rows)
+Table T2's pre-tuning + raw-30-minute sibling
+(produce_table_t2_raw_pre_tune.py) -- not the canonical Table T2, which
+reads `run_aemo_detectors_daily_post_tune.py`'s daily-aggregated,
+post-tuning rows instead.
 
-split_id "aemo_detect_full_v1": detectors see the whole 2018-2023 series
-so they are warmed up by the time the test window starts, but only
+split_id "aemo_detect_raw_pre_tune_v1": detectors see the whole 2018-2023
+series so they are warmed up by the time the test window starts, but only
 test-window detections are scored -- a different data scope from the
 baselines' fit-then-predict "aemo_frozen_v1".
 
@@ -43,7 +45,7 @@ from drift_lab.detection.page_hinkley import PageHinkleyDetector
 from drift_lab.evaluation.evaluation import INTERVAL_GRACE, POINT_WINDOW
 from experiments.run_harness import config_of, record_run
 
-SPLIT_ID = "aemo_detect_full_v1"
+SPLIT_ID = "aemo_detect_raw_pre_tune_v1"
 TEST_START = pd.Timestamp(SPLIT["test"][0])
 DETECTORS = (ADWINDetector(), KSWINDetector(), PageHinkleyDetector())
 
