@@ -58,6 +58,11 @@ also be recreated by running the `run_*.py` scripts again.
 
 ## Repository layout
 
+This tree is a direct listing of what's actually in the repo right now —
+including a couple of pre-refactor leftovers, called out explicitly below
+rather than quietly omitted, so nobody mistakes "not mentioned" for "not
+there."
+
 ```
 .
 ├── src/drift_lab/                  # the installable package — implementation only, nothing runs here
@@ -75,11 +80,13 @@ also be recreated by running the `run_*.py` scripts again.
 │   │   ├── base.py                    the frozen contract
 │   │   ├── seasonal_naive.py          lag-48 (one day ago) baseline
 │   │   ├── xgboost_forecaster.py       recursive XGBoost on lag + calendar features
-│   │   └── dhr_arima.py                dynamic harmonic regression + ARIMA errors
+│   │   ├── dhr_arima.py                dynamic harmonic regression + ARIMA errors
+│   │   ├── nhits_forecaster.py         NHITS (Nixtla neuralforecast) direct multi-step neural model
+│   │   └── nixtla_common.py            shared Forecaster <-> neuralforecast adapter (NHITS today, PatchTST-shaped later)
 │   │
 │   ├── detection/                   # DriftDetector implementations (detect(stream) -> indices)
 │   │   ├── base.py                    the frozen contract + detect_with_river() shared helper
-│   │   ├── adwin.py, kswin.py, page_hinkley.py    river-backed detectors
+│   │   └── adwin.py, kswin.py, page_hinkley.py    river-backed detectors
 │   │
 │   ├── adaptation/                  # Adapter implementations (adapt(changepoints, model, data) -> model)
 │   │   ├── base.py                    the frozen contract
@@ -89,7 +96,7 @@ also be recreated by running the `run_*.py` scripts again.
 │   │   └── base.py
 │   │
 │   └── evaluation/                  # the ONE place every metric is computed
-│       ├── evaluation.py              calculate_mae, calculate_rolling_mae, evaluate_detections, ...
+│       ├── evaluation.py              calculate_mae, calculate_rolling_mae, evaluate_detections, match_unmatch, assign_regime, ...
 │       └── __init__.py                 re-exports the public functions
 │
 ├── experiments/                     # the only place that runs anything or writes to results/
@@ -104,13 +111,23 @@ also be recreated by running the `run_*.py` scripts again.
 │   │   │   ├── run_aemo_nhits_retrain3mo_kswin_nsw.py   NHITS + kswin + RetrainUsing3MonthWindows, NSW1
 │   │   │   └── run_aemo_nhits_retrain3mo_kswin_sa.py    same, SA1
 │   │   └── detection/                 a DriftDetector is the thing under test (record_run(detection=...))
-│   │       ├── run_synthetic_detectors.py  runs adwin/kswin/page_hinkley on the synthetic benchmark
-│   │       ├── run_synthetic_generator.py  plots the synthetic benchmark itself (no runs.csv row)
-│   │       └── run_aemo_detectors_daily_frozen.py  adwin/kswin/page_hinkley, tuned configs, both-tier matching -- feeds T2
+│   │       ├── run_aemo_detectors.py            adwin/kswin/page_hinkley on raw half-hourly AEMO demand -- feeds Figure F2
+│   │       ├── run_aemo_detectors_daily_frozen.py  same three, daily-aggregated + frozen configs, both-tier matching -- feeds Table T2
+│   │       ├── run_detector_budget_tuning.py    synthetic-only sweep that picks the frozen configs above
+│   │       ├── run_detector_input_experiments.py   compares raw / daily-mean / deseasonalised AEMO demand as detector input
+│   │       ├── run_synthetic_detectors.py       runs adwin/kswin/page_hinkley on the synthetic benchmark (Step 4 / T1 deliverable)
+│   │       ├── run_synthetic_detector_experiments.py  the canonical all-three-detectors synthetic sweep (split_id="synth_n20000")
+│   │       ├── run_synthetic_adwin.py, run_synthetic_kswin.py   single-detector synthetic runs, one script per detector
+│   │       └── run_synthetic_generator.py       plots the synthetic benchmark itself (no runs.csv row)
 │   │
 │   └── produce/                      one file per table/figure, run with `python -m experiments.produce.<name>`
 │       ├── produce_table_t1.py         synthetic detection table, grouped from runs.csv
-│       └── produce_figure_f1.py        AEMO rolling-MAE degradation figures, grouped from runs.csv
+│       ├── produce_table_t2.py         AEMO detector-vs-documented-event table, grouped from runs.csv
+│       ├── produce_figure_f1.py        AEMO rolling-MAE degradation figures, grouped from runs.csv
+│       ├── produce_figure_f2_aemo.py           detection figure per (detector, region), raw half-hourly run
+│       ├── produce_figure_f2_aemo_daily_frozen.py   same figure, daily-aggregated + frozen-config run
+│       ├── produce_adwin_results.py    ⚠ pre-refactor: synthetic-only ADWIN summary, not part of the T1/T2/F1/F2 pipeline above
+│       └── produce_kswin_results.py    ⚠ pre-refactor: synthetic-only KSWIN summary, same caveat
 │
 ├── results/
 │   ├── runs.csv                       the experiment ledger — tracked in git
@@ -118,12 +135,29 @@ also be recreated by running the `run_*.py` scripts again.
 │   ├── tables/                        generated tables (produce_table_*.py) — gitignored
 │   └── figures/                       generated figures (produce_figure_*.py) — gitignored
 │
-├── tests/                           # pytest, one file per package/module it covers
-├── data/                            # raw/ (committed), processed/ + synthetic/ (generated, gitignored)
-├── docs/                            # interfaces.md, refactor.md, DATA_QUALITY.md, event_tiering_criteria.md
-├── notebooks/exploration/            # scratch EDA — not imported by anything, not production code
+├── tests/                           # pytest, one file per package/module it covers (14 files)
+├── data/
+│   ├── raw/{SA1,NSW1}/                 committed source CSVs
+│   ├── processed/, synthetic/          generated caches — gitignored
+│   └── baseline/                       committed reference CSVs + figures that
+│   │                                    tests/test_xgboost_forecaster.py and
+│   │                                    tests/test_dhr_arima.py reproduce against
+│   │                                    (RUN_BASELINE_REPRO=1, opt-in, slow)
+├── docs/
+│   ├── interfaces.md, refactor.md, DATA_QUALITY.md, event_tiering_criteria.md
+│   └── methods/adwin.md, methods/kswin.md   per-detector method notes
+├── notebooks/
+│   ├── exploration/                    scratch EDA — not imported by anything, not production code
+│   └── research/                       modelling scratch work (gradient boosting, NHITS) — same caveat
 └── pyproject.toml                    # package metadata + dependencies
 ```
+
+`⚠` marks the two files this tree lists for completeness but that the rest of
+this README doesn't otherwise document: `produce_adwin_results.py` /
+`produce_kswin_results.py` summarise synthetic-only ADWIN/KSWIN runs from
+before the team settled on `produce_table_t1.py` as the one canonical
+synthetic-detection table. They still run against today's `runs.csv` schema,
+but nothing downstream depends on their output.
 
 ---
 

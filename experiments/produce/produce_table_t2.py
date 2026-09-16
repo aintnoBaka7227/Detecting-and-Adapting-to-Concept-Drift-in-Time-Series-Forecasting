@@ -30,6 +30,17 @@ from experiments.results_io import RUNS_CSV, TABLES_DIR
 # experiment and selects the latest run *of that*.
 SPLIT_ID = "aemo_detect_daily_frozen_v1"
 
+# Short column labels for the five Tier 1 events, keyed by event_id so the
+# mapping survives a reorder -- full names are still printed alongside the
+# table for reference.
+AEMO_TIER1_COLUMNS = {
+    "EVT-2020-02": "COVID delay",
+    "EVT-2020-07": "solar/mild-weather delay",
+    "EVT-2021-10": "5-minute settlement delay",
+    "EVT-2022-03": "2022 suspension delay",
+    "EVT-2023-14": "security-directions delay",
+}
+
 DISCLAIMER = (
     "The changepoints in T2 are historically documented events, not ground "
     "truth. A detection that matches none of them is reported as unmatched "
@@ -89,12 +100,13 @@ def build_table() -> pd.DataFrame:
 
         tier1_unmatched = 0
         for event in tier1.itertuples(index=False):
+            column = AEMO_TIER1_COLUMNS[event.event_id]
             delay = metric.get(f"delay_{event.event_id}")
             if pd.isna(delay):
-                row[event.event_name] = "not detected"
+                row[column] = "not detected"
                 tier1_unmatched += 1
             else:
-                row[event.event_name] = round(delay)
+                row[column] = round(delay)
 
         row["tier1_unmatched"] = tier1_unmatched
         row["unmatched"] = int(metric.get("n_unmatched_events", 0))
@@ -104,7 +116,7 @@ def build_table() -> pd.DataFrame:
 
     columns = (
         ["detector", "region"]
-        + list(tier1["event_name"])
+        + [AEMO_TIER1_COLUMNS[event_id] for event_id in tier1["event_id"]]
         + ["tier1_unmatched", "unmatched", "precision"]
     )
     return pd.DataFrame(rows, columns=columns).sort_values(["region", "detector"]).reset_index(drop=True)
