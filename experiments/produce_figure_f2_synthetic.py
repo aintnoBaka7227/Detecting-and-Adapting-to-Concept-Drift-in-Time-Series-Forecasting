@@ -24,7 +24,7 @@ from experiments.results_io import (
     RUNS_CSV,
 )
 
-SEED = 1
+SEEDS = (1, 2, 3, 4, 5)
 N = 20_000
 NOISE = 1.0
 SPLIT_ID = "synthetic_full_series_20000_observations"
@@ -74,7 +74,7 @@ def load_runs() -> pd.DataFrame:
 def load_alarm_data(
     runs: pd.DataFrame,
     dataset: str,
-    seed: int = SEED,
+    seed: int,
 ) -> dict[str, pd.DataFrame]:
     """Load persisted frozen-synthetic detections for all three detectors."""
 
@@ -168,203 +168,211 @@ def plot_sudden(
 
     dataset = "synthetic_sudden"
 
-    alarm_data = load_alarm_data(
-        runs,
-        dataset,
+    fig, axes = plt.subplots(
+        nrows=len(SEEDS),
+        ncols=1,
+        figsize=(15, 5.5 * len(SEEDS)),
+        sharex=False,
     )
 
-    series, _ = make_series(
-        "sudden",
-        n=N,
-        noise=NOISE,
-        seed=SEED,
-    )
+    if len(SEEDS) == 1:
+        axes = [axes]
 
-    series = np.asarray(series)
-    x = np.arange(len(series))
-
-    smooth = smooth_series(
-        series,
-        SMOOTH_WINDOW,
-    )
-
-    matched: dict[str, int | None] = {}
-    unmatched: dict[str, list[int]] = {}
-
-    for method, df in alarm_data.items():
-        alarms = df["observation"].astype(int).tolist()
-
-        candidates = [
-            alarm for alarm in alarms if SUDDEN_CP <= alarm <= SUDDEN_CP + TOLERANCE
-        ]
-
-        match = candidates[0] if candidates else None
-
-        matched[method] = match
-
-        unmatched[method] = [alarm for alarm in alarms if alarm != match]
-
-    fig, ax = plt.subplots(figsize=(15, 6.5))
-
-    ax.plot(
-        x,
-        series,
-        linewidth=0.6,
-        alpha=0.20,
-        label="Observed synthetic series",
-    )
-
-    ax.plot(
-        x,
-        smooth,
-        linewidth=2.0,
-        label="15-day mean (visualisation only)",
-    )
-
-    ymin, ymax = ax.get_ylim()
-    yrange = ymax - ymin
-
-    # True changepoint
-    ax.axvline(
-        SUDDEN_CP,
-        linewidth=2.0,
-        label="True changepoint",
-    )
-
-    ax.text(
-        SUDDEN_CP - 120,
-        ymin + 0.02 * yrange,
-        "TRUE CHANGEPOINT\nobservation 5000",
-        ha="right",
-        va="bottom",
-        fontsize=9,
-        fontweight="bold",
-    )
-
-    # Matched detector lines
-    for detection in matched.values():
-        if detection is None:
-            continue
-
-        ax.axvline(
-            detection,
-            linestyle="--",
-            linewidth=1.3,
-            alpha=0.85,
+    for ax, seed in zip(axes, SEEDS):
+        alarm_data = load_alarm_data(
+            runs,
+            dataset,
+            seed,
         )
 
-    matched_lines = ["MATCHED DETECTIONS"]
-
-    for method in [
-        "adwin",
-        "kswin",
-        "page_hinkley",
-    ]:
-        detection = matched[method]
-
-        if detection is None:
-            matched_lines.append(f"{display_name(method)}: no match")
-        else:
-            delay = detection - SUDDEN_CP
-
-            matched_lines.append(
-                f"{display_name(method)}: {detection}  ·  delay {delay} obs"
-            )
-
-    ax.annotate(
-        "\n".join(matched_lines),
-        xy=(
-            matched["adwin"],
-            smooth[matched["adwin"]],
-        ),
-        xytext=(
-            6200,
-            ymax - 0.06 * yrange,
-        ),
-        arrowprops={
-            "arrowstyle": "->",
-            "linewidth": 1.0,
-        },
-        fontsize=9,
-        fontweight="bold",
-        ha="left",
-        va="top",
-        bbox={
-            "boxstyle": "round,pad=0.35",
-            "alpha": 0.12,
-        },
-    )
-
-    # ADWIN has one clear early false alarm in this representative run.
-    if unmatched["adwin"]:
-        first_false_alarm = unmatched["adwin"][0]
-
-        ax.axvline(
-            first_false_alarm,
-            linestyle="--",
-            linewidth=1.2,
-            alpha=0.80,
+        series, _ = make_series(
+            "sudden",
+            n=N,
+            noise=NOISE,
+            seed=seed,
         )
 
-        ax.annotate(
-            "FALSE ALARM\nADWIN · no true change",
-            xy=(
-                first_false_alarm,
-                smooth[first_false_alarm],
-            ),
-            xytext=(
-                850,
-                ymax - 0.07 * yrange,
-            ),
-            arrowprops={
-                "arrowstyle": "->",
-                "linewidth": 1.0,
-            },
+        series = np.asarray(series)
+        x = np.arange(len(series))
+
+        smooth = smooth_series(
+            series,
+            SMOOTH_WINDOW,
+        )
+
+        matched: dict[str, int | None] = {}
+        unmatched: dict[str, list[int]] = {}
+
+        for method, df in alarm_data.items():
+            alarms = df["observation"].astype(int).tolist()
+
+            candidates = [
+                alarm for alarm in alarms if SUDDEN_CP <= alarm <= SUDDEN_CP + TOLERANCE
+            ]
+
+            match = candidates[0] if candidates else None
+
+            matched[method] = match
+            unmatched[method] = [alarm for alarm in alarms if alarm != match]
+
+        ax.plot(
+            x,
+            series,
+            linewidth=0.6,
+            alpha=0.20,
+            label="Observed synthetic series",
+        )
+
+        ax.plot(
+            x,
+            smooth,
+            linewidth=2.0,
+            label="15-day mean (visualisation only)",
+        )
+
+        ymin, ymax = ax.get_ylim()
+        yrange = ymax - ymin
+
+        # True changepoint
+        ax.axvline(
+            SUDDEN_CP,
+            linewidth=2.0,
+            label="True changepoint",
+        )
+
+        ax.text(
+            SUDDEN_CP - 120,
+            ymin + 0.02 * yrange,
+            "TRUE CHANGEPOINT\nobservation 5000",
+            ha="right",
+            va="bottom",
             fontsize=9,
             fontweight="bold",
-            ha="left",
-            va="top",
         )
 
-    summary = (
-        "Frozen configuration — unmatched detections\n"
-        f"ADWIN: {len(unmatched['adwin'])}  ·  "
-        f"KSWIN: {len(unmatched['kswin'])}  ·  "
-        f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
-    )
+        # Matched detector lines
+        for detection in matched.values():
+            if detection is None:
+                continue
 
-    ax.text(
-        0.015,
-        0.04,
-        summary,
-        transform=ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=8.5,
-        style="italic",
-        bbox={
-            "boxstyle": "round,pad=0.3",
-            "alpha": 0.10,
-        },
-    )
+            ax.axvline(
+                detection,
+                linestyle="--",
+                linewidth=1.3,
+                alpha=0.85,
+            )
 
-    ax.set_title(
-        "F2 — Drift Detection on Synthetic Sudden-Drift Series (Seed 1)",
-        loc="left",
-        fontsize=14,
-        fontweight="bold",
-    )
+        matched_lines = ["MATCHED DETECTIONS"]
 
-    ax.set_xlabel("Observation")
-    ax.set_ylabel("Synthetic target")
+        for method in [
+            "adwin",
+            "kswin",
+            "page_hinkley",
+        ]:
+            detection = matched[method]
 
-    ax.grid(alpha=0.18)
+            if detection is None:
+                matched_lines.append(f"{display_name(method)}: no match")
+            else:
+                delay = detection - SUDDEN_CP
+                matched_lines.append(
+                    f"{display_name(method)}: {detection}  |  delay {delay} obs"
+                )
 
-    ax.legend(
-        loc="lower right",
-        fontsize=8,
-        framealpha=0.9,
-    )
+        if matched["adwin"] is not None:
+            ax.annotate(
+                "\n".join(matched_lines),
+                xy=(
+                    matched["adwin"],
+                    smooth[matched["adwin"]],
+                ),
+                xytext=(
+                    6200,
+                    ymax - 0.06 * yrange,
+                ),
+                arrowprops={
+                    "arrowstyle": "->",
+                    "linewidth": 1.0,
+                },
+                fontsize=9,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                bbox={
+                    "boxstyle": "round,pad=0.35",
+                    "alpha": 0.12,
+                },
+            )
+
+        # ADWIN false alarm example
+        if unmatched["adwin"]:
+            first_false_alarm = unmatched["adwin"][0]
+
+            ax.axvline(
+                first_false_alarm,
+                linestyle="--",
+                linewidth=1.2,
+                alpha=0.80,
+            )
+
+            ax.annotate(
+                "FALSE ALARM\nADWIN, no true change",
+                xy=(
+                    first_false_alarm,
+                    smooth[first_false_alarm],
+                ),
+                xytext=(
+                    850,
+                    ymax - 0.07 * yrange,
+                ),
+                arrowprops={
+                    "arrowstyle": "->",
+                    "linewidth": 1.0,
+                },
+                fontsize=9,
+                fontweight="bold",
+                ha="left",
+                va="top",
+            )
+
+        summary = (
+            "Frozen configuration + unmatched detections\n"
+            f"ADWIN: {len(unmatched['adwin'])}\n"
+            f"KSWIN: {len(unmatched['kswin'])}\n"
+            f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
+        )
+
+        ax.text(
+            0.015,
+            0.04,
+            summary,
+            transform=ax.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=8.5,
+            style="italic",
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "alpha": 0.10,
+            },
+        )
+
+        ax.set_title(
+            f"F2 - Drift Detection on Synthetic Sudden-Drift Series (Seed {seed})",
+            loc="left",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+        ax.set_xlabel("Observation")
+        ax.set_ylabel("Synthetic target")
+        ax.grid(alpha=0.18)
+
+        ax.legend(
+            loc="lower right",
+            fontsize=8,
+            framealpha=0.9,
+        )
 
     fig.tight_layout()
 
@@ -393,228 +401,238 @@ def plot_gradual(
 
     dataset = "synthetic_gradual"
 
-    alarm_data = load_alarm_data(
-        runs,
-        dataset,
+    fig, axes = plt.subplots(
+        nrows=len(SEEDS),
+        ncols=1,
+        figsize=(15, 5.5 * len(SEEDS)),
+        sharex=False,
     )
 
-    series, _ = make_series(
-        "gradual",
-        n=N,
-        noise=NOISE,
-        seed=SEED,
-    )
+    if len(SEEDS) == 1:
+        axes = [axes]
 
-    series = np.asarray(series)
-    x = np.arange(len(series))
-
-    smooth = smooth_series(
-        series,
-        SMOOTH_WINDOW,
-    )
-
-    matched: dict[str, int | None] = {}
-    unmatched: dict[str, list[int]] = {}
-
-    for method, df in alarm_data.items():
-        alarms = df["observation"].astype(int).tolist()
-
-        candidates = [
-            alarm
-            for alarm in alarms
-            if GRADUAL_START <= alarm <= GRADUAL_END + TOLERANCE
-        ]
-
-        match = candidates[0] if candidates else None
-
-        matched[method] = match
-
-        unmatched[method] = [alarm for alarm in alarms if alarm != match]
-
-    fig, ax = plt.subplots(figsize=(15, 6.5))
-
-    ax.plot(
-        x,
-        series,
-        linewidth=0.6,
-        alpha=0.20,
-        label="Observed synthetic series",
-    )
-
-    ax.plot(
-        x,
-        smooth,
-        linewidth=2.0,
-        label="15-day mean (visualisation only)",
-    )
-
-    ymin, ymax = ax.get_ylim()
-    yrange = ymax - ymin
-
-    # True gradual drift interval
-    ax.axvspan(
-        GRADUAL_START,
-        GRADUAL_END,
-        alpha=0.14,
-        label="True gradual drift window",
-    )
-
-    ax.axvline(
-        GRADUAL_START,
-        linestyle=":",
-        linewidth=1.3,
-    )
-
-    ax.axvline(
-        GRADUAL_END,
-        linestyle=":",
-        linewidth=1.3,
-    )
-
-    ax.text(
-        (GRADUAL_START + GRADUAL_END) / 2,
-        ymin + 0.025 * yrange,
-        "TRUE GRADUAL DRIFT\n5000–6000",
-        ha="center",
-        va="bottom",
-        fontsize=9,
-        fontweight="bold",
-    )
-    unmatched_styles = {
-        "adwin": {
-            "marker": "x",
-            "label": "ADWIN unmatched",
-        },
-        "kswin": {
-            "marker": "^",
-            "label": "KSWIN unmatched",
-        },
-        "page_hinkley": {
-            "marker": "s",
-            "label": "Page-Hinkley unmatched",
-        },
-    }
-
-    unmatched_y = {
-        "adwin": ymin + 0.10 * yrange,
-        "kswin": ymin + 0.14 * yrange,
-        "page_hinkley": ymin + 0.18 * yrange,
-    }
-
-    used_unmatched_labels: set[str] = set()
-
-    for method, alarms in unmatched.items():
-        if not alarms:
-            continue
-
-        style = unmatched_styles[method]
-        label = style["label"]
-
-        ax.scatter(
-            alarms,
-            [unmatched_y[method]] * len(alarms),
-            marker=style["marker"],
-            s=70,
-            linewidths=1.8,
-            zorder=5,
-            label=label if label not in used_unmatched_labels else None,
+    for ax, seed in zip(axes, SEEDS):
+        alarm_data = load_alarm_data(
+            runs,
+            dataset,
+            seed,
         )
 
-        used_unmatched_labels.add(label)
+        series, _ = make_series(
+            "gradual",
+            n=N,
+            noise=NOISE,
+            seed=seed,
+        )
 
-    # Matched detections
-    for detection in matched.values():
-        if detection is None:
-            continue
+        series = np.asarray(series)
+        x = np.arange(len(series))
+
+        smooth = smooth_series(
+            series,
+            SMOOTH_WINDOW,
+        )
+
+        matched: dict[str, int | None] = {}
+        unmatched: dict[str, list[int]] = {}
+
+        for method, df in alarm_data.items():
+            alarms = df["observation"].astype(int).tolist()
+
+            candidates = [
+                alarm
+                for alarm in alarms
+                if GRADUAL_START <= alarm <= GRADUAL_END + TOLERANCE
+            ]
+
+            match = candidates[0] if candidates else None
+
+            matched[method] = match
+            unmatched[method] = [alarm for alarm in alarms if alarm != match]
+
+        ax.plot(
+            x,
+            series,
+            linewidth=0.6,
+            alpha=0.20,
+            label="Observed synthetic series",
+        )
+
+        ax.plot(
+            x,
+            smooth,
+            linewidth=2.0,
+            label="15-day mean (visualisation only)",
+        )
+
+        ymin, ymax = ax.get_ylim()
+        yrange = ymax - ymin
+
+        # True gradual drift interval
+        ax.axvspan(
+            GRADUAL_START,
+            GRADUAL_END,
+            alpha=0.14,
+            label="True gradual drift window",
+        )
 
         ax.axvline(
-            detection,
-            linestyle="--",
+            GRADUAL_START,
+            linestyle=":",
             linewidth=1.3,
-            alpha=0.85,
         )
 
-    matched_lines = ["MATCHED DETECTIONS"]
+        ax.axvline(
+            GRADUAL_END,
+            linestyle=":",
+            linewidth=1.3,
+        )
 
-    for method in [
-        "adwin",
-        "kswin",
-        "page_hinkley",
-    ]:
-        detection = matched[method]
+        ax.text(
+            (GRADUAL_START + GRADUAL_END) / 2,
+            ymin + 0.025 * yrange,
+            "TRUE GRADUAL DRIFT\n5000-6000",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
 
-        if detection is None:
-            matched_lines.append(f"{display_name(method)}: no match")
-        else:
-            delay = detection - GRADUAL_START
+        unmatched_styles = {
+            "adwin": {
+                "marker": "x",
+                "label": "ADWIN unmatched",
+            },
+            "kswin": {
+                "marker": "^",
+                "label": "KSWIN unmatched",
+            },
+            "page_hinkley": {
+                "marker": "s",
+                "label": "Page-Hinkley unmatched",
+            },
+        }
 
-            matched_lines.append(
-                f"{display_name(method)}: {detection}  ·  delay {delay} obs"
+        unmatched_y = {
+            "adwin": ymin + 0.10 * yrange,
+            "kswin": ymin + 0.14 * yrange,
+            "page_hinkley": ymin + 0.18 * yrange,
+        }
+
+        used_unmatched_labels: set[str] = set()
+
+        for method, alarms in unmatched.items():
+            if not alarms:
+                continue
+
+            style = unmatched_styles[method]
+            label = style["label"]
+
+            ax.scatter(
+                alarms,
+                [unmatched_y[method]] * len(alarms),
+                marker=style["marker"],
+                s=70,
+                linewidths=1.8,
+                zorder=5,
+                label=label if label not in used_unmatched_labels else None,
             )
 
-    ax.annotate(
-        "\n".join(matched_lines),
-        xy=(
-            matched["adwin"],
-            smooth[matched["adwin"]],
-        ),
-        xytext=(
-            7200,
-            ymax - 0.07 * yrange,
-        ),
-        arrowprops={
-            "arrowstyle": "->",
-            "linewidth": 1.0,
-        },
-        fontsize=9,
-        fontweight="bold",
-        ha="left",
-        va="top",
-        bbox={
-            "boxstyle": "round,pad=0.35",
-            "alpha": 0.12,
-        },
-    )
+            used_unmatched_labels.add(label)
 
-    summary = (
-        "Frozen configuration — unmatched detections\n"
-        f"ADWIN: {len(unmatched['adwin'])}  ·  "
-        f"KSWIN: {len(unmatched['kswin'])}  ·  "
-        f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
-    )
+        # Matched detections
+        for detection in matched.values():
+            if detection is None:
+                continue
 
-    ax.text(
-        0.015,
-        0.965,
-        summary,
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=8.5,
-        style="italic",
-        bbox={
-            "boxstyle": "round,pad=0.3",
-            "alpha": 0.10,
-        },
-    )
+            ax.axvline(
+                detection,
+                linestyle="--",
+                linewidth=1.3,
+                alpha=0.85,
+            )
 
-    ax.set_title(
-        "F2 — Drift Detection on Synthetic Gradual-Drift Series (Seed 1)",
-        loc="left",
-        fontsize=14,
-        fontweight="bold",
-    )
+        matched_lines = ["MATCHED DETECTIONS"]
 
-    ax.set_xlabel("Observation")
-    ax.set_ylabel("Synthetic target")
+        for method in [
+            "adwin",
+            "kswin",
+            "page_hinkley",
+        ]:
+            detection = matched[method]
 
-    ax.grid(alpha=0.18)
+            if detection is None:
+                matched_lines.append(f"{display_name(method)}: no match")
+            else:
+                delay = detection - GRADUAL_START
 
-    ax.legend(
-        loc="lower right",
-        fontsize=8,
-        framealpha=0.9,
-    )
+                matched_lines.append(
+                    f"{display_name(method)}: {detection}  |  delay {delay} obs"
+                )
+
+        if matched["adwin"] is not None:
+            ax.annotate(
+                "\n".join(matched_lines),
+                xy=(
+                    matched["adwin"],
+                    smooth[matched["adwin"]],
+                ),
+                xytext=(
+                    7200,
+                    ymax - 0.07 * yrange,
+                ),
+                arrowprops={
+                    "arrowstyle": "->",
+                    "linewidth": 1.0,
+                },
+                fontsize=9,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                bbox={
+                    "boxstyle": "round,pad=0.35",
+                    "alpha": 0.12,
+                },
+            )
+
+        summary = (
+            "Frozen configuration + unmatched detections\n"
+            f"ADWIN: {len(unmatched['adwin'])}\n"
+            f"KSWIN: {len(unmatched['kswin'])}\n"
+            f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
+        )
+
+        ax.text(
+            0.015,
+            0.965,
+            summary,
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8.5,
+            style="italic",
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "alpha": 0.10,
+            },
+        )
+
+        ax.set_title(
+            f"F2 - Drift Detection on Synthetic Gradual-Drift Series (Seed {seed})",
+            loc="left",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+        ax.set_xlabel("Observation")
+        ax.set_ylabel("Synthetic target")
+        ax.grid(alpha=0.18)
+
+        ax.legend(
+            loc="lower right",
+            fontsize=8,
+            framealpha=0.9,
+        )
 
     fig.tight_layout()
 
@@ -643,230 +661,241 @@ def plot_recurring(
 
     dataset = "synthetic_recurring"
 
-    alarm_data = load_alarm_data(
-        runs,
-        dataset,
+    fig, axes = plt.subplots(
+        nrows=len(SEEDS),
+        ncols=1,
+        figsize=(15, 5.5 * len(SEEDS)),
+        sharex=False,
     )
 
-    series, _ = make_series(
-        "recurring",
-        n=N,
-        noise=NOISE,
-        seed=SEED,
-    )
+    if len(SEEDS) == 1:
+        axes = [axes]
 
-    series = np.asarray(series)
-    x = np.arange(len(series))
+    for ax, seed in zip(axes, SEEDS):
+        alarm_data = load_alarm_data(
+            runs,
+            dataset,
+            seed,
+        )
 
-    smooth = smooth_series(
-        series,
-        SMOOTH_WINDOW,
-    )
+        series, _ = make_series(
+            "recurring",
+            n=N,
+            noise=NOISE,
+            seed=seed,
+        )
 
-    matched: dict[str, list[int | None]] = {
-        "adwin": [],
-        "kswin": [],
-        "page_hinkley": [],
-    }
+        series = np.asarray(series)
+        x = np.arange(len(series))
 
-    unmatched: dict[str, list[int]] = {}
+        smooth = smooth_series(
+            series,
+            SMOOTH_WINDOW,
+        )
 
-    for method, df in alarm_data.items():
-        alarms = df["observation"].astype(int).tolist()
-        used: set[int] = set()
+        matched: dict[str, list[int | None]] = {
+            "adwin": [],
+            "kswin": [],
+            "page_hinkley": [],
+        }
 
-        for cp in RECURRING_CPS:
-            candidates = [
-                alarm
-                for alarm in alarms
-                if cp <= alarm <= cp + TOLERANCE and alarm not in used
-            ]
+        unmatched: dict[str, list[int]] = {}
 
-            match = candidates[0] if candidates else None
+        for method, df in alarm_data.items():
+            alarms = df["observation"].astype(int).tolist()
+            used: set[int] = set()
 
-            if match is not None:
-                used.add(match)
+            for cp in RECURRING_CPS:
+                candidates = [
+                    alarm
+                    for alarm in alarms
+                    if cp <= alarm <= cp + TOLERANCE and alarm not in used
+                ]
 
-            matched[method].append(match)
+                match = candidates[0] if candidates else None
 
-        unmatched[method] = [alarm for alarm in alarms if alarm not in used]
+                if match is not None:
+                    used.add(match)
 
-    fig, ax = plt.subplots(figsize=(15, 6.5))
+                matched[method].append(match)
 
-    ax.plot(
-        x,
-        series,
-        linewidth=0.6,
-        alpha=0.20,
-        label="Observed synthetic series",
-    )
+            unmatched[method] = [alarm for alarm in alarms if alarm not in used]
 
-    ax.plot(
-        x,
-        smooth,
-        linewidth=2.0,
-        label="15-day mean (visualisation only)",
-    )
+        ax.plot(
+            x,
+            series,
+            linewidth=0.6,
+            alpha=0.20,
+            label="Observed synthetic series",
+        )
 
-    ymin, ymax = ax.get_ylim()
-    yrange = ymax - ymin
-
-    # True recurring changepoints
-    for index, cp in enumerate(RECURRING_CPS):
-        ax.axvline(
-            cp,
+        ax.plot(
+            x,
+            smooth,
             linewidth=2.0,
-            label=("True changepoint" if index == 0 else None),
+            label="15-day mean (visualisation only)",
+        )
+
+        ymin, ymax = ax.get_ylim()
+        yrange = ymax - ymin
+
+        # True recurring changepoints
+        for index, cp in enumerate(RECURRING_CPS):
+            ax.axvline(
+                cp,
+                linewidth=2.0,
+                label="True changepoint" if index == 0 else None,
+            )
+
+            ax.text(
+                cp - 120,
+                ymin + 0.02 * yrange,
+                f"TRUE CHANGEPOINT\n{cp}",
+                ha="right",
+                va="bottom",
+                fontsize=9,
+                fontweight="bold",
+            )
+
+        # Detection lines
+        for detections in matched.values():
+            for detection in detections:
+                if detection is None:
+                    continue
+
+                ax.axvline(
+                    detection,
+                    linestyle="--",
+                    linewidth=1.3,
+                    alpha=0.85,
+                )
+
+        # First changepoint summary
+        cp1 = RECURRING_CPS[0]
+        cp1_lines = [f"MATCHED DETECTIONS | CP {cp1}"]
+
+        for method in [
+            "adwin",
+            "kswin",
+            "page_hinkley",
+        ]:
+            detection = matched[method][0]
+
+            if detection is None:
+                cp1_lines.append(f"{display_name(method)}: no match")
+            else:
+                cp1_lines.append(
+                    f"{display_name(method)}: {detection}  |  "
+                    f"delay {detection - cp1} obs"
+                )
+
+        if matched["adwin"][0] is not None:
+            ax.annotate(
+                "\n".join(cp1_lines),
+                xy=(
+                    matched["adwin"][0],
+                    smooth[matched["adwin"][0]],
+                ),
+                xytext=(
+                    7600,
+                    ymax - 0.06 * yrange,
+                ),
+                arrowprops={
+                    "arrowstyle": "->",
+                    "linewidth": 1.0,
+                },
+                fontsize=8.8,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                bbox={
+                    "boxstyle": "round,pad=0.35",
+                    "alpha": 0.12,
+                },
+            )
+
+        # Second changepoint summary
+        cp2 = RECURRING_CPS[1]
+        cp2_lines = [f"MATCHED DETECTIONS | CP {cp2}"]
+
+        for method in [
+            "adwin",
+            "kswin",
+            "page_hinkley",
+        ]:
+            detection = matched[method][1]
+
+            if detection is None:
+                cp2_lines.append(f"{display_name(method)}: no match")
+            else:
+                cp2_lines.append(
+                    f"{display_name(method)}: {detection}  |  "
+                    f"delay {detection - cp2} obs"
+                )
+
+        if matched["adwin"][1] is not None:
+            ax.annotate(
+                "\n".join(cp2_lines),
+                xy=(
+                    matched["adwin"][1],
+                    smooth[matched["adwin"][1]],
+                ),
+                xytext=(
+                    14300,
+                    ymax - 0.06 * yrange,
+                ),
+                arrowprops={
+                    "arrowstyle": "->",
+                    "linewidth": 1.0,
+                },
+                fontsize=8.8,
+                fontweight="bold",
+                ha="left",
+                va="top",
+                bbox={
+                    "boxstyle": "round,pad=0.35",
+                    "alpha": 0.12,
+                },
+            )
+
+        summary = (
+            "Frozen configuration + unmatched detections\n"
+            f"ADWIN: {len(unmatched['adwin'])}\n"
+            f"KSWIN: {len(unmatched['kswin'])}\n"
+            f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
         )
 
         ax.text(
-            cp - 120,
-            ymin + 0.02 * yrange,
-            f"TRUE CHANGEPOINT\n{cp}",
-            ha="right",
-            va="bottom",
-            fontsize=9,
+            0.015,
+            0.965,
+            summary,
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8.5,
+            style="italic",
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "alpha": 0.10,
+            },
+        )
+
+        ax.set_title(
+            f"F2 - Drift Detection on Synthetic Recurring-Drift Series (Seed {seed})",
+            loc="left",
+            fontsize=14,
             fontweight="bold",
         )
 
-    # Detection lines
-    for detections in matched.values():
-        for detection in detections:
-            if detection is None:
-                continue
+        ax.set_xlabel("Observation")
+        ax.set_ylabel("Synthetic target")
+        ax.grid(alpha=0.18)
 
-            ax.axvline(
-                detection,
-                linestyle="--",
-                linewidth=1.3,
-                alpha=0.85,
-            )
-
-    # First changepoint
-    cp1 = RECURRING_CPS[0]
-
-    cp1_lines = [f"MATCHED DETECTIONS — CP {cp1}"]
-
-    for method in [
-        "adwin",
-        "kswin",
-        "page_hinkley",
-    ]:
-        detection = matched[method][0]
-
-        if detection is None:
-            cp1_lines.append(f"{display_name(method)}: no match")
-        else:
-            cp1_lines.append(
-                f"{display_name(method)}: {detection}  ·  delay {detection - cp1} obs"
-            )
-
-    ax.annotate(
-        "\n".join(cp1_lines),
-        xy=(
-            matched["adwin"][0],
-            smooth[matched["adwin"][0]],
-        ),
-        xytext=(
-            7600,
-            ymax - 0.06 * yrange,
-        ),
-        arrowprops={
-            "arrowstyle": "->",
-            "linewidth": 1.0,
-        },
-        fontsize=8.8,
-        fontweight="bold",
-        ha="left",
-        va="top",
-        bbox={
-            "boxstyle": "round,pad=0.35",
-            "alpha": 0.12,
-        },
-    )
-
-    # Second changepoint
-    cp2 = RECURRING_CPS[1]
-
-    cp2_lines = [f"MATCHED DETECTIONS — CP {cp2}"]
-
-    for method in [
-        "adwin",
-        "kswin",
-        "page_hinkley",
-    ]:
-        detection = matched[method][1]
-
-        if detection is None:
-            cp2_lines.append(f"{display_name(method)}: no match")
-        else:
-            cp2_lines.append(
-                f"{display_name(method)}: {detection}  ·  delay {detection - cp2} obs"
-            )
-
-    ax.annotate(
-        "\n".join(cp2_lines),
-        xy=(
-            matched["adwin"][1],
-            smooth[matched["adwin"][1]],
-        ),
-        xytext=(
-            14300,
-            ymax - 0.06 * yrange,
-        ),
-        arrowprops={
-            "arrowstyle": "->",
-            "linewidth": 1.0,
-        },
-        fontsize=8.8,
-        fontweight="bold",
-        ha="left",
-        va="top",
-        bbox={
-            "boxstyle": "round,pad=0.35",
-            "alpha": 0.12,
-        },
-    )
-
-    summary = (
-        "Frozen configuration — unmatched detections\n"
-        f"ADWIN: {len(unmatched['adwin'])}  ·  "
-        f"KSWIN: {len(unmatched['kswin'])}  ·  "
-        f"Page-Hinkley: {len(unmatched['page_hinkley'])}"
-    )
-
-    ax.text(
-        0.015,
-        0.965,
-        summary,
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=8.5,
-        style="italic",
-        bbox={
-            "boxstyle": "round,pad=0.3",
-            "alpha": 0.10,
-        },
-    )
-
-    ax.set_title(
-        "F2 — Drift Detection on Synthetic Recurring-Drift Series (Seed 1)",
-        loc="left",
-        fontsize=14,
-        fontweight="bold",
-    )
-
-    ax.set_xlabel("Observation")
-    ax.set_ylabel("Synthetic target")
-
-    ax.grid(alpha=0.18)
-
-    ax.legend(
-        loc="lower right",
-        fontsize=8,
-        framealpha=0.9,
-    )
+        ax.legend(
+            loc="lower right",
+            fontsize=8,
+            framealpha=0.9,
+        )
 
     fig.tight_layout()
 
