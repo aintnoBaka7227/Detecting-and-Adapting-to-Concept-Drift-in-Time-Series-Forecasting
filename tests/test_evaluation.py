@@ -11,6 +11,7 @@ from drift_lab.evaluation import (
     build_event_windows,
     calculate_event_metrics,
     calculate_mae,
+    calculate_regime_metrics,
     calculate_rolling_mae,
     evaluate_aemo_detections,
     evaluate_detections,
@@ -354,14 +355,15 @@ def test_match_unmatch_one_to_one_chronological():
             ("E2", "2020-03-05", "2020-03-05", "day", "SA1"),
         ]
     )
-    # Mar 3 is inside E1's window [Mar 1, Mar 8] but before E2 starts;
-    # Mar 7 is inside both windows, but E2 can only take the first unused
-    # one (Mar 3 is already taken by E1).
+    # Mar 3 is inside both events' windows but before E2 starts, so it
+    # can only match E1. Mar 20 (17 days later, past the refractory
+    # window so it isn't debounced away) is also inside both windows,
+    # but E1 is already taken, so it goes to E2.
     result = match_unmatch(
-        ["2020-03-03", "2020-03-07"],
+        ["2020-03-03", "2020-03-20"],
         events,
         "SA1",
-        point_window=pd.Timedelta(days=7),
+        point_window=pd.Timedelta(days=30),
     )
 
     assert result[result["label"] == "Match"]["event_id"].tolist() == [
@@ -386,7 +388,98 @@ def test_match_unmatch_one_detection_per_event():
     matched = result[result["label"] == "Match"]
     assert len(matched) == 1
     assert matched.iloc[0]["event_id"] == "E1"
+    # Mar 3 is one day after the Mar 2 match and inside the default
+    # 14-day refractory period, so it is Ignored rather than Unmatch.
+    assert len(result[result["label"] == "Unmatch"]) == 0
+    assert len(result[result["label"] == "Ignored"]) == 1
+
+
+# --- refractory period ------------------------------------------------------
+
+
+def test_match_unmatch_followup_detection_is_ignored_within_refractory():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-02", "2020-03-10"],
+        events,
+        "SA1",
+        point_window=pd.Timedelta(days=7),
+    )
+
+    ignored = result[result["label"] == "Ignored"]
+    assert len(ignored) == 1
+    assert ignored.iloc[0]["timestamp"] == pd.Timestamp("2020-03-10")
+    assert pd.isna(ignored.iloc[0]["tier"])
+    assert pd.isna(ignored.iloc[0]["delay_days"])
+
+
+def test_match_unmatch_detection_outside_refractory_is_unmatch():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-02", "2020-03-20"],
+        events,
+        "SA1",
+        point_window=pd.Timedelta(days=7),
+    )
+
+    # Mar 20 is 18 days after the Mar 2 match, outside the default
+    # 14-day refractory period, so it counts as an independent Unmatch.
     assert len(result[result["label"] == "Unmatch"]) == 1
+    assert len(result[result["label"] == "Ignored"]) == 0
+
+
+def test_match_unmatch_refractory_period_blocks_a_later_event():
+    # The refractory filter runs on the raw stream before event
+    # matching, so a follow-up detection inside the window is dropped
+    # even though, absent the filter, it would have matched a
+    # different, later documented event.
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-03-05", "2020-03-05", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-03", "2020-03-07"],
+        events,
+        "SA1",
+        point_window=pd.Timedelta(days=7),
+    )
+
+    matched = result[result["label"] == "Match"]
+    assert matched["event_id"].tolist() == ["E1"]
+
+    ignored = result[result["label"] == "Ignored"]
+    assert len(ignored) == 1
+    assert ignored.iloc[0]["timestamp"] == pd.Timestamp("2020-03-07")
+
+
+def test_match_unmatch_custom_refractory_period():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-02", "2020-03-10"],
+        events,
+        "SA1",
+        point_window=pd.Timedelta(days=7),
+        refractory_period=pd.Timedelta(days=1),
+    )
+
+    # With a 1-day refractory period, Mar 10 (8 days after the Mar 2
+    # match) is far outside the window and counts as Unmatch.
+    assert len(result[result["label"] == "Unmatch"]) == 1
+    assert len(result[result["label"] == "Ignored"]) == 0
 
 
 def test_match_unmatch_range_event_matched_within_window():
@@ -495,15 +588,17 @@ def test_match_unmatch_rejects_invalid_tier():
 
 def test_match_unmatch_output_is_tier_ranked():
     # Tier-2 event comes first chronologically, but the output must list
-    # the Tier-1 match first, then the Tier-2 match, then Unmatch.
+    # the Tier-1 match first, then the Tier-2 match, then Unmatch. The
+    # two matching detections are kept >14 days apart so neither is
+    # debounced away by the refractory period.
     events = _tiered_events(
         [
             ("E2", "2020-03-01", "2020-03-01", "day", "SA1", 2),
-            ("E1", "2020-03-05", "2020-03-05", "day", "SA1", 1),
+            ("E1", "2020-03-25", "2020-03-25", "day", "SA1", 1),
         ]
     )
     result = match_unmatch(
-        ["2020-03-03", "2020-03-06", "2021-01-01"],
+        ["2020-03-03", "2020-03-27", "2021-01-01"],
         events,
         "SA1",
         point_window=pd.Timedelta(days=7),
@@ -555,6 +650,10 @@ def test_evaluate_aemo_detections_returns_all_keys():
     assert m["n_matched_detections"] == 1
     assert m["n_unmatched_detections"] == 0
     assert m["precision"] == pytest.approx(1.0)
+    # No Tier 1 matches and no unmatched detections at all -- nothing
+    # bears on Tier 1's precision, so it's undefined, not 0.
+    assert np.isnan(m["precision_t1"])
+    assert m["precision_t2"] == pytest.approx(1.0)
     assert m["event_recall"] == pytest.approx(1.0)
 
 
@@ -594,12 +693,16 @@ def test_calculate_event_metrics_basic():
     m = calculate_event_metrics(match_results, events, "SA1")
 
     assert m["n_total_detections"] == 3
+    assert m["n_ignored_detections"] == 0
+    assert m["n_effective_detections"] == 3
     assert m["n_matched_t1"] == 0
     assert m["n_matched_t2"] == 2
     assert m["n_unmatched_events"] == 0
     assert m["n_matched_detections"] == 2
     assert m["n_unmatched_detections"] == 1
     assert m["precision"] == pytest.approx(2 / 3)
+    assert m["precision_t1"] == pytest.approx(0.0)
+    assert m["precision_t2"] == pytest.approx(2 / 3)
     assert m["event_recall"] == pytest.approx(1.0)
 
 
@@ -617,6 +720,8 @@ def test_calculate_event_metrics_no_detections():
     assert m["n_matched_t2"] == 0
     assert m["n_unmatched_events"] == 1
     assert np.isnan(m["precision"])
+    assert np.isnan(m["precision_t1"])
+    assert np.isnan(m["precision_t2"])
     assert m["event_recall"] == pytest.approx(0.0)
 
 
@@ -641,7 +746,80 @@ def test_calculate_event_metrics_counts_by_tier():
     assert m["n_matched_t2"] == 1
     assert m["n_matched_detections"] == 2
     assert m["n_unmatched_events"] == 1
+    # Both detections matched and none were left unmatched, so each
+    # tier's own (matches + unmatched) pool is perfect -- 1.0 -- and is
+    # unaffected by the other tier's match count.
+    assert m["precision_t1"] == pytest.approx(1.0)
+    assert m["precision_t2"] == pytest.approx(1.0)
     assert m["event_recall"] == pytest.approx(2 / 3)
+
+
+def test_calculate_event_metrics_precision_per_tier_is_isolated():
+    # Tier 2 has three times as many matched events as Tier 1, plus an
+    # unmatched detection. Tier 1's precision must depend only on its
+    # own match and the unmatched detection -- not on how many Tier 2
+    # events also matched.
+    events = _aemo_events(
+        [
+            ("E1", "2020-01-01", "2020-01-01", "day", "SA1"),
+            ("E2", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E3", "2020-06-01", "2020-06-01", "day", "SA1"),
+            ("E4", "2020-09-01", "2020-09-01", "day", "SA1"),
+        ]
+    )
+    events["tier"] = [1, 2, 2, 2]
+    match_results = match_unmatch(
+        [
+            "2020-01-02",  # matches E1 (Tier 1)
+            "2020-03-02",  # matches E2 (Tier 2)
+            "2020-06-02",  # matches E3 (Tier 2)
+            "2020-09-02",  # matches E4 (Tier 2)
+            "2021-01-01",  # unmatched
+        ],
+        events,
+        "SA1",
+        point_window=pd.Timedelta(days=7),
+    )
+    m = calculate_event_metrics(match_results, events, "SA1")
+
+    assert m["n_matched_t1"] == 1
+    assert m["n_matched_t2"] == 3
+    assert m["n_unmatched_detections"] == 1
+    # Tier 1: 1 match against (1 match + 1 unmatched) = 0.5, regardless
+    # of Tier 2 having three matches instead of one.
+    assert m["precision_t1"] == pytest.approx(0.5)
+    # Tier 2: 3 matches against (3 matches + 1 unmatched) = 0.75.
+    assert m["precision_t2"] == pytest.approx(0.75)
+    # The pooled overall precision is not tier-isolated on purpose.
+    assert m["precision"] == pytest.approx(4 / 5)
+
+
+# --- calculate_regime_metrics -----------------------------------------------
+
+
+def test_calculate_regime_metrics_reports_overall_and_tier_precision():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    # Mar 1 sits inside E1's drift window ([Mar 1, Mar 2)) so it matches.
+    match_results = match_unmatch(["2020-03-01"], events, "SA1")
+    windows = build_event_windows(events, "SA1")
+    regime_results = assign_regime(["2020-03-01"], windows)
+
+    metrics = calculate_regime_metrics(match_results, regime_results)
+
+    assert metrics["drift"]["detections"] == 1
+    assert metrics["drift"]["matched_detections"] == 1
+    assert metrics["drift"]["precision"] == pytest.approx(1.0)
+    # No Tier 1 matches and no unmatched detections in this regime --
+    # nothing bears on Tier 1's precision, so it's undefined, not 0.
+    assert np.isnan(metrics["drift"]["precision_t1"])
+    assert metrics["drift"]["precision_t2"] == pytest.approx(1.0)
+    # No detections landed in pre_drift, so precision is undefined there.
+    assert metrics["pre_drift"]["detections"] == 0
+    assert np.isnan(metrics["pre_drift"]["precision"])
 
 
 # --- guard ----------------------------------------------------------------

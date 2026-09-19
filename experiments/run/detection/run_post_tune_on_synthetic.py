@@ -1,12 +1,16 @@
 """Evaluate the frozen drift detectors on canonical synthetic streams.
 
 The detector hyperparameters used here were selected using synthetic-only
-sensitivity experiments (see run_fine_tune_on_synthetic.py). This
-experiment does not tune using AEMO data.
+sensitivity experiments (see run_fine_tune_on_synthetic.py), tuned and
+frozen SEPARATELY per cadence (see post_tune_detector_configs.py). This
+experiment does not tune using AEMO data, and runs once per cadence --
+each cadence gets its own detectors, its own SAMPLES_PER_YEAR, and its
+own split_id, so the two cadences' rows and persisted detections never
+collide or overwrite each other.
 
-Outputs:
+Outputs, per cadence:
 - standard detection metrics through record_run() -- appended to
-  results/runs.csv under split_id=SPLIT_ID below, the same way
+  results/runs.csv under that cadence's split_id, the same way
   run_pre_tune_on_synthetic.py logs its (pre-tuning) rows. No table is
   written directly by this script.
 - detected changepoint indices under results/runs/<config_hash>/, via
@@ -24,9 +28,6 @@ reads its persisted detections afterwards to build the F2 companion figures
 an earlier per-(detector, drift_type) single-seed plot generated inline
 here was retired once that composite figure covered the same ground more
 completely.
-
-One simulated year is defined as:
-    48 half-hour observations/day * 365 days = 17,520 observations.
 """
 
 from __future__ import annotations
@@ -37,40 +38,42 @@ from drift_lab.config import SEEDS
 from drift_lab.evaluation.evaluation import evaluate_detections
 from drift_lab.synthetic.generator import make_series
 from experiments import results_io
-from experiments.run.detection.post_tune_detector_configs import make_post_tune_detectors
+from experiments.run.detection.post_tune_detector_configs import CADENCES, make_post_tune_detectors
 from experiments.run_harness import config_of, record_run
 
 KINDS = ("none", "sudden", "gradual", "recurring")
 
 N = 20_000
 NOISE = 1.0
-SPLIT_ID = "synthetic_full_series_20000_observations"
 
-SAMPLES_PER_DAY = 48
-DAYS_PER_YEAR = 365
-SAMPLES_PER_YEAR = SAMPLES_PER_DAY * DAYS_PER_YEAR
+SAMPLES_PER_YEAR = {
+    "daily": 365,
+    "half_hourly": 48 * 365,
+}
 
 FALSE_ALARM_BUDGET_PER_YEAR = 2.0
+
+
+def split_id_for(cadence: str) -> str:
+    return f"synthetic_full_series_20000_observations_{cadence}"
 
 
 def false_alarms_per_year(
     n_false_alarms: int,
     n_observations: int,
+    cadence: str,
 ) -> float:
-    """Annualise false alarms assuming half-hourly synthetic observations."""
-
-    simulated_years = n_observations / SAMPLES_PER_YEAR
-
+    simulated_years = n_observations / SAMPLES_PER_YEAR[cadence]
     return float(n_false_alarms / simulated_years)
 
 
-def main() -> None:
-    """Run frozen detectors over all canonical synthetic streams."""
+def run_cadence(cadence: str) -> None:
+    split_id = split_id_for(cadence)
 
-    for detector in make_post_tune_detectors():
+    for detector in make_post_tune_detectors(cadence):
 
         print(
-            f"\n=== {detector.name} | "
+            f"\n=== cadence={cadence} | {detector.name} | "
             f"{config_of(detector)} ==="
         )
 
@@ -106,6 +109,7 @@ def main() -> None:
                 annual_false_alarms = false_alarms_per_year(
                     n_false_alarms=n_false_alarms,
                     n_observations=len(series),
+                    cadence=cadence,
                 )
 
                 budget_met = (
@@ -117,7 +121,8 @@ def main() -> None:
                     **config_of(detector),
                     "parameter_selection": "synthetic_only",
                     "evaluation": "frozen_synthetic",
-                    "samples_per_year": SAMPLES_PER_YEAR,
+                    "cadence": cadence,
+                    "samples_per_year": SAMPLES_PER_YEAR[cadence],
                     "false_alarm_budget_per_year": (
                         FALSE_ALARM_BUDGET_PER_YEAR
                     ),
@@ -130,12 +135,13 @@ def main() -> None:
                     seed=seed,
                     config=config,
                     wall_clock_s=wall_clock_s,
-                    split_id=SPLIT_ID,
+                    split_id=split_id,
                     detection=(
                         detected,
                         true_changepoints,
                         len(series),
                     ),
+                    samples_per_year=SAMPLES_PER_YEAR[cadence],
                 )
 
                 results_io.dump_synthetic_detections(
@@ -155,15 +161,16 @@ def main() -> None:
                 )
 
     print(
-        f"\nFalse-alarm budget: <= "
-        f"{FALSE_ALARM_BUDGET_PER_YEAR:.1f} "
-        "false alarms per simulated year."
+        f"\ncadence={cadence}: false-alarm budget <= "
+        f"{FALSE_ALARM_BUDGET_PER_YEAR:.1f} per simulated year; "
+        f"one simulated year = {SAMPLES_PER_YEAR[cadence]:,} observations."
     )
 
-    print(
-        f"One simulated year = "
-        f"{SAMPLES_PER_YEAR:,} half-hour observations."
-    )
+
+def main() -> None:
+    """Run frozen detectors over all canonical synthetic streams, once per cadence."""
+    for cadence in CADENCES:
+        run_cadence(cadence)
 
 
 if __name__ == "__main__":
