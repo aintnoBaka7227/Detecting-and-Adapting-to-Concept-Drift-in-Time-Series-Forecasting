@@ -43,6 +43,7 @@ def record_run(
     point_tolerance: pd.Timedelta | None = None,
     period_grace: pd.Timedelta | None = None,
     samples_per_year: float | None = None,
+    test_period_days: float | None = None,
 ) -> pd.DataFrame:
     """Append one method's metrics to runs.csv and return the rows.
 
@@ -89,6 +90,13 @@ def record_run(
     daily-aggregated deployment vs. 48*365 for half-hourly) instead of
     every caller sharing one fixed assumption. Omitted (the default),
     behaviour is unchanged from before this parameter existed.
+
+    `test_period_days`, AEMO documented-event matching only: when
+    supplied, also logs `n_effective_detections` (accepted = Match +
+    Unmatch, excluding refractory-suppressed `Ignored` rows) and
+    `accepted_detections_per_year` (`n_effective_detections /
+    (test_period_days / 365)`). Omitted (the default), behaviour is
+    unchanged from before this parameter existed.
     """
     if (forecast is None) == (detection is None):
         raise ValueError("pass exactly one of forecast= / detection=")
@@ -112,7 +120,14 @@ def record_run(
         rows = build_forecast_rows(dataset, seed, region, forecast, changepoints, common)
     else:
         rows = build_detection_rows(
-            dataset, detection, common, region, point_tolerance, period_grace, samples_per_year
+            dataset,
+            detection,
+            common,
+            region,
+            point_tolerance,
+            period_grace,
+            samples_per_year,
+            test_period_days,
         )
 
     results_io.append_runs(rows)
@@ -152,7 +167,14 @@ def build_forecast_rows(dataset, seed, region, forecast, changepoints, common) -
 
 
 def build_detection_rows(
-    dataset, detection, common, region, point_tolerance=None, period_grace=None, samples_per_year=None
+    dataset,
+    detection,
+    common,
+    region,
+    point_tolerance=None,
+    period_grace=None,
+    samples_per_year=None,
+    test_period_days=None,
 ) -> list[dict]:
     detected, truth, n_samples = detection
     common = {**common, "group": "detection"}
@@ -160,7 +182,9 @@ def build_detection_rows(
     if isinstance(truth, pd.DataFrame):
         # AEMO: `truth` is a documented-event catalogue (the caller filtered
         # it to the tier + region being scored), `detected` is timestamps.
-        return build_documented_event_rows(detected, truth, common, region, point_tolerance, period_grace)
+        return build_documented_event_rows(
+            detected, truth, common, region, point_tolerance, period_grace, test_period_days
+        )
 
     if truth is None:
         # No ground truth and no event catalogue: just log the count.
@@ -199,7 +223,13 @@ def build_detection_rows(
 
 
 def build_documented_event_rows(
-    detected_timestamps, events, common, region, point_tolerance=None, period_grace=None
+    detected_timestamps,
+    events,
+    common,
+    region,
+    point_tolerance=None,
+    period_grace=None,
+    test_period_days=None,
 ) -> list[dict]:
     """AEMO documented-event matching (Table T2). The events are NOT ground
     truth — an unmatched detection is `unmatched`, never a false positive.
@@ -233,6 +263,19 @@ def build_documented_event_rows(
         build_row(common, "event_recall", metrics["event_recall"], "full"),
         build_row(common, "mean_delay_days", metrics["mean_delay_days"], "full"),
     ]
+
+    if test_period_days is not None:
+        n_effective = metrics["n_effective_detections"]
+        rows.append(build_row(common, "n_effective_detections", n_effective, "full"))
+        rows.append(
+            build_row(
+                common,
+                "accepted_detections_per_year",
+                n_effective / (test_period_days / 365.0),
+                "full",
+            )
+        )
+
     matched = match_results[match_results["label"] == "Match"]
     rows += [
         build_row(common, f"delay_{row.event_id}", row.delay_days, "full")

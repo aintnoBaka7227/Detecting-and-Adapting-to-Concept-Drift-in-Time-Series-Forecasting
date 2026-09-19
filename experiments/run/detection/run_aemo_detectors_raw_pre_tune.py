@@ -12,7 +12,7 @@ the raw detection timestamps are dumped alongside for F2.
 Feeds Figure F2, and (as a second, read-only consumer of the same rows)
 Table T2's pre-tuning + raw-30-minute sibling
 (produce_table_t2_raw_pre_tune.py) -- not the canonical Table T2, which
-reads `run_aemo_detectors_daily_post_tune.py`'s daily-aggregated,
+reads `run_aemo_detectors_standard_daily_post_tune.py`'s standard-daily,
 post-tuning rows instead.
 
 split_id "aemo_detect_raw_pre_tune_v1": detectors see the whole 2018-2023
@@ -42,7 +42,9 @@ from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SPLIT
 from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
-from drift_lab.evaluation.evaluation import INTERVAL_GRACE, POINT_WINDOW
+from drift_lab.evaluation.evaluation import INTERVAL_GRACE, POINT_WINDOW, REFRACTORY_PERIOD
+from experiments import results_io
+from experiments.run.detection.detection_artifacts import match_and_persist
 from experiments.run_harness import config_of, record_run
 
 SPLIT_ID = "aemo_detect_raw_pre_tune_v1"
@@ -76,6 +78,7 @@ def main() -> None:
         series = demand_series(region)
         events = region_events(region)
         warmup = int((series.index < TEST_START).sum())
+        test_period_days = (series.index.max() - TEST_START) / pd.Timedelta(days=1)
 
         for detector in DETECTORS:
             t0 = time.perf_counter()
@@ -85,24 +88,35 @@ def main() -> None:
             timestamps = series.index[flagged]
             test_detections = list(timestamps[timestamps >= TEST_START])
 
+            config = {
+                **config_of(detector),
+                "input_stream": "raw_30min",
+                "parameter_selection": "class_defaults",
+                "preprocessing": "none",
+                "refractory_period_days": REFRACTORY_PERIOD.days,
+                "match_point_tolerance_days": POINT_WINDOW.days,
+                "match_period_grace_days": INTERVAL_GRACE.days,
+            }
+            config_hash = results_io.config_hash(config)
+            match_results, artifacts = match_and_persist(config_hash, region, test_detections, events)
+            n_accepted = int((match_results["label"] != "Ignored").sum())
+
             record_run(
                 method=detector.name,
                 dataset="aemo",
                 region=region,
                 seed=None,
-                config={
-                    **config_of(detector),
-                    "match_point_tolerance_days": POINT_WINDOW.days,
-                    "match_period_grace_days": INTERVAL_GRACE.days,
-                },
+                config=config,
                 wall_clock_s=wall_clock_s,
                 split_id=SPLIT_ID,
                 train_samples=warmup,
                 detection=(test_detections, events, None),
+                test_period_days=test_period_days,
             )
             print(
-                f"{region} {detector.name}: {len(test_detections)} test-window "
-                f"detections ({len(flagged)} total), wall_clock={wall_clock_s:.1f}s"
+                f"{region} {detector.name}: {len(test_detections)} raw signals, "
+                f"{n_accepted} accepted after refractory ({len(flagged)} total incl. warm-up), "
+                f"wall_clock={wall_clock_s:.1f}s -- {artifacts['accepted']}"
             )
 
 

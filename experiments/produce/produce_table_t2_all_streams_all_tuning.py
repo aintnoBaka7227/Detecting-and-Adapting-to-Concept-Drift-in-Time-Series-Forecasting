@@ -2,7 +2,7 @@
 documented events, one table across the full (input stream x tuning
 stage) matrix.
 
-Same columns as produce_table_t2_daily_post_tune.py (see
+Same columns as produce_table_t2_standard_daily_post_tune.py (see
 table_t2_common.py), plus two new columns: `input_stream_type` and
 `fine_tuned` (boolean). Built by calling `table_t2_common.build_table()`
 once per one of the six single-input, single-tuning-stage experiments and
@@ -26,10 +26,10 @@ from experiments.results_io import TABLES_DIR
 COMBINATIONS = (
     ("raw_30min", False, "aemo_detect_raw_pre_tune_v1"),
     ("raw_30min", True, "aemo_detect_raw_post_tune_v1"),
-    ("daily_mean_demand", False, "aemo_detect_daily_pre_tune_v1"),
-    ("daily_mean_demand", True, "aemo_detect_daily_post_tune_v1"),
-    ("deseasonalized_half_hourly", False, "aemo_detect_deseasonalized_pre_tune_v1"),
-    ("deseasonalized_half_hourly", True, "aemo_detect_deseasonalized_post_tune_v1"),
+    ("standard_daily", False, "aemo_detect_standard_daily_pre_tune_v1"),
+    ("standard_daily", True, "aemo_detect_standard_daily_post_tune_v1"),
+    ("standard_half_hourly", False, "aemo_detect_standard_half_hourly_pre_tune_v1"),
+    ("standard_half_hourly", True, "aemo_detect_standard_half_hourly_post_tune_v1"),
 )
 
 
@@ -59,7 +59,7 @@ def main() -> None:
         TABLES_DIR / "table_t2_aemo_events_all_streams_all_tuning.png",
         title="T2 (every input stream, every tuning stage) — AEMO detection vs. documented Tier 1 events",
         subtitle=(
-            "All three input streams (raw half-hourly, daily-aggregated, deseasonalized half-hourly) "
+            "All three input streams (raw half-hourly, standard-daily, standard-half-hourly) "
             "x both tuning stages (class-default and post-tuning detector hyperparameters)."
         ),
     )
