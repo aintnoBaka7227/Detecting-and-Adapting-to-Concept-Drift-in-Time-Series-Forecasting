@@ -24,7 +24,7 @@ from __future__ import annotations
 import pandas as pd
 
 from drift_lab.config import AEMO_5MIN_END, DOCUMENTED_EVENTS_CSV, SPLIT
-from experiments.produce.chance_baseline import chance_matching_baseline, expected_matches_closed_form
+from experiments.produce.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUNS_CSV
 
 TEST_START = pd.Timestamp(SPLIT["test"][0])
@@ -56,14 +56,6 @@ def tier1_events() -> pd.DataFrame:
     return events.loc[events["tier"] == 1].sort_values("start_date")
 
 
-def all_events(region: str) -> pd.DataFrame:
-    """Every documented event (Tier 1 and Tier 2) for `region` + NEM --
-    the same catalogue evaluation.match_unmatch used for the real
-    detector run, reused unchanged for the chance-matching baseline."""
-    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
-    return events[events["region"].isin([region, "NEM"])].reset_index(drop=True)
-
-
 def latest_detection_metrics(split_id: str) -> pd.DataFrame:
     if not RUNS_CSV.exists():
         raise SystemExit(f"{RUNS_CSV} not found -- run the matching detection experiment first")
@@ -91,11 +83,10 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
     """Corrected Table T2. Tier 1 and Tier 2 precision are reported
     separately (never combined into one value -- see
     drift_lab.evaluation.calculate_event_metrics), alongside raw vs.
-    accepted (post-refractory) detection counts and, unless disabled, a
-    timestamp-level chance-matching baseline computed for each row's own
-    accepted-detection count via chance_baseline.chance_matching_baseline
-    (reusing evaluation.match_unmatch for the simulated matches -- no
-    second matching implementation)."""
+    accepted (post-refractory) detection counts and, unless disabled, the
+    chance-matching baseline: `K * (1 - (1 - w/T)^N)` for each row's own
+    accepted-detection count. Any result not clearly above that line is
+    not a result."""
     metrics = latest_detection_metrics(split_id)
     tier1 = tier1_events()
 
@@ -145,13 +136,7 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
         if include_chance_baseline:
             k_tier1 = len(tier1)
             test_days = (TEST_END - TEST_START) / pd.Timedelta(days=1)
-            baseline = chance_matching_baseline(
-                accepted_count, all_events(region), region, TEST_START, TEST_END
-            )
-            row["chance_tier1_mean"] = round(baseline["mean_tier1_matches"], 2)
-            row["chance_tier1_ci95_low"] = baseline["ci95_low"]
-            row["chance_tier1_ci95_high"] = baseline["ci95_high"]
-            row["chance_tier1_closed_form"] = round(
+            row["chance_expected_matches"] = round(
                 expected_matches_closed_form(k_tier1, test_days, accepted_count), 2
             )
 
@@ -171,16 +156,7 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
             "accepted_detection_count",
             "accepted_detections_per_year",
         ]
-        + (
-            [
-                "chance_tier1_mean",
-                "chance_tier1_ci95_low",
-                "chance_tier1_ci95_high",
-                "chance_tier1_closed_form",
-            ]
-            if include_chance_baseline
-            else []
-        )
+        + (["chance_expected_matches"] if include_chance_baseline else [])
     )
     return (
         pd.DataFrame(rows, columns=columns)

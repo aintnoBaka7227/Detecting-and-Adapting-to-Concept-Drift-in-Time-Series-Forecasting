@@ -7,10 +7,10 @@ TRAIN residual mean/std only) -- see standard_stream_common.py for the
 shared preprocessing. The detector runs continuously across TRAIN then
 Calibration then TEST (warm-up), and only TEST-period alarms are scored.
 
-Uses post_tune_detector_configs.make_post_tune_detectors(cadence="daily")
--- the daily-cadence winners chosen by run_fine_tune_on_synthetic.py's
-synthetic-only sweep. AEMO data and AEMO events were not used to choose
-these values.
+Uses post_tune_detector_configs.make_post_tune_detectors() -- the frozen
+winners chosen by run_fine_tune_on_synthetic.py's synthetic-only sweep
+(shared across every input stream). AEMO data and AEMO events were not
+used to choose these values.
 
 Matched against the *full* event catalogue for the region -- Tier 1 and
 Tier 2, not Tier 1 only.
@@ -37,7 +37,7 @@ from experiments.run.detection.standard_stream_common import TEST_START, build_s
 from experiments.run_harness import config_of, record_run
 
 SPLIT_ID = "aemo_detect_standard_daily_post_tune_v1"
-CADENCE = "daily"
+STREAM_CADENCE = "daily"  # preprocessing cadence for build_standard_stream, unrelated to detector tuning
 
 
 def region_events(region: str) -> pd.DataFrame:
@@ -48,11 +48,11 @@ def region_events(region: str) -> pd.DataFrame:
 
 def main() -> None:
     for region in REGIONS:
-        series, warmup = build_standard_stream(region, CADENCE)
+        series, warmup = build_standard_stream(region, STREAM_CADENCE)
         events = region_events(region)
         test_period_days = (series.index.max() - TEST_START) / pd.Timedelta(days=1)
 
-        for detector in make_post_tune_detectors(CADENCE):
+        for detector in make_post_tune_detectors():
             t0 = time.perf_counter()
             flagged = detector.detect(series.to_numpy())
             wall_clock_s = time.perf_counter() - t0
@@ -64,7 +64,6 @@ def main() -> None:
                 **config_of(detector),
                 "input_stream": "standard_daily",
                 "parameter_selection": "synthetic_only_budget",
-                "cadence": CADENCE,
                 "preprocessing": "seasonal_profile_daily_v1",
                 "refractory_period_days": REFRACTORY_PERIOD.days,
             }

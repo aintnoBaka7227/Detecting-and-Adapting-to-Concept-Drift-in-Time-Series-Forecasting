@@ -63,7 +63,7 @@ def main() -> None:
         TABLES_DIR / "table_t2_aemo_events_all_streams_post_tune.png",
         title="T2 (post-tuning, all input streams) — AEMO detection vs. documented Tier 1 events",
         subtitle=(
-            "Post-tuning detector hyperparameters (cadence-matched), across three input "
+            "Post-tuning (frozen) detector hyperparameters, shared across three input "
             "streams: raw half-hourly, standard-daily, and standard-half-hourly demand."
         ),
     )

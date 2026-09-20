@@ -24,7 +24,7 @@ def main() -> None:
         run_script_hint="experiments.run.detection.run_aemo_detectors_standard_half_hourly_post_tune",
         demand_for_display=standard_half_hourly_demand_for_display,
         y_label="Daily mean standardised residual (z)",
-        title_note="Post-tuning (half-hourly-cadence) detector configuration on the standard-half-hourly test stream",
+        title_note="Post-tuning (frozen) detector configuration on the standard-half-hourly test stream",
         output_prefix="f2_detection_standard_half_hourly_post_tune",
     )
 

@@ -5,8 +5,9 @@ Sibling of produce_table_t2_standard_daily_post_tune.py: identical
 columns and aggregation rules (see table_t2_common.py), pinned instead to
 run_aemo_detectors_standard_half_hourly_post_tune.py's rows --
 half-hourly AEMO demand, deseasonalised (TRAIN-fitted profile removed)
-and standardised (z-scored on TRAIN residual stats), using the
-half-hourly-cadence winners from run_fine_tune_on_synthetic.py.
+and standardised (z-scored on TRAIN residual stats), using the frozen
+winners from run_fine_tune_on_synthetic.py (shared across every input
+stream).
 
 Comparing this table to produce_table_t2_standard_daily_post_tune.py's
 output isolates cadence (daily aggregation vs. native half-hourly
@@ -36,7 +37,7 @@ def main() -> None:
         subtitle=(
             "Detection run on the standard-half-hourly stream (deseasonalised and "
             "standardised half-hourly demand), using detector hyperparameters frozen "
-            "after synthetic-only, half-hourly-cadence tuning."
+            "after synthetic-only tuning."
         ),
     )
 

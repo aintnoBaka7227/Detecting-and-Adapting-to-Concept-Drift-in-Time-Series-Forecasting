@@ -8,8 +8,9 @@ Pure pivot of `results/runs.csv`. Reads the detection rows
 
 "standard-daily" = daily-aggregated demand, deseasonalised (TRAIN-fitted
 profile removed) and standardised (z-scored on TRAIN residual stats) --
-see standard_stream_common.py. Detector hyperparameters are the
-daily-cadence winners from run_fine_tune_on_synthetic.py.
+see standard_stream_common.py. Detector hyperparameters are the frozen
+winners from run_fine_tune_on_synthetic.py (shared across every input
+stream).
 
 Per the supervisor, T2 shows Tier 1 by name, and an unmatched detection
 is reported as `unmatched`, never as a false positive.
@@ -43,7 +44,7 @@ def main() -> None:
         subtitle=(
             "Detection run on the standard-daily stream (deseasonalised and standardised "
             "daily-aggregated demand), using detector hyperparameters frozen after "
-            "synthetic-only, daily-cadence tuning."
+            "synthetic-only tuning."
         ),
     )
 

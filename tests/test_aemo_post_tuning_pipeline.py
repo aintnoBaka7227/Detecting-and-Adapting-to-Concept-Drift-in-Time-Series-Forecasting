@@ -1,24 +1,17 @@
-"""Focused tests for the AEMO post-tuning detection pipeline (req. 14):
-standard_stream_common.py, detection_artifacts.py, chance_baseline.py,
-post_tune_detector_configs.py, and the bounded/unassigned post-drift
-regime rules in drift_lab.evaluation.
+"""Focused tests for the AEMO post-tuning detection pipeline:
+standard_stream_common.py, detection_artifacts.py, chance_baseline.py
+(closed-form only), post_tune_detector_configs.py, and the
+bounded/unassigned post-drift regime rules in drift_lab.evaluation.
 """
 
 from __future__ import annotations
-
-import json
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from drift_lab.evaluation.evaluation import (
-    REFRACTORY_PERIOD,
-    assign_regime,
-    build_event_windows,
-    match_unmatch,
-)
-from experiments.produce.chance_baseline import chance_matching_baseline
+from drift_lab.evaluation.evaluation import assign_regime, build_event_windows
+from experiments.produce.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUN_COLUMNS
 
 
@@ -84,8 +77,8 @@ def test_build_standard_stream_rejects_bad_cadence():
 def test_make_post_tune_detectors_returns_fresh_instances_each_call():
     from experiments.run.detection.post_tune_detector_configs import make_post_tune_detectors
 
-    first = make_post_tune_detectors("half_hourly")
-    second = make_post_tune_detectors("half_hourly")
+    first = make_post_tune_detectors()
+    second = make_post_tune_detectors()
 
     for a, b in zip(first, second):
         assert a is not b
@@ -100,12 +93,12 @@ def test_load_winner_row_fails_loudly_when_missing(tmp_path, monkeypatch):
 
     empty_csv = tmp_path / "fine_tune_on_synthetic_winners.csv"
     pd.DataFrame(
-        columns=["detector", "cadence", "config_hash", "detector_parameters", "status"]
+        columns=["detector", "config_hash", "detector_parameters", "status"]
     ).to_csv(empty_csv, index=False)
     monkeypatch.setattr(cfg, "WINNERS_CSV", empty_csv)
 
     with pytest.raises(RuntimeError):
-        cfg.load_winner_row("adwin", "daily")
+        cfg.load_winner_row("adwin")
 
 
 def test_load_winner_row_fails_loudly_when_no_eligible_configuration(tmp_path, monkeypatch):
@@ -116,7 +109,6 @@ def test_load_winner_row_fails_loudly_when_no_eligible_configuration(tmp_path, m
         [
             {
                 "detector": "kswin",
-                "cadence": "daily",
                 "config_hash": None,
                 "detector_parameters": None,
                 "status": "no_eligible_configuration",
@@ -126,7 +118,7 @@ def test_load_winner_row_fails_loudly_when_no_eligible_configuration(tmp_path, m
     monkeypatch.setattr(cfg, "WINNERS_CSV", csv_path)
 
     with pytest.raises(RuntimeError):
-        cfg.make_post_tune_detectors("daily")
+        cfg.make_post_tune_detectors()
 
 
 # --- timestamp-based refractory filtering + accepted/raw persistence -------
@@ -178,39 +170,24 @@ def test_assign_regime_unassigned_post_drift_fallback_beyond_the_bound():
     assert labels.iloc[0]["event_id"] == "unassigned"
 
 
-# --- chance-matching baseline reproducibility -------------------------------
+# --- chance-matching baseline (closed form) ---------------------------------
 
 
-def test_chance_matching_baseline_is_reproducible():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-            ("E2", "2021-06-01", "2021-06-01", "day", "SA1"),
-        ]
+def test_expected_matches_closed_form_matches_the_stated_formula():
+    # expected matches = K * (1 - (1 - w/T)^N)
+    k_events, test_days, n_detections, window_days = 5, 1000.0, 80, 7.0
+    expected = k_events * (1 - (1 - window_days / test_days) ** n_detections)
+
+    assert expected_matches_closed_form(k_events, test_days, n_detections, window_days) == pytest.approx(
+        expected
     )
-    kwargs = dict(
-        n_detections=20,
-        events=events,
-        region="SA1",
-        test_start=pd.Timestamp("2020-03-01"),
-        test_end=pd.Timestamp("2023-12-31"),
-    )
-    first = chance_matching_baseline(**kwargs)
-    second = chance_matching_baseline(**kwargs)
+
+
+def test_expected_matches_closed_form_is_deterministic():
+    first = expected_matches_closed_form(5, 1000.0, 80, 7.0)
+    second = expected_matches_closed_form(5, 1000.0, 80, 7.0)
 
     assert first == second
-
-
-def test_chance_matching_baseline_respects_refractory_spacing():
-    events = _aemo_events([("E1", "2020-03-01", "2020-03-01", "day", "SA1")])
-    with pytest.raises(ValueError):
-        chance_matching_baseline(
-            n_detections=1000,  # infeasible at >=14 days apart in this window
-            events=events,
-            region="SA1",
-            test_start=pd.Timestamp("2020-03-01"),
-            test_end=pd.Timestamp("2020-06-01"),
-        )
 
 
 # --- runs.csv schema is unchanged -------------------------------------------

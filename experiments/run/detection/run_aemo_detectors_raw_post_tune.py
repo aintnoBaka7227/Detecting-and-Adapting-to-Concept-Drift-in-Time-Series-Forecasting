@@ -36,7 +36,6 @@ from experiments.run.detection.post_tune_detector_configs import make_post_tune_
 from experiments.run_harness import config_of, record_run
 
 SPLIT_ID = "aemo_detect_raw_post_tune_v1"
-CADENCE = "half_hourly"  # raw is native half-hourly resolution
 TEST_START = pd.Timestamp(SPLIT["test"][0])
 
 
@@ -68,7 +67,7 @@ def main() -> None:
         warmup = int((series.index < TEST_START).sum())
         test_period_days = (series.index.max() - TEST_START) / pd.Timedelta(days=1)
 
-        for detector in make_post_tune_detectors(CADENCE):
+        for detector in make_post_tune_detectors():
             t0 = time.perf_counter()
             flagged = detector.detect(series.to_numpy())
             wall_clock_s = time.perf_counter() - t0
@@ -80,7 +79,6 @@ def main() -> None:
                 **config_of(detector),
                 "input_stream": "raw_30min",
                 "parameter_selection": "synthetic_only_budget",
-                "cadence": CADENCE,
                 "preprocessing": "none",
                 "refractory_period_days": REFRACTORY_PERIOD.days,
                 "match_point_tolerance_days": POINT_WINDOW.days,

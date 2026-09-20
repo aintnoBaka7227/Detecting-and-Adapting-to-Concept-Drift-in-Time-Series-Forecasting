@@ -11,7 +11,7 @@ matching run_aemo_detectors_raw_pre_tune.py's convention.
 Sibling of run_aemo_detectors_standard_daily_post_tune.py: identical
 input stream and both-tier (Tier 1 and Tier 2) matching, but plain
 `ADWINDetector()` / `KSWINDetector()` / `PageHinkleyDetector()` defaults
-instead of the post-tuning, synthetic-tuned (daily-cadence) configs.
+instead of the post-tuning, synthetic-tuned configs.
 
 split_id "aemo_detect_standard_daily_pre_tune_v1": its own id, distinct
 from every other (stream, tuning-stage) combination.
