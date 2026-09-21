@@ -635,7 +635,6 @@ def test_evaluate_aemo_detections_returns_all_keys():
     assert m["n_matched_detections"] == 1
     assert m["n_unmatched_detections"] == 0
     assert m["precision"] == pytest.approx(1.0)
-    assert m["event_recall"] == pytest.approx(1.0)
 
 
 def test_evaluate_aemo_detections_no_match():
@@ -652,7 +651,6 @@ def test_evaluate_aemo_detections_no_match():
     assert m["n_unmatched_events"] == 1
     assert m["n_unmatched_detections"] == 1
     assert m["precision"] == pytest.approx(0.0)
-    assert m["event_recall"] == pytest.approx(0.0)
 
 
 # --- calculate_event_metrics ----------------------------------------------
@@ -679,7 +677,6 @@ def test_calculate_event_metrics_basic():
     assert m["n_matched_detections"] == 2
     assert m["n_unmatched_detections"] == 1
     assert m["precision"] == pytest.approx(2 / 3)
-    assert m["event_recall"] == pytest.approx(1.0)
 
 
 def test_calculate_event_metrics_no_detections():
@@ -695,7 +692,6 @@ def test_calculate_event_metrics_no_detections():
     assert m["n_matched_t2"] == 0
     assert m["n_unmatched_events"] == 1
     assert np.isnan(m["precision"])
-    assert m["event_recall"] == pytest.approx(0.0)
 
 
 def test_calculate_event_metrics_counts_by_tier():
@@ -720,7 +716,6 @@ def test_calculate_event_metrics_counts_by_tier():
     assert m["n_unmatched_events"] == 1
     assert m["precision_t1"] == pytest.approx(1 / 2)
     assert m["precision_t2"] == pytest.approx(1 / 2)
-    assert m["event_recall"] == pytest.approx(2 / 3)
 
 
 # --- guard ----------------------------------------------------------------

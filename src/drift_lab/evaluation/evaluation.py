@@ -1173,7 +1173,6 @@ def calculate_event_metrics(
         precision : float (n_matched_detections / n_total_detections)
         precision_t1 : float (n_matched_t1 / n_total_detections)
         precision_t2 : float (n_matched_t2 / n_total_detections)
-        event_recall : float ((n_matched_t1 + n_matched_t2) / n_events)
     """
     result = match_unmatch(detected_timestamps, events, region, tolerance)
     matched = result[result["label"] == "Match"]
@@ -1198,7 +1197,6 @@ def calculate_event_metrics(
         "precision": (len(matched) / n_total if n_total > 0 else float("nan")),
         "precision_t1": (n_matched_t1 / n_total if n_total > 0 else float("nan")),
         "precision_t2": (n_matched_t2 / n_total if n_total > 0 else float("nan")),
-        "event_recall": (n_matched_events / n_events if n_events > 0 else float("nan")),
     }
 
 
