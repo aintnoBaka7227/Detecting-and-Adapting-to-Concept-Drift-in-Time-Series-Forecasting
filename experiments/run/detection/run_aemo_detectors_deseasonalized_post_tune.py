@@ -38,9 +38,14 @@ import time
 import pandas as pd
 
 from drift_lab.aemo import loader
-from drift_lab.aemo.deseasonalise import remove_daily_weekly_profile
+from drift_lab.aemo.deseasonalise import (
+    remove_daily_weekly_profile,
+    standardise_from_reference,
+)
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from experiments.run.detection.post_tune_detector_configs import make_post_tune_detectors
+from experiments.run.detection.post_tune_detector_configs import (
+    make_post_tune_detectors,
+)
 from experiments.run_harness import config_of, record_run
 
 SPLIT_ID = "aemo_detect_deseasonalized_post_tune_v1"
@@ -56,34 +61,57 @@ def demand_series(frame: pd.DataFrame) -> pd.Series:
 
 
 def region_events(region: str) -> pd.DataFrame:
-    """Every documented event (Tier 1 *and* Tier 2) for this region + NEM."""
-    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
-    return events[events["region"].isin([region, "NEM"])].reset_index(drop=True)
+    """Every documented event (Tier 1 and Tier 2) for this region + NEM."""
+    events = pd.read_csv(
+        DOCUMENTED_EVENTS_CSV,
+        parse_dates=["start_date", "end_date"],
+    )
+    return events[
+        events["region"].isin([region, "NEM"])
+    ].reset_index(drop=True)
 
 
 def main() -> None:
     for region in REGIONS:
-        train, calibration, test = loader.load(region)
+        train, _calibration, test = loader.load(region)
 
-        # Historical data only estimates the seasonal profile; it is never
-        # supplied to detector.detect() itself.
-        seasonal_reference = pd.concat(
-            [demand_series(train), demand_series(calibration)]
-        ).sort_index()
+        # Fit all preprocessing on the training window only.
+        train_series = demand_series(train)
+        test_series = demand_series(test)
+
+        # Learn the seasonal profile from training and remove it from
+        # both the training and test demand streams.
+        deseasonalized_train = remove_daily_weekly_profile(
+            train_series,
+            reference=train_series,
+        )
 
         deseasonalized_test = remove_daily_weekly_profile(
-            demand_series(test),
-            reference=seasonal_reference,
+            test_series,
+            reference=train_series,
+        )
+
+        # Learn z-score statistics from the deseasonalised training
+        # stream and apply them unchanged to the test stream.
+        standardized_test = standardise_from_reference(
+            deseasonalized_test,
+            reference=deseasonalized_train,
         )
 
         events = region_events(region)
 
         for detector in make_post_tune_detectors():
             t0 = time.perf_counter()
-            flagged = detector.detect(deseasonalized_test.to_numpy())
+
+            flagged = detector.detect(
+                standardized_test.to_numpy()
+            )
+
             wall_clock_s = time.perf_counter() - t0
 
-            detections = list(deseasonalized_test.index[flagged])
+            detections = list(
+                standardized_test.index[flagged]
+            )
 
             record_run(
                 method=detector.name,
@@ -92,7 +120,10 @@ def main() -> None:
                 seed=None,
                 config={
                     **config_of(detector),
-                    "input_stream": "deseasonalized_half_hourly",
+                    "input_stream": (
+                        "deseasonalized_standardized_half_hourly"
+                    ),
+                    "preprocessing_fit": "training_only",
                     "parameter_selection": "synthetic_only_budget",
                 },
                 wall_clock_s=wall_clock_s,
@@ -100,9 +131,12 @@ def main() -> None:
                 train_samples=0,
                 detection=(detections, events, None),
             )
+
             print(
-                f"{region} {detector.name}: {len(detections)} detections "
-                f"on {len(deseasonalized_test)} deseasonalised test observations, "
+                f"{region} {detector.name}: "
+                f"{len(detections)} detections on "
+                f"{len(standardized_test)} deseasonalised + "
+                f"standardised test observations, "
                 f"wall_clock={wall_clock_s:.1f}s"
             )
 

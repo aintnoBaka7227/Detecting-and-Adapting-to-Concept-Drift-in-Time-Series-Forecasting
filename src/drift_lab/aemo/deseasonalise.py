@@ -1,20 +1,14 @@
-"""Reusable demand preprocessing for drift-detection experiments.
+"""Reusable AEMO demand preprocessing for drift-detection experiments.
 
-The functions in this module transform an already-cleaned demand series.
-They do not perform raw AEMO data cleaning.
-
-Two distinct preprocessing techniques are provided:
-
-1. aggregate_daily_demand()
-   Converts half-hourly demand into one mean value per complete day.
-
-2. remove_daily_weekly_profile()
-   Removes the expected weekday/half-hour demand profile from a
-   half-hourly demand series.
+The transformations in this module operate on already-cleaned demand
+series. Seasonal profiles and standardisation statistics are learned from
+a historical reference series so future observations are not used when
+estimating the preprocessing transformation.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 HALF_HOURS_PER_DAY = 48
@@ -40,29 +34,12 @@ def _validate_datetime_series(series: pd.Series) -> None:
         )
 
 
-def aggregate_daily_demand(
-    series: pd.Series,
-) -> pd.Series:
-    """Aggregate half-hourly demand into complete daily means.
-
-    A valid day must contain exactly 48 half-hourly observations.
-    Incomplete days are excluded instead of being imputed.
-
-    Parameters
-    ----------
-    series:
-        Cleaned half-hourly demand indexed by timestamp.
-
-    Returns
-    -------
-    pandas.Series
-        One mean demand value per complete day.
-    """
+def aggregate_daily_demand(series: pd.Series) -> pd.Series:
+    """Aggregate half-hourly demand into complete daily means."""
 
     _validate_datetime_series(series)
 
     grouped = series.resample("1D")
-
     counts = grouped.count()
     daily = grouped.mean()
 
@@ -79,103 +56,146 @@ def aggregate_daily_demand(
         )
 
     daily.name = series.name
-
     return daily
+
+
+def _seasonal_frame(series: pd.Series) -> pd.DataFrame:
+    """Build calendar features used by the seasonal demand profile."""
+
+    frame = pd.DataFrame({"demand": series.astype(float)})
+
+    frame["day_of_year"] = frame.index.dayofyear
+    frame["weekday"] = frame.index.dayofweek
+    frame["half_hour"] = (
+        frame.index.hour * 2
+        + frame.index.minute // 30
+    )
+
+    # Treat 29 February like 28 February so a leap-day observation does
+    # not require a seasonal cell that is absent from non-leap years.
+    leap_day = (
+        (frame.index.month == 2)
+        & (frame.index.day == 29)
+    )
+    frame.loc[leap_day, "day_of_year"] = 59
+
+    return frame
 
 
 def remove_daily_weekly_profile(
     series: pd.Series,
     reference: pd.Series,
 ) -> pd.Series:
-    """Remove the normal weekday/half-hour demand profile.
+    """Remove annual, weekly and intraday seasonality.
 
-    The expected demand is calculated separately for each combination of:
+    The seasonal profile is fitted exclusively from ``reference``.
+    It combines day-of-year, day-of-week and half-hour effects using
+    an additive decomposition around the reference mean.
 
-    - day of week: Monday to Sunday
-    - half-hour slot: 0 to 47
-
-    The expected profile is learned from ``reference`` and then subtracted
-    from ``series``.
-
-    Using a separate reference period allows experiments to learn normal
-    seasonality from historical data without using the future test stream
-    to estimate the seasonal profile.
-
-    Parameters
-    ----------
-    series:
-        Half-hourly demand series to adjust.
-
-    reference:
-        Historical half-hourly demand used to estimate the normal profile.
-
-    Returns
-    -------
-    pandas.Series
-        Seasonally adjusted demand residuals.
+    The target ``series`` is never used to fit the seasonal profile,
+    preventing information from the target/test period leaking into
+    preprocessing.
     """
 
     _validate_datetime_series(series)
     _validate_datetime_series(reference)
 
-    reference_frame = pd.DataFrame(
-        {
-            "demand": reference.astype(float),
-        }
+    reference_frame = _seasonal_frame(reference)
+    target = _seasonal_frame(series)
+
+    overall_mean = float(reference_frame["demand"].mean())
+
+    annual_effect = (
+        reference_frame.groupby("day_of_year")["demand"].mean()
+        - overall_mean
     )
 
-    reference_frame["weekday"] = (
-        reference_frame.index.dayofweek
+    weekly_effect = (
+        reference_frame.groupby("weekday")["demand"].mean()
+        - overall_mean
     )
 
-    reference_frame["half_hour"] = (
-        reference_frame.index.hour * 2
-        + reference_frame.index.minute // 30
+    intraday_effect = (
+        reference_frame.groupby("half_hour")["demand"].mean()
+        - overall_mean
     )
 
-    profile = (
-        reference_frame
-        .groupby(
-            ["weekday", "half_hour"]
-        )["demand"]
-        .mean()
+    expected = pd.Series(
+        overall_mean,
+        index=target.index,
+        dtype=float,
     )
 
-    target = pd.DataFrame(
-        {
-            "demand": series.astype(float),
-        }
+    expected += (
+        target["day_of_year"]
+        .map(annual_effect)
+        .fillna(0.0)
+        .to_numpy(dtype=float)
     )
 
-    target["weekday"] = target.index.dayofweek
-
-    target["half_hour"] = (
-        target.index.hour * 2
-        + target.index.minute // 30
+    expected += (
+        target["weekday"]
+        .map(weekly_effect)
+        .fillna(0.0)
+        .to_numpy(dtype=float)
     )
 
-    expected = pd.MultiIndex.from_arrays(
-        [
-            target["weekday"],
-            target["half_hour"],
-        ],
-        names=[
-            "weekday",
-            "half_hour",
-        ],
-    ).map(profile)
-
-    if pd.isna(expected).any():
-        raise ValueError(
-            "Seasonal reference does not contain every "
-            "weekday/half-hour combination required by the target series."
-        )
+    expected += (
+        target["half_hour"]
+        .map(intraday_effect)
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
 
     adjusted = pd.Series(
-        target["demand"].to_numpy()
-        - expected.to_numpy(),
+        target["demand"].to_numpy(dtype=float)
+        - expected.to_numpy(dtype=float),
         index=series.index,
         name=f"{series.name or 'demand'}_seasonally_adjusted",
     )
 
     return adjusted
+
+
+def standardise_from_reference(
+    series: pd.Series,
+    reference: pd.Series,
+) -> pd.Series:
+    """Z-score a series using mean and standard deviation from reference.
+
+    Statistics are fitted exclusively on ``reference`` and then applied
+    unchanged to ``series``:
+
+        z = (x - reference_mean) / reference_std
+
+    This keeps detector thresholds scale-free and prevents target/test
+    observations from influencing the transformation.
+    """
+
+    _validate_datetime_series(series)
+    _validate_datetime_series(reference)
+
+    reference_values = reference.astype(float)
+
+    mean = float(reference_values.mean())
+    std = float(reference_values.std(ddof=0))
+
+    if not np.isfinite(mean) or not np.isfinite(std):
+        raise ValueError(
+            "Reference mean and standard deviation must be finite."
+        )
+
+    if std <= 0.0:
+        raise ValueError(
+            "Reference standard deviation must be greater than zero."
+        )
+
+    standardised = (
+        series.astype(float) - mean
+    ) / std
+
+    standardised.name = (
+        f"{series.name or 'demand'}_standardised"
+    )
+
+    return standardised

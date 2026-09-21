@@ -7,6 +7,7 @@ import pytest
 from drift_lab.aemo.deseasonalise import (
     aggregate_daily_demand,
     remove_daily_weekly_profile,
+    standardise_from_reference,
 )
 
 
@@ -97,13 +98,114 @@ def test_remove_profile_output_name_and_shape():
     assert len(adjusted) == len(target)
 
 
-def test_remove_profile_raises_when_reference_missing_a_combination():
-    reference = _half_hourly_series(n_days=1)  # only covers one weekday
+def test_remove_profile_handles_unseen_calendar_combination():
+    reference = _half_hourly_series(n_days=1)
     target = _half_hourly_series(n_days=2, start="2020-04-06")
 
-    with pytest.raises(ValueError):
-        remove_daily_weekly_profile(target, reference=reference)
+    adjusted = remove_daily_weekly_profile(
+        target,
+        reference=reference,
+    )
 
+    assert len(adjusted) == len(target)
+    assert not adjusted.isna().any()
+
+
+def test_remove_profile_uses_reference_not_target_to_fit_profile():
+    reference_index = pd.date_range(
+        "2019-01-01",
+        periods=48,
+        freq="30min",
+    )
+    reference = pd.Series(
+        np.full(48, 100.0),
+        index=reference_index,
+        name="TOTALDEMAND",
+    )
+
+    target_index = pd.date_range(
+        "2020-01-01",
+        periods=48,
+        freq="30min",
+    )
+    target = pd.Series(
+        np.full(48, 150.0),
+        index=target_index,
+        name="TOTALDEMAND",
+    )
+
+    adjusted = remove_daily_weekly_profile(
+        target,
+        reference=reference,
+    )
+
+    np.testing.assert_allclose(
+        adjusted.to_numpy(),
+        50.0,
+    )
+
+
+def test_standardise_uses_reference_statistics_only():
+    reference = pd.Series(
+        [0.0, 2.0],
+        index=pd.date_range(
+            "2019-01-01",
+            periods=2,
+            freq="30min",
+        ),
+        name="residual",
+    )
+
+    target = pd.Series(
+        [1.0, 3.0],
+        index=pd.date_range(
+            "2020-01-01",
+            periods=2,
+            freq="30min",
+        ),
+        name="residual",
+    )
+
+    standardised = standardise_from_reference(
+        target,
+        reference=reference,
+    )
+
+    np.testing.assert_allclose(
+        standardised.to_numpy(),
+        [0.0, 2.0],
+    )
+
+
+def test_standardise_reference_has_zero_mean_unit_variance():
+    reference = _half_hourly_series(n_days=2)
+
+    standardised = standardise_from_reference(
+        reference,
+        reference=reference,
+    )
+
+    assert standardised.mean() == pytest.approx(0.0)
+    assert standardised.std(ddof=0) == pytest.approx(1.0)
+
+
+def test_standardise_rejects_zero_variance_reference():
+    index = pd.date_range(
+        "2019-01-01",
+        periods=48,
+        freq="30min",
+    )
+    reference = pd.Series(
+        np.ones(48),
+        index=index,
+        name="TOTALDEMAND",
+    )
+
+    with pytest.raises(ValueError):
+        standardise_from_reference(
+            reference,
+            reference=reference,
+        )
 
 def test_remove_profile_raises_on_invalid_input():
     reference = _half_hourly_series(n_days=14)
