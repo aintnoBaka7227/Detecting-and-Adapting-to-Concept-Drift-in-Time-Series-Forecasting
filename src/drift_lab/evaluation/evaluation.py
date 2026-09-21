@@ -1171,6 +1171,8 @@ def calculate_event_metrics(
         n_unmatched_detections : int
         mean_delay_days : float
         precision : float (n_matched_detections / n_total_detections)
+        precision_t1 : float (n_matched_t1 / n_total_detections)
+        precision_t2 : float (n_matched_t2 / n_total_detections)
         event_recall : float ((n_matched_t1 + n_matched_t2) / n_events)
     """
     result = match_unmatch(detected_timestamps, events, region, tolerance)
@@ -1194,6 +1196,8 @@ def calculate_event_metrics(
             float(matched["delay_days"].mean()) if len(matched) > 0 else float("nan")
         ),
         "precision": (len(matched) / n_total if n_total > 0 else float("nan")),
+        "precision_t1": (n_matched_t1 / n_total if n_total > 0 else float("nan")),
+        "precision_t2": (n_matched_t2 / n_total if n_total > 0 else float("nan")),
         "event_recall": (n_matched_events / n_events if n_events > 0 else float("nan")),
     }
 

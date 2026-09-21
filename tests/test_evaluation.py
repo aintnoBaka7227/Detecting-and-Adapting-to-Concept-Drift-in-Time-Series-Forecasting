@@ -718,6 +718,8 @@ def test_calculate_event_metrics_counts_by_tier():
     assert m["n_matched_t2"] == 1
     assert m["n_matched_detections"] == 2
     assert m["n_unmatched_events"] == 1
+    assert m["precision_t1"] == pytest.approx(1 / 2)
+    assert m["precision_t2"] == pytest.approx(1 / 2)
     assert m["event_recall"] == pytest.approx(2 / 3)
 
 
