@@ -33,6 +33,15 @@ EVENT_LABEL_LEVELS = {
 }
 
 
+def smooth_for_display(curve: pd.Series, window: int = 48 * 3) -> pd.Series:
+    """Smooth a saved rolling-MAE curve for display without changing its metric."""
+    return (
+        curve.dropna()
+        .rolling(window=window, center=True, min_periods=1)
+        .mean()
+    )
+
+
 def load_model_curves(region: str) -> dict[str, pd.Series]:
     if not RUNS_CSV.exists():
         raise SystemExit(f"{RUNS_CSV} not found -- run the baseline experiments first")
@@ -231,10 +240,21 @@ def plot_curves(ax: plt.Axes, curves: dict[str, pd.Series]) -> float:
             curve.to_numpy(),
             label=label,
             color=colour,
-            lw=1.8,
-            alpha=0.95,
-            zorder=3,
+            lw=0.8 if method == "xgboost" else 1.8,
+            alpha=0.25 if method == "xgboost" else 0.95,
+            zorder=2 if method == "xgboost" else 3,
         )
+        if method == "xgboost":
+            smooth = smooth_for_display(curve)
+            ax.plot(
+                smooth.index,
+                smooth.to_numpy(),
+                label=f"{label} smoothed",
+                color=colour,
+                lw=2.4,
+                alpha=1.0,
+                zorder=4,
+            )
         if curve.notna().any():
             peak = max(peak, float(curve.max()))
     return peak
