@@ -447,14 +447,12 @@ def test_match_unmatch_one_to_one_chronological():
     events = _aemo_events(
         [
             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-            ("E2", "2020-03-05", "2020-03-05", "day", "SA1"),
+            ("E2", "2020-03-18", "2020-03-18", "day", "SA1"),
         ]
     )
-    # Mar 3 is inside E1's window [Mar 1, Mar 8] but before E2 starts;
-    # Mar 7 is inside both windows, but E2 can only take the first unused
-    # one (Mar 3 is already taken by E1).
+    # Mar 3 is inside E1's window, and Mar 20 is inside E2's window.
     result = match_unmatch(
-        ["2020-03-03", "2020-03-07"],
+        ["2020-03-03", "2020-03-20"],
         events,
         "SA1",
         tolerance=pd.Timedelta(days=7),
@@ -473,7 +471,7 @@ def test_match_unmatch_one_detection_per_event():
         ]
     )
     result = match_unmatch(
-        ["2020-03-02", "2020-03-03"],
+        ["2020-03-02", "2020-03-20"],
         events,
         "SA1",
         tolerance=pd.Timedelta(days=7),
@@ -483,6 +481,26 @@ def test_match_unmatch_one_detection_per_event():
     assert len(matched) == 1
     assert matched.iloc[0]["event_id"] == "E1"
     assert len(result[result["label"] == "Unmatch"]) == 1
+
+
+def test_match_unmatch_applies_fourteen_day_refractory_period():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+            ("E2", "2020-03-16", "2020-03-16", "day", "SA1"),
+        ]
+    )
+    result = match_unmatch(
+        ["2020-03-01", "2020-03-15", "2020-03-16"],
+        events,
+        "SA1",
+        tolerance=pd.Timedelta(days=7),
+    )
+
+    assert result["timestamp"].tolist() == [
+        pd.Timestamp("2020-03-01"),
+        pd.Timestamp("2020-03-16"),
+    ]
 
 
 def test_match_unmatch_range_event_matched_within_window():
@@ -595,11 +613,11 @@ def test_match_unmatch_output_is_tier_ranked():
     events = _tiered_events(
         [
             ("E2", "2020-03-01", "2020-03-01", "day", "SA1", 2),
-            ("E1", "2020-03-05", "2020-03-05", "day", "SA1", 1),
+            ("E1", "2020-03-20", "2020-03-20", "day", "SA1", 1),
         ]
     )
     result = match_unmatch(
-        ["2020-03-03", "2020-03-06", "2021-01-01"],
+        ["2020-03-03", "2020-03-22", "2021-01-01"],
         events,
         "SA1",
         tolerance=pd.Timedelta(days=7),

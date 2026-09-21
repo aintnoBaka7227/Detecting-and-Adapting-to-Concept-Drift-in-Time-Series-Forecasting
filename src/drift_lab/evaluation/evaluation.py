@@ -853,6 +853,7 @@ def match_detections_to_events(
 REGIME_PRE_DRIFT_DAYS = 7
 REGIME_POST_DRIFT_DAYS = 7
 DEFAULT_AEMO_TOLERANCE = pd.Timedelta(days=7)
+DETECTION_REFRACTORY_PERIOD = pd.Timedelta(days=14)
 
 
 def build_event_windows(
@@ -992,6 +993,8 @@ def match_unmatch(
       Tier 2 event is therefore always attributed to the Tier 1 event.
     - Matching is one-to-one: the first unused detection inside a window
       is assigned to that event.
+        - Detections within the specified days of the previous retained detection are
+            ignored by the refractory period.
     - One detection matches at most one event. Matched Tier 1 and Tier 2
       detections both count as Match.
 
@@ -1036,6 +1039,11 @@ def match_unmatch(
     ).reset_index(drop=True)
 
     detected = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
+    retained = []
+    for timestamp in detected:
+        if not retained or timestamp > retained[-1] + DETECTION_REFRACTORY_PERIOD:
+            retained.append(timestamp)
+    detected = pd.DatetimeIndex(retained)
 
     used = [False] * len(detected)
     results = []
