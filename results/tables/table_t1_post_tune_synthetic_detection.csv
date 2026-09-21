@@ -1,0 +1,13 @@
+detector,drift type,delay (mean ± sd),false alarms / 10k,missed,threshold,seeds
+adwin,gradual,215 ± 0,1.0,0,delta = 0.00075,5
+adwin,none,n/a,0.0,0,delta = 0.00075,5
+adwin,recurring,16 ± 0,0.2,0,delta = 0.00075,5
+adwin,sudden,23 ± 0,0.0,0,delta = 0.00075,5
+kswin,gradual,350 ± 45,0.5,0,alpha = 0.001,5
+kswin,none,n/a,0.0,0,alpha = 0.001,5
+kswin,recurring,20 ± 2,0.1,0,alpha = 0.001,5
+kswin,sudden,29 ± 3,0.2,0,alpha = 0.001,5
+page_hinkley,gradual,265 ± 41,1.0,0,threshold = 400.0,5
+page_hinkley,none,n/a,0.0,0,threshold = 400.0,5
+page_hinkley,recurring,36 ± 6,0.0,0,threshold = 400.0,5
+page_hinkley,sudden,38 ± 11,0.0,0,threshold = 400.0,5

@@ -1,0 +1,4 @@
+method,sweep,config,all_runs_accepted,worst_false_alarms_per_year,total_missed_detections,mean_detection_delay,none_total_false_alarms,fallback
+adwin,adwin_budget_delta,{'delta': 0.00075},True,1.752,0,84.5,0,False
+kswin,kswin_budget_grid,"{'alpha': 0.001, 'window_size': 450, 'stat_size': 55, 'seed': 42}",True,0.876,0,133.0,0,False
+page_hinkley,page_hinkley_budget_grid,"{'min_instances': 20, 'delta': 0.0005, 'threshold': 400.0}",True,1.752,0,113.13333333333334,0,False
