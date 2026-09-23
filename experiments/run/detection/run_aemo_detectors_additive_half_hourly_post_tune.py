@@ -1,24 +1,30 @@
-"""AEMO detection on the full raw half-hourly stream, post-tuning (frozen)
-configs.
+"""AEMO detection on the "additive" half-hourly stream, post-tuning
+(frozen) configs.
 
-Sibling of run_aemo_detectors_raw_pre_tune.py: identical raw half-hourly
-input, warm-up-then-test-window scoring, and both-tier (Tier 1 and Tier 2)
-matching, but post_tune_detector_configs.make_post_tune_detectors() instead
-of plain class defaults.
+"additive half-hourly" = raw half-hourly demand, deseasonalised via
+drift_lab.aemo.additive_deseasonalise.remove_daily_weekly_profile()
+(TRAIN-fitted overall-mean + smoothed day-of-year + weekday/half-hour
+offsets, summed and subtracted) and standardised (z-scored on TRAIN
+residual mean/std only) -- see additive_stream_common.py for the shared
+preprocessing. This is a second, independent deseasonalisation approach
+kept fully separate from run_aemo_detectors_standard_half_hourly_post_tune.py
+and standard_stream_common.py (which fit a multiplicative profile
+instead) -- neither file is read or modified by this script.
 
-Filled a real gap: an earlier `run_post_tune_input_comparison_on_aemo.py`
-ran post-tuning detectors on raw demand, but matched against Tier 1
-events only, so its rows couldn't report a genuine
-tier2_contextual/unmatched-across-both-tiers breakdown the way
-run_aemo_detectors_standard_daily_post_tune.py / run_aemo_detectors_standard_half_hourly_post_tune.py
-can (that script was retired -- see DECISIONS.md). This script gives raw
-demand the same both-tier-matched treatment as those two, so all three
-post-tuning input streams (raw, standard-daily, standard-half-hourly) are
-comparable in one table (produce_table_t2_all_streams_post_tune.py).
+Uses post_tune_detector_configs.make_post_tune_detectors() -- the same
+frozen winners run_aemo_detectors_standard_*_post_tune.py uses, chosen by
+run_fine_tune_on_synthetic.py's synthetic-only sweep. Detector tuning is
+independent of which deseasonalisation feeds it, so no separate tuning
+pass was run for this stream.
 
-split_id "aemo_detect_raw_post_tune_v1": its own id, distinct from
-run_aemo_detectors_raw_pre_tune.py's "aemo_detect_raw_pre_tune_v1"
-(same input, pre-tuning configs instead).
+Matched against the *full* event catalogue for the region -- Tier 1 and
+Tier 2, not Tier 1 only.
+
+Each detector is run and logged completely independently: three
+detectors, three separate `record_run` calls per region, six rows total.
+
+split_id "aemo_detect_additive_half_hourly_post_tune_v1": its own id,
+never collides with any existing split_id.
 """
 
 from __future__ import annotations
@@ -27,31 +33,15 @@ import time
 
 import pandas as pd
 
-from drift_lab.aemo import loader
-from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SPLIT
-from drift_lab.evaluation.evaluation import INTERVAL_GRACE, POINT_WINDOW, REFRACTORY_PERIOD
+from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
+from drift_lab.evaluation.evaluation import REFRACTORY_PERIOD
 from experiments import results_io
+from experiments.run.detection.additive_stream_common import TEST_START, build_additive_stream
 from experiments.run.detection.detection_artifacts import match_and_persist
 from experiments.run.detection.post_tune_detector_configs import make_post_tune_detectors
 from experiments.run_harness import config_of, record_run
 
-SPLIT_ID = "aemo_detect_raw_post_tune_v1"
-TEST_START = pd.Timestamp(SPLIT["test"][0])
-
-
-def demand_series(region: str) -> pd.Series:
-    """Full standardised 30-minute demand for `region`, gaps dropped so the
-    river detectors never see NaN."""
-    frame = loader.load_processed(region)
-    return (
-        pd.Series(
-            frame["TOTALDEMAND"].to_numpy(),
-            index=pd.DatetimeIndex(frame["SETTLEMENTDATE"]),
-            name="TOTALDEMAND",
-        )
-        .dropna()
-        .sort_index()
-    )
+SPLIT_ID = "aemo_detect_additive_half_hourly_post_tune_v1"
 
 
 def region_events(region: str) -> pd.DataFrame:
@@ -62,9 +52,8 @@ def region_events(region: str) -> pd.DataFrame:
 
 def main() -> None:
     for region in REGIONS:
-        series = demand_series(region)
+        series, warmup = build_additive_stream(region)
         events = region_events(region)
-        warmup = int((series.index < TEST_START).sum())
         test_period_days = (series.index.max() - TEST_START) / pd.Timedelta(days=1)
 
         for detector in make_post_tune_detectors():
@@ -77,12 +66,10 @@ def main() -> None:
 
             config = {
                 **config_of(detector),
-                "input_stream": "raw_30min",
+                "input_stream": "additive_half_hourly",
                 "parameter_selection": "synthetic_only_budget",
-                "preprocessing": "none",
+                "preprocessing": "additive_profile_half_hourly_v1",
                 "refractory_period_days": REFRACTORY_PERIOD.days,
-                "match_point_tolerance_days": POINT_WINDOW.days,
-                "match_period_grace_days": INTERVAL_GRACE.days,
             }
             config_hash = results_io.config_hash(config)
             match_results, artifacts = match_and_persist(config_hash, region, test_detections, events)

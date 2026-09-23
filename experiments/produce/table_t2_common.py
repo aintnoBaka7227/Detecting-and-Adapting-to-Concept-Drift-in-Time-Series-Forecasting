@@ -1,27 +1,34 @@
 """Shared build logic for Table T2 (AEMO detection vs. documented events).
 
-Four sibling producers read this module, one per (tuning stage, input
-processing) combination:
+Six single-(stream, stage) producers read this module, one per (tuning
+stage, input stream) combination, plus two combined producers that call
+build_table() once per stream and concatenate:
 
-- produce_table_t2_daily_post_tune.py     post-tuning, daily-aggregated
-                                           (run_aemo_detectors_daily_post_tune.py)
-- produce_table_t2_daily_pre_tune.py      pre-tuning,  daily-aggregated
-                                           (run_aemo_detectors_daily_pre_tune.py)
-- produce_table_t2_raw_pre_tune.py        pre-tuning,  raw 30-minute
-                                           (run_aemo_detectors_raw_pre_tune.py)
-- produce_table_t2_deseasonalized_post_tune.py   post-tuning, deseasonalized
-                                           (run_aemo_detectors_deseasonalized_post_tune.py)
+- produce_table_t2_raw_pre_tune.py / _post_tune.py
+    raw 30-minute demand              (run_aemo_detectors_raw_pre_tune.py / _post_tune.py)
+- produce_table_t2_standard_daily_pre_tune.py / _post_tune.py
+    standard-daily (deseasonalised + standardised, daily-aggregated)
+                                       (run_aemo_detectors_standard_daily_pre_tune.py / _post_tune.py)
+- produce_table_t2_standard_half_hourly_pre_tune.py / _post_tune.py
+    standard-half-hourly (deseasonalised + standardised, native resolution)
+                                       (run_aemo_detectors_standard_half_hourly_pre_tune.py / _post_tune.py)
+- produce_table_t2_all_streams_post_tune.py / _all_tuning.py
+    combined views across the above
 
-All four share the same columns, Tier 1 event ordering, and disclaimer;
-they differ only in which run's `split_id` they pin.
+All share the same columns, Tier 1 event ordering, and disclaimer; they
+differ only in which run's `split_id` they pin.
 """
 
 from __future__ import annotations
 
 import pandas as pd
 
-from drift_lab.config import DOCUMENTED_EVENTS_CSV
+from drift_lab.config import AEMO_5MIN_END, DOCUMENTED_EVENTS_CSV, SPLIT
+from experiments.produce.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUNS_CSV
+
+TEST_START = pd.Timestamp(SPLIT["test"][0])
+TEST_END = pd.Timestamp(AEMO_5MIN_END)  # last date AEMO data is available through
 
 # Short column labels for the five Tier 1 events, keyed by event_id so the
 # mapping survives a reorder -- full names are still printed alongside the
@@ -72,7 +79,16 @@ def latest_detection_metrics(split_id: str) -> pd.DataFrame:
     return det[det["timestamp"] == latest_timestamp]
 
 
-def build_table(split_id: str) -> pd.DataFrame:
+def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataFrame:
+    """Corrected Table T2. Tier 1 and Tier 2 precision are reported
+    separately (never combined into one value -- see
+    drift_lab.evaluation.calculate_event_metrics), alongside raw vs.
+    post-refractory detection counts and, unless disabled, the
+    Tier-1-only chance-matching baseline: `K * (1 - (1 - w/T)^N)` with
+    K = number of Tier 1 events, for each row's own post-refractory
+    detection count. Any result not clearly above that line is not a
+    result -- but note this baseline is Tier-1-scoped only; `tier2_matched`
+    has no chance baseline to compare against."""
     metrics = latest_detection_metrics(split_id)
     tier1 = tier1_events()
 
@@ -99,17 +115,45 @@ def build_table(split_id: str) -> pd.DataFrame:
             else:
                 row[column] = round(delay)
 
+        n_matched_t1 = int(metric.get("n_matched_t1", 0))
+        n_matched_t2 = int(metric.get("n_matched_t2", 0))
+        precision_t1 = metric.get("precision_t1")
+        precision_t2 = metric.get("precision_t2")
+        raw_count = int(metric.get("n_detections", 0))
+        accepted_count = int(metric.get("n_effective_detections", 0))
+
+        row["tier1_matched"] = n_matched_t1
         row["tier1_unmatched"] = tier1_unmatched
-        row["tier2_contextual"] = int(metric.get("n_matched_t2", 0))
-        row["unmatched"] = int(metric.get("n_unmatched_events", 0))
-        precision = metric.get("precision")
-        row["precision"] = None if pd.isna(precision) else round(precision, 2)
+        row["precision_t1"] = None if pd.isna(precision_t1) else round(precision_t1, 2)
+        row["tier2_matched"] = n_matched_t2
+        row["precision_t2"] = None if pd.isna(precision_t2) else round(precision_t2, 2)
+        row["unmatched"] = int(metric.get("n_unmatched_detections", 0))
+        row["total_raw_detection"] = raw_count
+        row["post_refractory_detection_count"] = accepted_count
+
+        if include_chance_baseline:
+            k_tier1 = len(tier1)
+            test_days = (TEST_END - TEST_START) / pd.Timedelta(days=1)
+            row["chance_tier1"] = round(
+                expected_matches_closed_form(k_tier1, test_days, accepted_count), 2
+            )
+
         rows.append(row)
 
     columns = (
         ["detector", "region"]
         + [AEMO_TIER1_COLUMNS[event_id] for event_id in tier1["event_id"]]
-        + ["tier1_unmatched", "tier2_contextual", "unmatched", "precision"]
+        + [
+            "tier1_matched",
+            "tier1_unmatched",
+            "precision_t1",
+            "tier2_matched",
+            "precision_t2",
+            "unmatched",
+            "total_raw_detection",
+            "post_refractory_detection_count",
+        ]
+        + (["chance_tier1"] if include_chance_baseline else [])
     )
     return (
         pd.DataFrame(rows, columns=columns)

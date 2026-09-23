@@ -5,17 +5,17 @@ stage) combination -- the same matrix Table T2 covers:
 
 - produce_figure_f2_aemo_raw_pre_tune.py
 - produce_figure_f2_aemo_raw_post_tune.py
-- produce_figure_f2_aemo_daily_pre_tune.py
-- produce_figure_f2_aemo_daily_post_tune.py
-- produce_figure_f2_aemo_deseasonalized_pre_tune.py
-- produce_figure_f2_aemo_deseasonalized_post_tune.py
+- produce_figure_f2_aemo_standard_daily_pre_tune.py
+- produce_figure_f2_aemo_standard_daily_post_tune.py
+- produce_figure_f2_aemo_standard_half_hourly_pre_tune.py
+- produce_figure_f2_aemo_standard_half_hourly_post_tune.py
 
 Each draws one figure per (detector, region) -- test-period demand with
 Tier 1 documented events marked and stored matched/unmatched detections
 from that combination's detector run. Detections are read from their
 dumps and are never recomputed here. What differs between the six is only
 which split_id they pin, what series they display for visual context (the
-detector's own daily-aggregated input verbatim, or a daily-mean overlay of
+detector's own standard-daily input verbatim, or a daily-mean overlay of
 a half-hourly stream too dense to plot directly), and the output filename.
 """
 
@@ -31,9 +31,10 @@ from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
 
 from drift_lab.aemo import loader
-from drift_lab.aemo.deseasonalise import aggregate_daily_demand, remove_daily_weekly_profile
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from experiments.results_io import FIGURES_DIR, RUNS_CSV, detections_path
+from experiments.results_io import FIGURE2_DIR, RUNS_CSV
+from experiments.run.detection.detection_artifacts import event_assignments_path
+from experiments.run.detection.standard_stream_common import build_standard_stream
 
 DETECTORS = ("adwin", "kswin", "page_hinkley")
 DISPLAY_SMOOTH_WINDOW = 15
@@ -44,6 +45,7 @@ EVENT_LINE_COLOR = "#303030"
 PERIOD_SHADE_COLOR = "#F4A261"
 MATCH_COLOR = "#198754"
 FALSE_ALARM_COLOR = "#C62828"
+SUPPRESSED_COLOR = "#B0B6BD"
 GRID_COLOR = "#D9DEE5"
 
 
@@ -71,25 +73,19 @@ def daily_mean_of_raw_demand(region: str) -> pd.Series:
     return demand_series(test).resample("1D").mean().dropna()
 
 
-def daily_aggregated_demand(region: str) -> pd.Series:
-    """The exact daily-aggregated series the daily-input detector runs saw."""
-    test = loader.load(region)[2]
-    return aggregate_daily_demand(demand_series(test))
+def standard_daily_demand_for_display(region: str) -> pd.Series:
+    """The exact standard-daily (deseasonalised + standardised, TEST-period)
+    series the standard-daily-input detector runs saw."""
+    full, warmup = build_standard_stream(region, "daily")
+    return full.iloc[warmup:]
 
 
-def daily_mean_of_deseasonalized_demand(region: str) -> pd.Series:
-    """Daily-mean resample of the deseasonalized half-hourly series -- for
-    display only, when the detector's own input is half-hourly and too
-    dense to plot directly (deseasonalized)."""
-    train, calibration, test = loader.load(region)
-    seasonal_reference = pd.concat(
-        [demand_series(train), demand_series(calibration)]
-    ).sort_index()
-    deseasonalized = remove_daily_weekly_profile(
-        demand_series(test),
-        reference=seasonal_reference,
-    )
-    return deseasonalized.resample("1D").mean().dropna()
+def standard_half_hourly_demand_for_display(region: str) -> pd.Series:
+    """Daily-mean resample of the standard-half-hourly (deseasonalised +
+    standardised) series, TEST period only -- for display only, when the
+    detector's own input is half-hourly and too dense to plot directly."""
+    full, warmup = build_standard_stream(region, "half_hourly")
+    return full.iloc[warmup:].resample("1D").mean().dropna()
 
 
 def smoothed(values: np.ndarray, window: int) -> np.ndarray:
@@ -122,26 +118,37 @@ def detector_slice(
     method: str,
     region: str,
     split_id: str,
-) -> tuple[pd.DatetimeIndex, dict[str, float], int]:
+) -> tuple[pd.DatetimeIndex, pd.DatetimeIndex, dict[str, float], int]:
+    """Returns (accepted_detections, raw_suppressed_detections, delays,
+    recorded_unmatched). "Accepted" = Match + Unmatch rows from the
+    persisted event_assignments dump (detection_artifacts.py) --
+    refractory-ignored rows are returned separately as
+    `raw_suppressed_detections`, not folded into the plotted signal."""
     cell = metrics[(metrics["method"] == method) & (metrics["region"] == region)]
     if cell.empty:
         raise SystemExit(f"no metrics found for method={method!r}, region={region!r}, split_id={split_id!r}")
 
     values = dict(zip(cell["metric_name"], cell["metric_value"]))
     config_hash = cell["config_hash"].iloc[0]
-    dump = detections_path(config_hash, "aemo", region, None)
+    dump = event_assignments_path(config_hash, region)
 
     if not dump.exists():
-        raise SystemExit(f"detection dump not found for {method}/{region}: {dump}")
+        raise SystemExit(f"event-assignment dump not found for {method}/{region}: {dump}")
 
-    detection_frame = pd.read_csv(dump, parse_dates=["timestamp"])
-    detections = pd.DatetimeIndex(detection_frame["timestamp"]).sort_values()
+    assignments = pd.read_csv(dump, parse_dates=["timestamp"])
+    accepted = pd.DatetimeIndex(
+        assignments.loc[assignments["label"] != "Ignored", "timestamp"]
+    ).sort_values()
+    suppressed = pd.DatetimeIndex(
+        assignments.loc[assignments["label"] == "Ignored", "timestamp"]
+    ).sort_values()
+
     delays = {
         name.removeprefix("delay_"): float(value)
         for name, value in values.items()
         if name.startswith("delay_") and pd.notna(value)
     }
-    return detections, delays, int(values.get("n_unmatched_detections", 0))
+    return accepted, suppressed, delays, int(values.get("n_unmatched_detections", 0))
 
 
 def matched_detection_times(
@@ -177,7 +184,7 @@ def plot_one(
     title_note: str,
     output_prefix: str,
 ) -> None:
-    detections, delays, recorded_unmatched = detector_slice(metrics, method, region, split_id)
+    detections, suppressed, delays, recorded_unmatched = detector_slice(metrics, method, region, split_id)
     matched_times = matched_detection_times(detections, delays, events)
     matched_days = {pd.Timestamp(timestamp).normalize() for timestamp in matched_times.values()}
     unmatched = pd.DatetimeIndex(
@@ -238,6 +245,9 @@ def plot_one(
             zorder=7,
         )
 
+    for detected in suppressed:
+        ax.axvline(detected, color=SUPPRESSED_COLOR, ls=":", lw=0.6, alpha=0.5, zorder=3)
+
     for detected in unmatched:
         ax.axvline(detected, color=FALSE_ALARM_COLOR, ls="--", lw=0.9, alpha=0.65, zorder=4)
 
@@ -295,8 +305,9 @@ def plot_one(
         Line2D([], [], color=RAW_COLOR, lw=1.2, label="Daily mean"),
         Line2D([], [], color=SMOOTH_COLOR, lw=2.0, label=f"{DISPLAY_SMOOTH_WINDOW}-day mean"),
         Line2D([], [], color=EVENT_LINE_COLOR, lw=1.0, label="Documented event"),
-        Line2D([], [], color=MATCH_COLOR, lw=1.6, ls="--", label="Matched detection"),
-        Line2D([], [], color=FALSE_ALARM_COLOR, lw=0.9, ls="--", label="Unmatched detection"),
+        Line2D([], [], color=MATCH_COLOR, lw=1.6, ls="--", label="Matched (accepted)"),
+        Line2D([], [], color=FALSE_ALARM_COLOR, lw=0.9, ls="--", label="Unmatched (accepted)"),
+        Line2D([], [], color=SUPPRESSED_COLOR, lw=0.6, ls=":", label="Raw signal, refractory-suppressed"),
     ]
     ax.legend(
         handles=legend_handles,
@@ -311,7 +322,8 @@ def plot_one(
     ax.text(
         1.0,
         -0.16,
-        f"Detections: {len(detections)}  |  Matched: {len(matched_days)}  |  No match: {len(unmatched)}",
+        f"Accepted: {len(detections)}  |  Matched: {len(matched_days)}  |  No match: {len(unmatched)}"
+        f"  |  Suppressed (refractory): {len(suppressed)}",
         transform=ax.transAxes,
         ha="right",
         va="top",
@@ -320,7 +332,7 @@ def plot_one(
     )
 
     fig.tight_layout()
-    out = FIGURES_DIR / f"{output_prefix}_{method}_{region}.png"
+    out = FIGURE2_DIR / f"{output_prefix}_{method}_{region}.png"
     fig.savefig(out, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"wrote {out}")
@@ -336,7 +348,7 @@ def build_all_figures(
     output_prefix: str,
 ) -> None:
     metrics = latest_metrics(split_id, run_script_hint)
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    FIGURE2_DIR.mkdir(parents=True, exist_ok=True)
 
     for region in REGIONS:
         demand = demand_for_display(region)

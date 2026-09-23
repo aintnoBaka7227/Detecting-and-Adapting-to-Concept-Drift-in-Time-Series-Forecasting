@@ -13,7 +13,7 @@ import pandas as pd
 from matplotlib.lines import Line2D
 
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from experiments.results_io import FIGURES_DIR, RUNS_CSV, curve_path
+from experiments.results_io import FIGURE1_DIR, RUNS_CSV, curve_path
 
 MODEL_STYLE = {
     "seasonal_naive": ("Seasonal naive (lag 48)", "#198754"),
@@ -318,7 +318,7 @@ def plot_year(
     )
 
     fig.tight_layout(rect=(0, 0.035, 1, 0.95), h_pad=2.0)
-    out_path = FIGURES_DIR / f"f1_degradation_{year}.png"
+    out_path = FIGURE1_DIR / f"f1_degradation_{year}.png"
     fig.savefig(
         out_path,
         dpi=180,
@@ -330,7 +330,7 @@ def plot_year(
 
 
 def main() -> None:
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    FIGURE1_DIR.mkdir(parents=True, exist_ok=True)
     events = load_events()
     region_curves = {
         region: load_model_curves(region)

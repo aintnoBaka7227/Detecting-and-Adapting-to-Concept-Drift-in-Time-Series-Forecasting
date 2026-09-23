@@ -13,7 +13,7 @@ produce_table_t1_pre_tune.py pins to.
 from __future__ import annotations
 
 from experiments.produce.figure_f2_synthetic_common import KINDS, build_figure, load_runs
-from experiments.results_io import FIGURES_DIR
+from experiments.results_io import FIGURE2_DIR
 
 # Must match run_pre_tune_on_synthetic.py::N (its split_id_for() bakes N
 # into the prefix).
@@ -24,7 +24,7 @@ def main() -> None:
     runs = load_runs()
 
     for kind in KINDS:
-        output = FIGURES_DIR / f"f2_synthetic_pre_tune_{kind}.png"
+        output = FIGURE2_DIR / f"f2_synthetic_pre_tune_{kind}.png"
         build_figure(
             kind=kind,
             runs=runs,
