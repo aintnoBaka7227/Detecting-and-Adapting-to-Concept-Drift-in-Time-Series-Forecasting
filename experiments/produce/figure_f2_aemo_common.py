@@ -32,7 +32,7 @@ from matplotlib.transforms import blended_transform_factory
 
 from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from experiments.results_io import FIGURES_DIR, RUNS_CSV
+from experiments.results_io import FIGURE2_DIR, RUNS_CSV
 from experiments.run.detection.detection_artifacts import event_assignments_path
 from experiments.run.detection.standard_stream_common import build_standard_stream
 
@@ -332,7 +332,7 @@ def plot_one(
     )
 
     fig.tight_layout()
-    out = FIGURES_DIR / f"{output_prefix}_{method}_{region}.png"
+    out = FIGURE2_DIR / f"{output_prefix}_{method}_{region}.png"
     fig.savefig(out, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"wrote {out}")
@@ -348,7 +348,7 @@ def build_all_figures(
     output_prefix: str,
 ) -> None:
     metrics = latest_metrics(split_id, run_script_hint)
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    FIGURE2_DIR.mkdir(parents=True, exist_ok=True)
 
     for region in REGIONS:
         demand = demand_for_display(region)

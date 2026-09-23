@@ -21,6 +21,12 @@ substantially weaker residual autocorrelation -- not residual
 autocorrelation forced to exactly zero.
 
 This script does not call a detector and does not call record_run().
+
+Also saves the printed summary as a table image (plus CSV twin), split
+into a daily table and a half-hourly table -- combining them into one
+would leave every daily row's half-hour/lag-48/336/17520 columns (and
+every half-hourly row's lag-7/365 columns) empty, since those lags only
+apply to one pipeline.
 """
 
 from __future__ import annotations
@@ -34,6 +40,8 @@ from drift_lab.aemo.deseasonalise import (
     fit_seasonal_profile,
 )
 from drift_lab.config import REGIONS
+from experiments.produce.table_image import save_table_image
+from experiments.results_io import TABLES_DIR
 
 TARGET_COLUMN = "TOTALDEMAND"
 
@@ -141,6 +149,32 @@ def main() -> None:
     pd.set_option("display.float_format", lambda v: f"{v:.3f}")
 
     print(summary.to_string(index=False))
+
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    for pipeline, lags in (("daily", DAILY_LAGS), ("half_hourly", HALF_HOURLY_LAGS)):
+        columns = ["region", "split", "monthly_amplitude_before", "monthly_amplitude_after"]
+        columns += ["weekday_spread_before", "weekday_spread_after"]
+        if pipeline == "half_hourly":
+            columns += ["half_hour_spread_before", "half_hour_spread_after"]
+        for lag in lags:
+            columns += [f"autocorr_lag{lag}_before", f"autocorr_lag{lag}_after"]
+
+        table = summary.loc[summary["pipeline"] == pipeline, columns].round(3).reset_index(drop=True)
+
+        out_csv = TABLES_DIR / f"qc_residual_generalisation_{pipeline}.csv"
+        out_png = TABLES_DIR / f"qc_residual_generalisation_{pipeline}.png"
+        table.to_csv(out_csv, index=False)
+        save_table_image(
+            table,
+            out_png,
+            title=f"Residual generalisation check — {pipeline}",
+            subtitle=(
+                "TRAIN-fitted seasonal profile applied unchanged to TRAIN/Calibration/TEST; "
+                "before vs after removing it. Required pattern: substantially weaker, not exactly zero."
+            ),
+        )
+        print(f"\nwrote {out_csv}")
+        print(f"wrote {out_png}")
 
 
 if __name__ == "__main__":

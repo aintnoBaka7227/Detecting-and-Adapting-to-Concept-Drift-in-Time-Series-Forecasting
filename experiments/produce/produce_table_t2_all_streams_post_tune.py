@@ -28,7 +28,7 @@ import pandas as pd
 
 from experiments.produce.table_image import save_table_image
 from experiments.produce.table_t2_common import DISCLAIMER, build_table, tier1_events
-from experiments.results_io import TABLES_DIR
+from experiments.results_io import TABLE2_DIR
 
 # Must match each script's own SPLIT_ID.
 INPUT_STREAM_SPLIT_IDS = {
@@ -55,12 +55,12 @@ def build_combined_table() -> pd.DataFrame:
 
 def main() -> None:
     table = build_combined_table()
-    TABLES_DIR.mkdir(parents=True, exist_ok=True)
-    out = TABLES_DIR / "table_t2_aemo_events_all_streams_post_tune.csv"
+    TABLE2_DIR.mkdir(parents=True, exist_ok=True)
+    out = TABLE2_DIR / "table_t2_aemo_events_all_streams_post_tune.csv"
     table.to_csv(out, index=False)
     image_path = save_table_image(
         table,
-        TABLES_DIR / "table_t2_aemo_events_all_streams_post_tune.png",
+        TABLE2_DIR / "table_t2_aemo_events_all_streams_post_tune.png",
         title="T2 (post-tuning, all input streams) — AEMO detection vs. documented Tier 1 events",
         subtitle=(
             "Post-tuning (frozen) detector hyperparameters, shared across three input "

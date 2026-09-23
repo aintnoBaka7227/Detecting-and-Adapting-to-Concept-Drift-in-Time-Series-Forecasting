@@ -20,7 +20,7 @@ import pandas as pd
 
 from experiments.produce.table_image import save_table_image
 from experiments.produce.table_t2_common import DISCLAIMER, build_table, tier1_events
-from experiments.results_io import TABLES_DIR
+from experiments.results_io import TABLE2_DIR
 
 # Must match each script's own SPLIT_ID.
 COMBINATIONS = (
@@ -51,12 +51,12 @@ def build_combined_table() -> pd.DataFrame:
 
 def main() -> None:
     table = build_combined_table()
-    TABLES_DIR.mkdir(parents=True, exist_ok=True)
-    out = TABLES_DIR / "table_t2_aemo_events_all_streams_all_tuning.csv"
+    TABLE2_DIR.mkdir(parents=True, exist_ok=True)
+    out = TABLE2_DIR / "table_t2_aemo_events_all_streams_all_tuning.csv"
     table.to_csv(out, index=False)
     image_path = save_table_image(
         table,
-        TABLES_DIR / "table_t2_aemo_events_all_streams_all_tuning.png",
+        TABLE2_DIR / "table_t2_aemo_events_all_streams_all_tuning.png",
         title="T2 (every input stream, every tuning stage) — AEMO detection vs. documented Tier 1 events",
         subtitle=(
             "All three input streams (raw half-hourly, standard-daily, standard-half-hourly) "

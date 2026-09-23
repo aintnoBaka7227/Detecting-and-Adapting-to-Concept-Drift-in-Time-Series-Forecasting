@@ -16,7 +16,8 @@ instead of only a QC check:
 The detector then runs continuously across TRAIN -> Calibration -> TEST,
 exactly like run_aemo_detectors_raw_*.py -- one instance is warmed up
 over TRAIN + Calibration before TEST-period alarms are scored, rather
-than being created cold at the TEST boundary.
+than being created cold at the TEST boundary. Per the supervisor's
+requested warm-up rule (see SHARED_DECISIONS.md Section 15).
 """
 
 from __future__ import annotations

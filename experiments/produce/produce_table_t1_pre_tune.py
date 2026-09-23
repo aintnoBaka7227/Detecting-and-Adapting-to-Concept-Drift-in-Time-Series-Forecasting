@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from experiments.produce.table_image import save_table_image
 from experiments.produce.table_t1_common import build_table
-from experiments.results_io import TABLES_DIR
+from experiments.results_io import TABLE1_DIR
 
 # Must match run_pre_tune_on_synthetic.py::N (its split_id_for() bakes N into
 # the prefix). A pre-tuning run always uses this prefix family, never the
@@ -29,12 +29,12 @@ PRE_TUNE_SPLIT_PREFIX = "synth_n20000_cp"
 
 def main() -> None:
     table = build_table(lambda split_id: split_id.str.startswith(PRE_TUNE_SPLIT_PREFIX))
-    TABLES_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = TABLES_DIR / "table_t1_pre_tune_synthetic_detection.csv"
+    TABLE1_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = TABLE1_DIR / "table_t1_pre_tune_synthetic_detection.csv"
     table.to_csv(out_path, index=False)
     image_path = save_table_image(
         table,
-        TABLES_DIR / "table_t1_pre_tune_synthetic_detection.png",
+        TABLE1_DIR / "table_t1_pre_tune_synthetic_detection.png",
         title="T1 (pre-tuning) — Synthetic drift detection",
         subtitle="Detector hyperparameters are class defaults, not yet tuned against the false-alarm budget.",
     )

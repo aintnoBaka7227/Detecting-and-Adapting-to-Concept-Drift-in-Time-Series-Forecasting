@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from experiments.produce.table_image import save_table_image
 from experiments.produce.table_t1_common import build_table, latest_synthetic_detection_rows
-from experiments.results_io import TABLES_DIR
+from experiments.results_io import TABLE1_DIR
 from experiments.run.detection.run_post_tune_on_synthetic import SAMPLES_PER_YEAR, SPLIT_ID
 
-OUTPUT_CSV = TABLES_DIR / "table_t1_post_tune_synthetic_detection.csv"
-OUTPUT_PNG = TABLES_DIR / "table_t1_post_tune_synthetic_detection.png"
+OUTPUT_CSV = TABLE1_DIR / "table_t1_post_tune_synthetic_detection.csv"
+OUTPUT_PNG = TABLE1_DIR / "table_t1_post_tune_synthetic_detection.png"
 
 
 def add_false_alarms_per_year_column(table, samples_per_year: int):
@@ -54,7 +54,7 @@ def add_false_alarms_per_year_column(table, samples_per_year: int):
 
 
 def main() -> None:
-    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    TABLE1_DIR.mkdir(parents=True, exist_ok=True)
 
     table = build_table(lambda s: s == SPLIT_ID)
     table = add_false_alarms_per_year_column(table, SAMPLES_PER_YEAR)

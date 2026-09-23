@@ -1176,18 +1176,14 @@ def calculate_event_metrics(match_results, events, region):
     REFRACTORY_PERIOD / match_unmatch -- since those are treated as
     repeats of an already-credited drift, not independent detections).
 
-    `precision_t1` and `precision_t2` are each computed in isolation:
-    a tier's matches are weighed only against unmatched detections,
-    never against the other tier's matches. Tier 2 has far more
-    documented events than Tier 1, so pooling both tiers into one
-    denominator (as the overall `precision` does) would let Tier 2's
-    much larger match count dominate and dilute Tier 1's apparent
-    precision even though the two tiers' detections are unrelated. A
-    detection matched to the other tier is therefore excluded from a
-    tier's own precision entirely -- it is neither a hit nor a miss for
-    that tier -- so `precision_t1 == nan` when there are zero Tier 1
-    matches and zero unmatched detections (nothing bears on Tier 1's
-    precision at all), rather than misreporting 0.
+    `precision_t1` and `precision_t2` use the same pooled denominator as
+    the overall `precision`: each tier's own match count divided by all
+    effective (accepted) detections, i.e. `precision_t1 = n_matched_t1 /
+    n_effective`. This means a detection matched to the other tier still
+    counts in a tier's own denominator even though it isn't a hit for
+    that tier -- both `precision_t1` and `precision_t2` are therefore
+    bounded by the overall `precision` and share its `nan` condition
+    (zero effective detections).
     """
     matched = match_results[
         match_results["label"] == "Match"
@@ -1241,13 +1237,13 @@ def calculate_event_metrics(match_results, events, region):
             else float("nan")
         ),
         "precision_t1": (
-            n_matched_t1 / (n_matched_t1 + len(unmatched))
-            if (n_matched_t1 + len(unmatched)) > 0
+            n_matched_t1 / n_effective
+            if n_effective > 0
             else float("nan")
         ),
         "precision_t2": (
-            n_matched_t2 / (n_matched_t2 + len(unmatched))
-            if (n_matched_t2 + len(unmatched)) > 0
+            n_matched_t2 / n_effective
+            if n_effective > 0
             else float("nan")
         ),
         "event_recall": (
@@ -1264,11 +1260,10 @@ def calculate_regime_metrics(match_results, regime_results):
     Overall `precision` is matched / effective detections per regime
     (effective excludes rows labelled "Ignored" by the refractory
     period -- see REFRACTORY_PERIOD / match_unmatch). `precision_t1`
-    and `precision_t2` are each computed in isolation -- a tier's
-    matches are weighed only against that regime's unmatched
-    detections, never against the other tier's matches -- so Tier 2's
-    much larger event count cannot dilute Tier 1's precision (see
-    calculate_event_metrics for the full rationale).
+    and `precision_t2` use the same pooled per-regime denominator as
+    the overall `precision` -- each tier's own match count divided by
+    that regime's effective detections (see calculate_event_metrics for
+    the same convention at the whole-run level).
 
     Parameters
     ----------
@@ -1349,13 +1344,13 @@ def calculate_regime_metrics(match_results, regime_results):
                 else float("nan")
             ),
             "precision_t1": (
-                tier1_matched / (tier1_matched + n_unmatched)
-                if (tier1_matched + n_unmatched) > 0
+                tier1_matched / n_effective
+                if n_effective > 0
                 else float("nan")
             ),
             "precision_t2": (
-                tier2_matched / (tier2_matched + n_unmatched)
-                if (tier2_matched + n_unmatched) > 0
+                tier2_matched / n_effective
+                if n_effective > 0
                 else float("nan")
             ),
         }

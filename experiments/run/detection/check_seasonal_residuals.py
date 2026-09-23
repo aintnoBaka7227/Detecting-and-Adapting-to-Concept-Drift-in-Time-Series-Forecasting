@@ -150,24 +150,39 @@ def standardise(
 def plot_standardised(
     region: str,
     pipeline: str,
+    train_demand: pd.Series,
+    calibration_demand: pd.Series,
+    test_demand: pd.Series,
     train_z: pd.Series,
     calibration_z: pd.Series,
     test_z: pd.Series,
 ) -> None:
-    """Plot the Step 3 standardised series across all three splits."""
+    """Plot the pre-deseasonalisation demand (top) against the Step 3
+    standardised residual (bottom) across all three splits, sharing a
+    time axis. For the daily pipeline, `train_demand`/etc. must already
+    be daily-aggregated -- raw half-hourly demand plotted at daily-residual
+    resolution would not be a fair visual comparison."""
 
-    fig, ax = plt.subplots(figsize=(12, 4))
+    fig, (ax_demand, ax_z) = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
 
-    ax.plot(train_z.index, train_z.to_numpy(), linewidth=0.6, label="train_z", color="tab:blue")
-    ax.plot(calibration_z.index, calibration_z.to_numpy(), linewidth=0.6, label="calibration_z", color="tab:orange")
-    ax.plot(test_z.index, test_z.to_numpy(), linewidth=0.6, label="test_z", color="tab:green")
+    ax_demand.plot(train_demand.index, train_demand.to_numpy(), linewidth=0.6, label="train", color="tab:blue")
+    ax_demand.plot(calibration_demand.index, calibration_demand.to_numpy(), linewidth=0.6, label="calibration", color="tab:orange")
+    ax_demand.plot(test_demand.index, test_demand.to_numpy(), linewidth=0.6, label="test", color="tab:green")
+    demand_kind = "daily-aggregated" if pipeline == "daily" else "half-hourly"
+    ax_demand.set_title(f"{region} {pipeline}: demand before deseasonalisation ({demand_kind})")
+    ax_demand.set_ylabel("demand")
+    ax_demand.legend()
+
+    ax_z.plot(train_z.index, train_z.to_numpy(), linewidth=0.6, label="train_z", color="tab:blue")
+    ax_z.plot(calibration_z.index, calibration_z.to_numpy(), linewidth=0.6, label="calibration_z", color="tab:orange")
+    ax_z.plot(test_z.index, test_z.to_numpy(), linewidth=0.6, label="test_z", color="tab:green")
 
     for level in (-3, -2, -1, 0, 1, 2, 3):
-        ax.axhline(level, color="black", linewidth=0.5 if level == 0 else 0.3, linestyle="-" if level == 0 else "--")
+        ax_z.axhline(level, color="black", linewidth=0.5 if level == 0 else 0.3, linestyle="-" if level == 0 else "--")
 
-    ax.set_title(f"{region} {pipeline}: standardised residual (z-score, TRAIN mean/std)")
-    ax.set_ylabel("z")
-    ax.legend()
+    ax_z.set_title(f"{region} {pipeline}: standardised residual (z-score, TRAIN mean/std)")
+    ax_z.set_ylabel("z")
+    ax_z.legend()
     fig.tight_layout()
 
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -240,8 +255,26 @@ def main() -> None:
             f"{region} half_hourly",
         )
 
-        plot_standardised(region, "daily", train_daily_z, calibration_daily_z, test_daily_z)
-        plot_standardised(region, "half_hourly", train_half_hourly_z, calibration_half_hourly_z, test_half_hourly_z)
+        plot_standardised(
+            region,
+            "daily",
+            train_daily,
+            calibration_daily,
+            test_daily,
+            train_daily_z,
+            calibration_daily_z,
+            test_daily_z,
+        )
+        plot_standardised(
+            region,
+            "half_hourly",
+            train_s,
+            calibration_s,
+            test_s,
+            train_half_hourly_z,
+            calibration_half_hourly_z,
+            test_half_hourly_z,
+        )
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from experiments.produce.table_image import save_table_image
 from experiments.produce.table_t2_common import DISCLAIMER, build_table, tier1_events
-from experiments.results_io import TABLES_DIR
+from experiments.results_io import TABLE2_DIR
 
 # Must match run_aemo_detectors_standard_daily_pre_tune.py::SPLIT_ID.
 SPLIT_ID = "aemo_detect_standard_daily_pre_tune_v1"
@@ -20,12 +20,12 @@ SPLIT_ID = "aemo_detect_standard_daily_pre_tune_v1"
 
 def main() -> None:
     table = build_table(SPLIT_ID)
-    TABLES_DIR.mkdir(parents=True, exist_ok=True)
-    out = TABLES_DIR / "table_t2_aemo_events_standard_daily_pre_tune.csv"
+    TABLE2_DIR.mkdir(parents=True, exist_ok=True)
+    out = TABLE2_DIR / "table_t2_aemo_events_standard_daily_pre_tune.csv"
     table.to_csv(out, index=False)
     image_path = save_table_image(
         table,
-        TABLES_DIR / "table_t2_aemo_events_standard_daily_pre_tune.png",
+        TABLE2_DIR / "table_t2_aemo_events_standard_daily_pre_tune.png",
         title="T2 (pre-tuning, standard-daily) — AEMO detection vs. documented Tier 1 events",
         subtitle=(
             "Detection run on the standard-daily stream (deseasonalised and standardised "

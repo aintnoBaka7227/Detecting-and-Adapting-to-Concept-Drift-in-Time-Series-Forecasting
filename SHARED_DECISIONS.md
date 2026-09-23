@@ -231,13 +231,13 @@ Metric definitions:
 
 `detection precision = matched accepted detections / accepted detections`
 
-Tier-specific precision uses an isolated denominator, not the pooled one above:
+Tier-specific precision uses the same pooled denominator as the overall `detection precision` above, applied per tier:
 
-`tier X detection precision = tier X matched accepted detections / (tier X matched accepted detections + unmatched accepted detections)`
+`tier X detection precision = tier X matched accepted detections / accepted detections`
 
-Tier 2 has far more documented events than Tier 1. Applying the pooled `detection precision` formula separately per tier would let Tier 2's larger match count inflate the shared denominator and dilute Tier 1's reported precision, even though the two tiers' detections are otherwise unrelated to each other. Under the isolated formula, a detection matched to the other tier counts toward neither a tier's numerator nor its denominator. The pooled formula above remains the correct definition for the single overall `detection precision` value; only the Tier 1 / Tier 2 split uses the isolated version.
+A detection matched to the other tier still counts in the denominator even though it is not a hit for the tier being scored, so `precision_t1` and `precision_t2` are both bounded by the overall `detection precision` and share its zero-detections `nan` condition.
 
-Tier-specific event coverage does not have this problem and keeps the pooled-looking formula above applied per tier (`tier X events matched at least once / tier X target events`), since coverage is defined over each tier's own event set, not over a shared detection pool.
+Tier-specific event coverage keeps the pooled-looking formula above applied per tier (`tier X events matched at least once / tier X target events`), since coverage is defined over each tier's own event set, not over a shared detection pool.
 
 ## 12. Chance-matching baseline
 
@@ -315,10 +315,10 @@ These items are not final and must be agreed before the final experiments.
 
 | Decision needed | Current options |
 |---|---|
-| Detector warm-up | Supervisor requested TRAIN warm-up; Team 42 proposed January–February 2020 Calibration errors |
+| Detector warm-up | Supervisor requested TRAIN warm-up; Team 42 proposed January–February 2020 Calibration errors. Team 41 has implemented the supervisor's requested TRAIN + Calibration warm-up |
 | Team 42 TRAIN errors | Use causal out-of-fold TRAIN errors, or fit error scaling on Calibration |
 | Refractory period | Confirm the proposed 14 calendar days |
-| Tier-specific precision formula | Confirm the isolated-denominator definition added to Section 11 (Team 41 implemented and requested this change; this document previously stated only the pooled formula, applied per tier, which lets Tier 2's larger event count dilute Tier 1's reported precision) |
+| Tier-specific precision formula | Confirm the pooled-denominator definition in Section 11 (Team 41 reverted to this from the isolated-denominator version; each tier's matched count is now divided by all accepted detections, the same denominator as the overall `detection precision`) |
 | Overlapping event windows | Freeze one deterministic event-priority rule |
 | COVID start | Confirm the cited late-March date/window |
 | Final detector parameters | Insert the exact frozen ADWIN, KSWIN and Page-Hinkley settings selected by T1 |

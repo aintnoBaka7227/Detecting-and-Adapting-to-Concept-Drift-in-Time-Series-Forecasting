@@ -12,7 +12,7 @@ for the pre-tuning sibling.
 from __future__ import annotations
 
 from experiments.produce.figure_f2_synthetic_common import KINDS, build_figure, load_runs
-from experiments.results_io import FIGURES_DIR
+from experiments.results_io import FIGURE2_DIR
 from experiments.run.detection.run_post_tune_on_synthetic import SPLIT_ID
 
 
@@ -20,7 +20,7 @@ def main() -> None:
     runs = load_runs()
 
     for kind in KINDS:
-        output = FIGURES_DIR / f"f2_synthetic_post_tune_{kind}.png"
+        output = FIGURE2_DIR / f"f2_synthetic_post_tune_{kind}.png"
         build_figure(
             kind=kind,
             runs=runs,

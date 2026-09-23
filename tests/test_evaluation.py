@@ -650,9 +650,10 @@ def test_evaluate_aemo_detections_returns_all_keys():
     assert m["n_matched_detections"] == 1
     assert m["n_unmatched_detections"] == 0
     assert m["precision"] == pytest.approx(1.0)
-    # No Tier 1 matches and no unmatched detections at all -- nothing
-    # bears on Tier 1's precision, so it's undefined, not 0.
-    assert np.isnan(m["precision_t1"])
+    # precision_t1/precision_t2 share the overall pooled denominator
+    # (effective detections), so a Tier 1 miss with zero Tier 1 matches
+    # here is a real 0, not undefined.
+    assert m["precision_t1"] == pytest.approx(0.0)
     assert m["precision_t2"] == pytest.approx(1.0)
     assert m["event_recall"] == pytest.approx(1.0)
 
@@ -746,19 +747,19 @@ def test_calculate_event_metrics_counts_by_tier():
     assert m["n_matched_t2"] == 1
     assert m["n_matched_detections"] == 2
     assert m["n_unmatched_events"] == 1
-    # Both detections matched and none were left unmatched, so each
-    # tier's own (matches + unmatched) pool is perfect -- 1.0 -- and is
-    # unaffected by the other tier's match count.
-    assert m["precision_t1"] == pytest.approx(1.0)
-    assert m["precision_t2"] == pytest.approx(1.0)
+    # precision_t1/precision_t2 share the pooled effective-detections
+    # denominator (2 here: both detections matched, none unmatched), so
+    # each tier's own single match yields 1/2, not a tier-isolated 1.0.
+    assert m["precision_t1"] == pytest.approx(0.5)
+    assert m["precision_t2"] == pytest.approx(0.5)
     assert m["event_recall"] == pytest.approx(2 / 3)
 
 
-def test_calculate_event_metrics_precision_per_tier_is_isolated():
+def test_calculate_event_metrics_precision_per_tier_uses_pooled_denominator():
     # Tier 2 has three times as many matched events as Tier 1, plus an
-    # unmatched detection. Tier 1's precision must depend only on its
-    # own match and the unmatched detection -- not on how many Tier 2
-    # events also matched.
+    # unmatched detection. precision_t1/precision_t2 both divide by the
+    # same pooled effective-detections count, so Tier 1's own precision
+    # is reduced by Tier 2's much larger match count.
     events = _aemo_events(
         [
             ("E1", "2020-01-01", "2020-01-01", "day", "SA1"),
@@ -785,12 +786,10 @@ def test_calculate_event_metrics_precision_per_tier_is_isolated():
     assert m["n_matched_t1"] == 1
     assert m["n_matched_t2"] == 3
     assert m["n_unmatched_detections"] == 1
-    # Tier 1: 1 match against (1 match + 1 unmatched) = 0.5, regardless
-    # of Tier 2 having three matches instead of one.
-    assert m["precision_t1"] == pytest.approx(0.5)
-    # Tier 2: 3 matches against (3 matches + 1 unmatched) = 0.75.
-    assert m["precision_t2"] == pytest.approx(0.75)
-    # The pooled overall precision is not tier-isolated on purpose.
+    # n_effective = 1 + 3 + 1 = 5 (matched_t1 + matched_t2 + unmatched),
+    # shared by every precision value below.
+    assert m["precision_t1"] == pytest.approx(1 / 5)
+    assert m["precision_t2"] == pytest.approx(3 / 5)
     assert m["precision"] == pytest.approx(4 / 5)
 
 
@@ -813,9 +812,9 @@ def test_calculate_regime_metrics_reports_overall_and_tier_precision():
     assert metrics["drift"]["detections"] == 1
     assert metrics["drift"]["matched_detections"] == 1
     assert metrics["drift"]["precision"] == pytest.approx(1.0)
-    # No Tier 1 matches and no unmatched detections in this regime --
-    # nothing bears on Tier 1's precision, so it's undefined, not 0.
-    assert np.isnan(metrics["drift"]["precision_t1"])
+    # precision_t1/precision_t2 share this regime's pooled effective
+    # count (1), so zero Tier 1 matches here is a real 0, not undefined.
+    assert metrics["drift"]["precision_t1"] == pytest.approx(0.0)
     assert metrics["drift"]["precision_t2"] == pytest.approx(1.0)
     # No detections landed in pre_drift, so precision is undefined there.
     assert metrics["pre_drift"]["detections"] == 0

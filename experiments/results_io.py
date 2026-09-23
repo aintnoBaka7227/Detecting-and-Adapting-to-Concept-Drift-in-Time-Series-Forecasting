@@ -17,6 +17,14 @@ RUNS_DIR = RESULTS_DIR / "runs"
 FIGURES_DIR = RESULTS_DIR / "figures"
 TABLES_DIR = RESULTS_DIR / "tables"
 
+# Subfolders for the four canonical report artifacts. Anything that isn't
+# Table 1/2 or Figure 1/2 (fine-tune sweep dumps, clock diagnostics, QC
+# plots) stays directly under TABLES_DIR/FIGURES_DIR.
+TABLE1_DIR = TABLES_DIR / "table1"
+TABLE2_DIR = TABLES_DIR / "table2"
+FIGURE1_DIR = FIGURES_DIR / "figure1"
+FIGURE2_DIR = FIGURES_DIR / "figure2"
+
 RUN_COLUMNS = [
     "group",
     "method",
