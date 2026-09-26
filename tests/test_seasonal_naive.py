@@ -7,6 +7,9 @@ import pytest
 from drift_lab.aemo import loader
 from drift_lab.config import DATA_DIR, RAW_DATA_DIR, REGIONS
 from drift_lab.forecasting.seasonal_naive import SeasonalNaive
+from drift_lab.forecasting.seasonal_naive_aditya import (
+    SeasonalNaive as AdityaSeasonalNaive,
+)
 
 
 def _demand_series(frame):
@@ -42,6 +45,37 @@ def test_forecast_is_the_value_one_season_ago():
 
     # season_length=2 -> each forecast is the observation two steps earlier.
     np.testing.assert_allclose(preds, [12, 22])
+
+
+def test_aditya_model_blends_day_and_week_lags():
+    train = _series("2020-01-01", 14 * 48, np.ones(14 * 48))
+    train.loc[pd.Timestamp("2020-01-14 00:00")] = 10.0
+    train.loc[pd.Timestamp("2020-01-08 00:00")] = 30.0
+    model = AdityaSeasonalNaive(day_weight=0.5)
+    model.fit(pd.DataFrame(index=train.index), train)
+
+    test_index = pd.DatetimeIndex(["2020-01-15 00:00"])
+    preds = model.predict(pd.DataFrame(index=test_index))
+
+    np.testing.assert_allclose(preds, [20.0])
+
+
+def test_aditya_model_uses_day_lag_when_seasonal_values_diverge():
+    train = _series("2020-01-01", 14 * 48, np.ones(14 * 48))
+    train.loc[pd.Timestamp("2020-01-14 00:00")] = 10.0
+    train.loc[pd.Timestamp("2020-01-08 00:00")] = 30.0
+    model = AdityaSeasonalNaive(day_weight=0.5, max_blend_difference=10.0)
+    model.fit(pd.DataFrame(index=train.index), train)
+
+    test_index = pd.DatetimeIndex(["2020-01-15 00:00"])
+    preds = model.predict(pd.DataFrame(index=test_index))
+
+    np.testing.assert_allclose(preds, [10.0])
+
+
+def test_aditya_model_rejects_invalid_day_weight():
+    with pytest.raises(ValueError, match="day_weight"):
+        AdityaSeasonalNaive(day_weight=1.1)
 
 
 def test_reproduces_shift_of_concatenated_history():

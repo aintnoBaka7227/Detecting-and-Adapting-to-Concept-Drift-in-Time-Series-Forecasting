@@ -31,7 +31,12 @@ def main() -> None:
         train, calibration, test = loader.load(region)
         train_y, cal_y, test_y = (demand_series(frame) for frame in (train, calibration, test))
 
-        model = SeasonalNaive()
+        # The held-out 2019 validation window favored a guarded blend for
+        # NSW1's rolling-error tail; SA1 keeps the day-only baseline.
+        model = SeasonalNaive(
+            day_weight=0.5 if region == "NSW1" else 1.0,
+            max_blend_difference=705.2 if region == "NSW1" else None,
+        )
         t0 = time.perf_counter()
         model.fit(pd.DataFrame(index=train_y.index), train_y)
         model.observe(cal_y)

@@ -16,10 +16,21 @@ class SeasonalNaive(Forecaster):
 
     name = "seasonal_naive"
 
-    def __init__(self, season_length: int = 48) -> None:
+    def __init__(
+        self,
+        season_length: int = 48,
+        day_weight: float = 1.0,
+        max_blend_difference: float | None = None,
+    ) -> None:
         if season_length < 1:
             raise ValueError("season_length must be >= 1")
+        if not 0.0 <= day_weight <= 1.0:
+            raise ValueError("day_weight must be between 0 and 1")
+        if max_blend_difference is not None and max_blend_difference < 0:
+            raise ValueError("max_blend_difference must be >= 0")
         self.season_length = season_length
+        self.day_weight = day_weight
+        self.max_blend_difference = max_blend_difference
         self._season = pd.Timedelta(minutes=30 * season_length)
         self._history: dict[pd.Timestamp, float] | None = None
         self._target_name: str | None = None
@@ -62,10 +73,31 @@ class SeasonalNaive(Forecaster):
         forecasts: dict[pd.Timestamp, float] = {}
         for timestamp in timestamps.sort_values().unique():
             lag_timestamp = timestamp - self._season
-            if lag_timestamp in actuals:
-                forecast = actuals[lag_timestamp]
+            day_value = actuals.get(lag_timestamp, values.get(lag_timestamp, np.nan))
+            if self.day_weight == 1.0:
+                forecast = day_value
             else:
-                forecast = values.get(lag_timestamp, np.nan)
+                week_timestamp = timestamp - 7 * self._season
+                week_value = actuals.get(
+                    week_timestamp,
+                    values.get(week_timestamp, np.nan),
+                )
+                if pd.notna(day_value) and pd.notna(week_value):
+                    difference = abs(day_value - week_value)
+                    if (
+                        self.max_blend_difference is not None
+                        and difference > self.max_blend_difference
+                    ):
+                        forecast = day_value
+                    else:
+                        forecast = (
+                            self.day_weight * day_value
+                            + (1.0 - self.day_weight) * week_value
+                        )
+                elif pd.notna(day_value):
+                    forecast = day_value
+                else:
+                    forecast = week_value
 
             forecasts[timestamp] = forecast
             if timestamp not in actuals:
