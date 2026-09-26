@@ -30,6 +30,7 @@ class NHITSForecaster(Forecaster):
         self,
         horizon: int = SEASON_LENGTH * 7,
         input_size: int = SEASON_LENGTH * 14,
+        context_refresh_size: int = SEASON_LENGTH,
         n_pool_kernel_size: tuple[int, int, int] = (16, 8, 1),
         n_freq_downsample: tuple[int, int, int] = (48, 24, 1),
         freq: str = "30min",
@@ -42,10 +43,11 @@ class NHITSForecaster(Forecaster):
         scaler_type: str = "robust",
         random_seed: int = 1,
     ) -> None:
-        if horizon < 1 or input_size < 1:
-            raise ValueError("horizon and input_size must be >= 1")
+        if horizon < 1 or input_size < 1 or context_refresh_size < 1:
+            raise ValueError("horizon, input_size, and context_refresh_size must be >= 1")
         self.horizon = horizon
         self.input_size = input_size
+        self.context_refresh_size = context_refresh_size
         self.n_pool_kernel_size = list(n_pool_kernel_size)
         self.n_freq_downsample = list(n_freq_downsample)
         self.freq = freq
@@ -133,5 +135,6 @@ class NHITSForecaster(Forecaster):
             self.horizon,
             self.input_size,
             observed,
+            chunk_size=self.context_refresh_size,
         )
         return np.asarray([forecasts[timestamp] for timestamp in original_index])

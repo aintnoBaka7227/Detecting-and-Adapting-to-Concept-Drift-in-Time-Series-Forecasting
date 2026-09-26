@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from drift_lab.forecasting.nhits_forecaster import NHITSForecaster
+from drift_lab.forecasting.nixtla_common_aditya import roll_forecast as roll_forecast_aditya
 
 
 def _series(n: int, seed: int = 0) -> pd.Series:
@@ -111,3 +112,37 @@ def test_config_of_only_exposes_public_hyperparameters():
     # ...and no private fitted state leaks in (that's what keeps config_hash stable)
     assert not any(key.startswith("_") for key in config)
     assert "_nf" not in config and "_history" not in config
+
+
+def test_aditya_roll_forecast_refreshes_context_with_observed_values():
+    class FixedForecast:
+        def __init__(self):
+            self.contexts = []
+
+        def predict(self, df):
+            self.contexts.append(df["y"].to_list())
+            return pd.DataFrame({"y_hat": [10.0, 20.0, 30.0, 40.0]})
+
+    history = pd.Series(
+        [1.0, 2.0, 3.0, 4.0],
+        index=pd.date_range("2020-01-01", periods=4, freq="30min"),
+        name="TOTALDEMAND",
+    )
+    timestamps = pd.date_range(history.index[-1] + pd.Timedelta("30min"), periods=5, freq="30min")
+    observed = pd.Series([101.0, 102.0, 103.0, 104.0, 105.0], index=timestamps)
+    model = FixedForecast()
+
+    forecasts = roll_forecast_aditya(
+        model,
+        history,
+        timestamps,
+        horizon=4,
+        input_size=4,
+        observed=observed,
+        chunk_size=2,
+    )
+
+    assert list(forecasts.values()) == [10.0, 20.0, 10.0, 20.0, 10.0]
+    assert model.contexts[0][-2:] == [3.0, 4.0]
+    assert model.contexts[1][-2:] == [101.0, 102.0]
+    assert model.contexts[2][-2:] == [103.0, 104.0]

@@ -20,8 +20,9 @@ from experiments import results_io
 from experiments.run.detection.detection_artifacts import match_and_persist
 from experiments.run_harness import config_of, record_run
 
-# Each horizon-sized block is forecast from real context, then its actuals are
-# revealed before the next block. The model weights remain frozen.
+# Each daily context block is forecast from real context, then its actuals are
+# revealed before the next block. The model still predicts a 7-day horizon,
+# and its weights remain frozen.
 SPLIT_ID = "aemo_nhits_aditya_block7d_v1"
 BLIND = False
 TEST_START = pd.Timestamp(SPLIT["test"][0])

@@ -35,13 +35,20 @@ def roll_forecast(
     horizon: int,
     input_size: int,
     observed: pd.Series | None = None,
+    chunk_size: int | None = None,
 ) -> dict[pd.Timestamp, float]:
-    """Forecast timestamps in horizon-sized causal chunks."""
+    """Forecast with `horizon`-step outputs, refreshing context every chunk."""
+    if chunk_size is None:
+        chunk_size = horizon
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be >= 1")
+    chunk_size = min(chunk_size, horizon)
+
     history = history.sort_index()
     forecasts: dict[pd.Timestamp, float] = {}
 
-    for start in range(0, len(timestamps), horizon):
-        chunk = timestamps[start : start + horizon]
+    for start in range(0, len(timestamps), chunk_size):
+        chunk = timestamps[start : start + chunk_size]
         context = to_nixtla_frame(history.iloc[-input_size:])
         prediction = model.predict(df=context)
         values = prediction.iloc[:, -1].to_numpy()[: len(chunk)]
