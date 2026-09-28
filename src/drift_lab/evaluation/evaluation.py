@@ -183,6 +183,22 @@ A separate documented-event matching rule will be defined for AEMO
 evaluation rather than assuming that the synthetic 336-observation
 matching tolerance is appropriate for real events.
 
+AEMO detections are classified as Match, Unmatch, or Ignored. Before
+event matching runs, the raw detection stream is debounced
+chronologically by REFRACTORY_PERIOD (14 days): the earliest detection
+is kept and starts a 14-day window, every later detection inside that
+window is Ignored, and the next detection after the window elapses is
+kept and starts the next window, repeating for the whole stream. This
+applies to the raw stream generally, not only to detections following
+a matched one. Only kept detections are matched against documented
+events; Ignored detections are excluded from precision. Overall
+precision is matched / effective (Match + Unmatch) detections.
+precision_t1 and precision_t2 are each computed against only that
+tier's own matches plus the unmatched detections -- never against the
+other tier's matches -- so Tier 2, which has far more documented
+events than Tier 1, cannot dilute Tier 1's precision by sharing one
+pooled denominator.
+
 
 INPUT VALIDATION
 ----------------
@@ -686,6 +702,15 @@ REGIME_POST_DRIFT_DAYS = 7
 POINT_WINDOW = pd.Timedelta(days=7)
 INTERVAL_GRACE = pd.Timedelta(days=7)
 
+# Mandatory waiting time after a matched drift detection. Any further
+# detection that falls inside this window and does not itself match a
+# documented event is treated as a repeat of the same already-credited
+# drift rather than a fresh false alarm, and is labelled "Ignored"
+# instead of "Unmatch". Detections still get first crack at matching a
+# documented event before refractory suppression is applied, so a
+# detection inside the window can still match a different, later event.
+REFRACTORY_PERIOD = pd.Timedelta(days=14)
+
 _REQUIRED_EVENT_COLUMNS = ("event_id", "start_date", "end_date", "date_precision", "region")
 
 
@@ -743,21 +768,45 @@ def build_event_windows(
 
 def assign_regime(detected_timestamps, event_windows):
     """
-    Assign one global regime and related event ID to every detection.
+    Assign one regime and event ID to every detection timestamp.
 
-    Global priority:
-        drift > pre_drift > post_drift
+    Priority:
+        drift > pre_drift > event-linked post_drift
+        > general post_drift > pre_drift fallback
 
-    Event attribution:
-        - drift: event whose drift window matched.
-        - pre_drift: event whose pre-drift window matched.
-        - post_drift: "unassigned", because this is the general period
-          after an event, not a match to a specific event window.
-        - pre_drift before any event/window: "unassigned".
+    Attribution:
+        - drift:
+          Use the matching event ID.
+        - pre_drift:
+          Use the upcoming event ID.
+        - event-linked post_drift:
+          Use the event ID when the timestamp falls between that
+          event's drift_end and post_drift_end.
+        - general post_drift:
+          If an earlier event exists but the timestamp falls outside
+          every event window, use event_id="unassigned".
+        - before all events:
+          Use regime="pre_drift" and event_id="unassigned".
 
-    When multiple windows in the same regime match, the earliest event
-    by drift_start is selected.
+    When multiple windows overlap:
+        - drift and pre_drift use the earliest event by drift_start;
+        - post_drift uses the most recently started applicable event.
     """
+    required_columns = {
+        "event_id",
+        "drift_start",
+        "drift_end",
+        "pre_drift_start",
+        "post_drift_end",
+    }
+
+    missing_columns = required_columns - set(event_windows.columns)
+    if missing_columns:
+        raise ValueError(
+            "event_windows is missing columns: "
+            f"{sorted(missing_columns)}"
+        )
+
     timestamps = (
         pd.DatetimeIndex(
             pd.to_datetime(list(detected_timestamps))
@@ -766,8 +815,18 @@ def assign_regime(detected_timestamps, event_windows):
         .sort_values()
     )
 
+    windows = event_windows.copy()
+
+    for column in (
+        "drift_start",
+        "drift_end",
+        "pre_drift_start",
+        "post_drift_end",
+    ):
+        windows[column] = pd.to_datetime(windows[column])
+
     windows = (
-        event_windows
+        windows
         .sort_values(["drift_start", "event_id"])
         .reset_index(drop=True)
     )
@@ -776,52 +835,63 @@ def assign_regime(detected_timestamps, event_windows):
 
     for timestamp in timestamps:
         # Priority 1: inside a documented drift window.
-        drift_match = next(
-            (
-                row
-                for _, row in windows.iterrows()
-                if (
-                    row["drift_start"]
-                    <= timestamp
-                    < row["drift_end"]
-                )
-            ),
-            None,
-        )
+        drift_matches = windows[
+            (windows["drift_start"] <= timestamp)
+            & (timestamp < windows["drift_end"])
+        ]
 
-        if drift_match is not None:
+        if not drift_matches.empty:
+            selected_event = drift_matches.iloc[0]
+
             regime = "drift"
-            event_id = drift_match["event_id"]
+            event_id = selected_event["event_id"]
 
         else:
             # Priority 2: inside an upcoming event's pre-drift window.
-            pre_drift_match = next(
-                (
-                    row
-                    for _, row in windows.iterrows()
-                    if (
-                        row["pre_drift_start"]
-                        <= timestamp
-                        < row["drift_start"]
-                    )
-                ),
-                None,
-            )
+            pre_drift_matches = windows[
+                (windows["pre_drift_start"] <= timestamp)
+                & (timestamp < windows["drift_start"])
+            ]
 
-            if pre_drift_match is not None:
+            if not pre_drift_matches.empty:
+                selected_event = pre_drift_matches.iloc[0]
+
                 regime = "pre_drift"
-                event_id = pre_drift_match["event_id"]
+                event_id = selected_event["event_id"]
 
-            # Priority 3: outside explicit windows, but at least one
-            # documented event has already started.
-            elif (windows["drift_start"] <= timestamp).any():
-                regime = "post_drift"
-                event_id = "unassigned"
-
-            # Before any event and outside explicit pre-drift windows.
             else:
-                regime = "pre_drift"
-                event_id = "unassigned"
+                # Priority 3: inside a bounded post-drift window.
+                post_drift_matches = windows[
+                    (windows["drift_end"] <= timestamp)
+                    & (timestamp < windows["post_drift_end"])
+                ]
+
+                if not post_drift_matches.empty:
+                    # Attribute overlapping post-drift windows to the
+                    # most recently started applicable event.
+                    selected_event = (
+                        post_drift_matches
+                        .sort_values(
+                            ["drift_start", "event_id"],
+                            ascending=[False, True],
+                        )
+                        .iloc[0]
+                    )
+
+                    regime = "post_drift"
+                    event_id = selected_event["event_id"]
+
+                # Priority 4: outside all event windows, but at least
+                # one event has already occurred.
+                elif (windows["drift_start"] <= timestamp).any():
+                    regime = "post_drift"
+                    event_id = "unassigned"
+
+                # Priority 5: before every event and outside an
+                # explicit pre-drift window.
+                else:
+                    regime = "pre_drift"
+                    event_id = "unassigned"
 
         records.append(
             {
@@ -843,9 +913,10 @@ def match_unmatch(
     region,
     point_window=POINT_WINDOW,
     interval_grace=INTERVAL_GRACE,
+    refractory_period=REFRACTORY_PERIOD,
 ):
     """
-    Classify each detection as Match or Unmatch.
+    Classify each detection as Match, Unmatch, or Ignored.
 
     Matching rules:
     - Single-date event (date_precision == day): match window is
@@ -862,8 +933,20 @@ def match_unmatch(
     - One detection matches at most one event. Matched Tier 1 and Tier 2
       detections both count as Match.
 
+    Before event matching runs, the raw detection stream is passed
+    through a chronological refractory filter: the earliest detection
+    is kept and starts a `refractory_period` window; every later
+    detection that falls inside that window is labelled Ignored; the
+    first detection after the window elapses is kept and starts the
+    next window; and so on for the whole stream. Only surviving (kept)
+    detections are eligible for event matching. This applies uniformly
+    to the whole stream, not only to detections following a matched
+    one -- two detections 3 days apart are debounced to one even if
+    neither, either, or both would otherwise have matched a documented
+    event.
+
     Output rows are tier-ranked: Tier 1 matches first, then Tier 2
-    matches, then Unmatch rows.
+    matches, then Unmatch rows, then Ignored rows.
 
     Parameters
     ----------
@@ -879,18 +962,26 @@ def match_unmatch(
         Window for matching point events.
     interval_grace : pandas.Timedelta
         Grace period for matching interval events.
+    refractory_period : pandas.Timedelta
+        Mandatory waiting time after a kept detection during which
+        further detections in the raw stream are ignored, regardless of
+        whether they would otherwise match, before event matching runs.
+        Default is 14 days.
 
     Returns
     -------
     pandas.DataFrame
-        Columns: timestamp, label (Match/Unmatch), event_id
-        (event_id or None), tier (1 or 2 for a Match, None for an
-        Unmatch), delay_days (float or NaN). Rows are sorted by
-        tier (Tier 1 before Tier 2, Unmatch last), then timestamp.
+        Columns: timestamp, label (Match/Unmatch/Ignored), event_id
+        (event_id or None), tier (1 or 2 for a Match, None otherwise),
+        delay_days (float or NaN). Rows are sorted by tier (Tier 1
+        before Tier 2, Unmatch/Ignored last), then timestamp.
     """
     missing = [c for c in _REQUIRED_EVENT_COLUMNS if c not in events.columns]
     if missing:
         raise ValueError(f"events is missing columns: {missing}")
+
+    if refractory_period < pd.Timedelta(0):
+        raise ValueError("refractory_period must be non-negative.")
 
     catalogue = events[events["region"].isin(["NEM", region])].copy()
     catalogue["start_date"] = pd.to_datetime(catalogue["start_date"])
@@ -911,7 +1002,20 @@ def match_unmatch(
         ["tier", "start_date", "event_id"]
     ).reset_index(drop=True)
 
-    detected = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
+    detected_raw = pd.DatetimeIndex(pd.to_datetime(list(detected_timestamps))).sort_values()
+
+    kept_timestamps = []
+    ignored_list = []
+    refractory_until = None
+    for timestamp in detected_raw:
+        if refractory_until is not None and timestamp <= refractory_until:
+            ignored_list.append(timestamp)
+        else:
+            kept_timestamps.append(timestamp)
+            refractory_until = timestamp + refractory_period
+
+    detected = pd.DatetimeIndex(kept_timestamps)
+    ignored_timestamps = pd.DatetimeIndex(ignored_list)
 
     used = [False] * len(detected)
     results = []
@@ -956,6 +1060,17 @@ def match_unmatch(
                 }
             )
 
+    for timestamp in ignored_timestamps:
+        results.append(
+            {
+                "timestamp": timestamp,
+                "label": "Ignored",
+                "event_id": None,
+                "tier": None,
+                "delay_days": float("nan"),
+            }
+        )
+
     return pd.DataFrame(
         results,
         columns=[
@@ -976,6 +1091,7 @@ def evaluate_aemo_detections(
     region,
     point_window=POINT_WINDOW,
     interval_grace=INTERVAL_GRACE,
+    refractory_period=REFRACTORY_PERIOD,
     pre_drift_days=REGIME_PRE_DRIFT_DAYS,
     post_drift_days=REGIME_POST_DRIFT_DAYS,
 ):
@@ -994,6 +1110,11 @@ def evaluate_aemo_detections(
         Window for matching point events.
     interval_grace : pandas.Timedelta
         Grace period for matching interval events.
+    refractory_period : pandas.Timedelta
+        Mandatory waiting time after a kept detection during which
+        further detections in the raw stream are ignored, regardless of
+        whether they would otherwise match, before event matching runs.
+        Default is 14 days.
     pre_drift_days : int
         Days before event for pre-drift window.
     post_drift_days : int
@@ -1011,7 +1132,8 @@ def evaluate_aemo_detections(
     events,
     region,
     point_window=point_window,
-    interval_grace=interval_grace
+    interval_grace=interval_grace,
+    refractory_period=refractory_period,
     )
 
     event_windows = build_event_windows(
@@ -1048,9 +1170,31 @@ def evaluate_aemo_detections(
 def calculate_event_metrics(match_results, events, region):
     """
     Calculate overall documented-event matching metrics.
+
+    Overall `precision` is matched / effective detections (effective
+    excludes rows labelled "Ignored" by the refractory period -- see
+    REFRACTORY_PERIOD / match_unmatch -- since those are treated as
+    repeats of an already-credited drift, not independent detections).
+
+    `precision_t1` and `precision_t2` use the same pooled denominator as
+    the overall `precision`: each tier's own match count divided by all
+    effective (accepted) detections, i.e. `precision_t1 = n_matched_t1 /
+    n_effective`. This means a detection matched to the other tier still
+    counts in a tier's own denominator even though it isn't a hit for
+    that tier -- both `precision_t1` and `precision_t2` are therefore
+    bounded by the overall `precision` and share its `nan` condition
+    (zero effective detections).
     """
     matched = match_results[
         match_results["label"] == "Match"
+    ]
+
+    unmatched = match_results[
+        match_results["label"] == "Unmatch"
+    ]
+
+    ignored = match_results[
+        match_results["label"] == "Ignored"
     ]
 
     catalogue = events[
@@ -1059,6 +1203,7 @@ def calculate_event_metrics(match_results, events, region):
 
     n_events = len(catalogue)
     n_total = len(match_results)
+    n_effective = len(matched) + len(unmatched)
 
     n_matched_t1 = matched.loc[
         matched["tier"] == 1,
@@ -1074,19 +1219,31 @@ def calculate_event_metrics(match_results, events, region):
 
     return {
         "n_total_detections": n_total,
+        "n_ignored_detections": len(ignored),
+        "n_effective_detections": n_effective,
         "n_matched_t1": n_matched_t1,
         "n_matched_t2": n_matched_t2,
         "n_unmatched_events": n_events - n_matched_events,
         "n_matched_detections": len(matched),
-        "n_unmatched_detections": n_total - len(matched),
+        "n_unmatched_detections": len(unmatched),
         "mean_delay_days": (
             float(matched["delay_days"].mean())
             if len(matched) > 0
             else float("nan")
         ),
         "precision": (
-            len(matched) / n_total
-            if n_total > 0
+            len(matched) / n_effective
+            if n_effective > 0
+            else float("nan")
+        ),
+        "precision_t1": (
+            n_matched_t1 / n_effective
+            if n_effective > 0
+            else float("nan")
+        ),
+        "precision_t2": (
+            n_matched_t2 / n_effective
+            if n_effective > 0
             else float("nan")
         ),
         "event_recall": (
@@ -1099,6 +1256,14 @@ def calculate_event_metrics(match_results, events, region):
 def calculate_regime_metrics(match_results, regime_results):
     """
     Calculate detection metrics separately for each regime.
+
+    Overall `precision` is matched / effective detections per regime
+    (effective excludes rows labelled "Ignored" by the refractory
+    period -- see REFRACTORY_PERIOD / match_unmatch). `precision_t1`
+    and `precision_t2` use the same pooled per-regime denominator as
+    the overall `precision` -- each tier's own match count divided by
+    that regime's effective detections (see calculate_event_metrics for
+    the same convention at the whole-run level).
 
     Parameters
     ----------
@@ -1146,6 +1311,8 @@ def calculate_regime_metrics(match_results, regime_results):
         rows = audit[audit["regime"] == regime]
 
         n_detections = len(rows)
+        n_ignored = int((rows["label"] == "Ignored").sum())
+        n_effective = n_detections - n_ignored
 
         tier1_matched = int(
             (
@@ -1162,17 +1329,28 @@ def calculate_regime_metrics(match_results, regime_results):
         )
 
         n_matched = tier1_matched + tier2_matched
-        n_unmatched = n_detections - n_matched
+        n_unmatched = n_effective - n_matched
 
         regime_metrics[regime] = {
             "detections": n_detections,
+            "ignored_detections": n_ignored,
             "tier1_matched": tier1_matched,
             "tier2_matched": tier2_matched,
             "matched_detections": n_matched,
             "unmatched_detections": n_unmatched,
             "precision": (
-                n_matched / n_detections
-                if n_detections > 0
+                n_matched / n_effective
+                if n_effective > 0
+                else float("nan")
+            ),
+            "precision_t1": (
+                tier1_matched / n_effective
+                if n_effective > 0
+                else float("nan")
+            ),
+            "precision_t2": (
+                tier2_matched / n_effective
+                if n_effective > 0
                 else float("nan")
             ),
         }

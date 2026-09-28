@@ -1,181 +1,216 @@
-"""Reusable demand preprocessing for drift-detection experiments.
+"""Seasonal preprocessing for already-cleaned AEMO demand series.
 
-The functions in this module transform an already-cleaned demand series.
-They do not perform raw AEMO data cleaning.
-
-Two distinct preprocessing techniques are provided:
-
-1. aggregate_daily_demand()
-   Converts half-hourly demand into one mean value per complete day.
-
-2. remove_daily_weekly_profile()
-   Removes the expected weekday/half-hour demand profile from a
-   half-hourly demand series.
+Profiles are fitted on training data only and then applied unchanged to later
+splits. No raw-data quality validation is performed in this module.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
+import numpy as np
 import pandas as pd
 
-HALF_HOURS_PER_DAY = 48
+
+Frequency = Literal["daily", "30min"]
 
 
-def _validate_datetime_series(series: pd.Series) -> None:
-    """Validate a time-indexed numerical demand series."""
+@dataclass(frozen=True)
+class SeasonalProfile:
+    """A fitted multiplicative seasonal profile."""
 
-    if not isinstance(series, pd.Series):
-        raise TypeError("Demand input must be a pandas Series.")
-
-    if not isinstance(series.index, pd.DatetimeIndex):
-        raise TypeError(
-            "Demand series must use a pandas DatetimeIndex."
-        )
-
-    if series.empty:
-        raise ValueError("Demand series must not be empty.")
-
-    if series.isna().any():
-        raise ValueError(
-            "Demand series contains missing values."
-        )
+    frequency: Frequency
+    base_demand: float
+    annual_factor: pd.Series
+    weekly_factor: pd.Series
 
 
-def aggregate_daily_demand(
-    series: pd.Series,
-) -> pd.Series:
-    """Aggregate half-hourly demand into complete daily means.
+def aggregate_daily_demand(series: pd.Series) -> pd.Series:
+    """Aggregate half-hourly demand into daily means."""
 
-    A valid day must contain exactly 48 half-hourly observations.
-    Incomplete days are excluded instead of being imputed.
+    daily = series.resample("1D").mean()
+    daily.name = series.name
+    return daily
 
-    Parameters
-    ----------
-    series:
-        Cleaned half-hourly demand indexed by timestamp.
 
-    Returns
-    -------
-    pandas.Series
-        One mean demand value per complete day.
+def _seasonal_day(index: pd.DatetimeIndex) -> np.ndarray:
+    """Map dates onto a common 365-day cycle, with leap day at 59.5."""
+
+    day = index.dayofyear.to_numpy(dtype=float)
+    day[index.is_leap_year & (index.month > 2)] -= 1.0
+    day[(index.month == 2) & (index.day == 29)] = 59.5
+    return day
+
+
+def _half_hour_slot(index: pd.DatetimeIndex) -> np.ndarray:
+    """Return half-hour slots numbered from 0 to 47."""
+
+    return (index.hour * 2 + index.minute // 30).to_numpy()
+
+
+def _cyclic_rolling_mean(values: pd.Series, window: int) -> pd.Series:
+    """Smooth a profile while joining the end of December to January."""
+
+    padding = window // 2
+    extended = pd.concat(
+        [values.iloc[-padding:], values, values.iloc[:padding]],
+        ignore_index=True,
+    )
+    smoothed = extended.rolling(window=window, center=True).mean()
+    result = smoothed.iloc[padding:padding + len(values)].copy()
+    result.index = values.index
+    return result
+
+
+def _annual_values(
+    index: pd.DatetimeIndex,
+    annual_factor: pd.Series,
+) -> np.ndarray:
+    """Map timestamps to annual factors and interpolate 29 February."""
+
+    return np.interp(
+        _seasonal_day(index),
+        annual_factor.index.to_numpy(dtype=float),
+        annual_factor.to_numpy(dtype=float),
+    )
+
+
+def fit_seasonal_profile(
+    reference: pd.Series,
+    frequency: Frequency,
+    annual_smoothing_days: int = 31,
+) -> SeasonalProfile:
+    """Fit a multiplicative seasonal profile on training data only.
+
+    Use a daily training series with ``frequency="daily"``. This fits
+    day-of-year x day-of-week factors.
+
+    Use a half-hourly training series with ``frequency="30min"``. This fits
+    day-of-year x combined weekday/half-hour factors.
     """
 
-    _validate_datetime_series(series)
+    reference = reference.astype(float)
+    base_demand = float(reference.mean())
 
-    grouped = series.resample("1D")
+    if frequency == "daily":
+        daily_reference = reference
+    elif frequency == "30min":
+        daily_reference = reference.resample("1D").mean()
+    else:
+        raise ValueError("frequency must be either 'daily' or '30min'.")
 
-    counts = grouped.count()
-    daily = grouped.mean()
+    daily_frame = pd.DataFrame(
+        {
+            "demand": daily_reference,
+            "seasonal_day": _seasonal_day(daily_reference.index),
+        }
+    )
+    annual_level = (
+        daily_frame.groupby("seasonal_day")["demand"]
+        .mean()
+        .reindex(np.arange(1.0, 366.0))
+        .interpolate(limit_direction="both")
+    )
+    annual_level = _cyclic_rolling_mean(
+        annual_level,
+        window=annual_smoothing_days,
+    )
+    annual_factor = annual_level / annual_level.mean()
+    annual_factor.name = "annual_factor"
 
-    daily = daily[counts == HALF_HOURS_PER_DAY]
+    reference_frame = pd.DataFrame(
+        {
+            "annual_adjusted": (
+                reference.to_numpy()
+                / _annual_values(reference.index, annual_factor)
+            ),
+            "weekday": reference.index.dayofweek,
+        },
+        index=reference.index,
+    )
 
-    if daily.empty:
-        raise ValueError(
-            "Daily aggregation produced no complete days."
+    if frequency == "daily":
+        weekly_level = (
+            reference_frame.groupby("weekday")["annual_adjusted"].mean()
+        )
+    else:
+        reference_frame["half_hour"] = _half_hour_slot(reference.index)
+        weekly_level = (
+            reference_frame
+            .groupby(["weekday", "half_hour"])["annual_adjusted"]
+            .mean()
         )
 
-    if daily.isna().any():
-        raise ValueError(
-            "Daily aggregation produced missing values."
+    weekly_factor = weekly_level / weekly_level.mean()
+    weekly_factor.name = "weekly_factor"
+
+    return SeasonalProfile(
+        frequency=frequency,
+        base_demand=base_demand,
+        annual_factor=annual_factor,
+        weekly_factor=weekly_factor,
+    )
+
+
+def apply_seasonal_profile(
+    series: pd.Series,
+    profile: SeasonalProfile,
+) -> pd.Series:
+    """Subtract a frozen multiplicative profile from a demand series."""
+
+    annual = _annual_values(series.index, profile.annual_factor)
+
+    if profile.frequency == "daily":
+        weekly = profile.weekly_factor.reindex(
+            series.index.dayofweek
+        ).to_numpy()
+    else:
+        keys = pd.MultiIndex.from_arrays(
+            [series.index.dayofweek, _half_hour_slot(series.index)],
+            names=["weekday", "half_hour"],
         )
+        weekly = profile.weekly_factor.reindex(keys).to_numpy()
 
-    daily.name = series.name
+    expected = profile.base_demand * annual * weekly
 
-    return daily
+    return pd.Series(
+        series.astype(float).to_numpy() - expected,
+        index=series.index,
+        name=f"{series.name or 'demand'}_seasonally_adjusted",
+    )
+
+
+def remove_daily_seasonal_profile(
+    series: pd.Series,
+    reference: pd.Series,
+    annual_smoothing_days: int = 31,
+) -> pd.Series:
+    """Remove day-of-year x day-of-week effects from daily demand."""
+
+    profile = fit_seasonal_profile(
+        reference=reference,
+        frequency="daily",
+        annual_smoothing_days=annual_smoothing_days,
+    )
+    return apply_seasonal_profile(series, profile)
 
 
 def remove_daily_weekly_profile(
     series: pd.Series,
     reference: pd.Series,
+    annual_smoothing_days: int = 31,
 ) -> pd.Series:
-    """Remove the normal weekday/half-hour demand profile.
+    """Remove annual and weekly/intraday effects from half-hourly demand.
 
-    The expected demand is calculated separately for each combination of:
+    This preserves the existing function name while changing its model to:
 
-    - day of week: Monday to Sunday
-    - half-hour slot: 0 to 47
-
-    The expected profile is learned from ``reference`` and then subtracted
-    from ``series``.
-
-    Using a separate reference period allows experiments to learn normal
-    seasonality from historical data without using the future test stream
-    to estimate the seasonal profile.
-
-    Parameters
-    ----------
-    series:
-        Half-hourly demand series to adjust.
-
-    reference:
-        Historical half-hourly demand used to estimate the normal profile.
-
-    Returns
-    -------
-    pandas.Series
-        Seasonally adjusted demand residuals.
+        base demand x day-of-year factor x weekday/half-hour factor
     """
 
-    _validate_datetime_series(series)
-    _validate_datetime_series(reference)
-
-    reference_frame = pd.DataFrame(
-        {
-            "demand": reference.astype(float),
-        }
+    profile = fit_seasonal_profile(
+        reference=reference,
+        frequency="30min",
+        annual_smoothing_days=annual_smoothing_days,
     )
-
-    reference_frame["weekday"] = (
-        reference_frame.index.dayofweek
-    )
-
-    reference_frame["half_hour"] = (
-        reference_frame.index.hour * 2
-        + reference_frame.index.minute // 30
-    )
-
-    profile = (
-        reference_frame
-        .groupby(
-            ["weekday", "half_hour"]
-        )["demand"]
-        .mean()
-    )
-
-    target = pd.DataFrame(
-        {
-            "demand": series.astype(float),
-        }
-    )
-
-    target["weekday"] = target.index.dayofweek
-
-    target["half_hour"] = (
-        target.index.hour * 2
-        + target.index.minute // 30
-    )
-
-    expected = pd.MultiIndex.from_arrays(
-        [
-            target["weekday"],
-            target["half_hour"],
-        ],
-        names=[
-            "weekday",
-            "half_hour",
-        ],
-    ).map(profile)
-
-    if pd.isna(expected).any():
-        raise ValueError(
-            "Seasonal reference does not contain every "
-            "weekday/half-hour combination required by the target series."
-        )
-
-    adjusted = pd.Series(
-        target["demand"].to_numpy()
-        - expected.to_numpy(),
-        index=series.index,
-        name=f"{series.name or 'demand'}_seasonally_adjusted",
-    )
-
-    return adjusted
+    return apply_seasonal_profile(series, profile)

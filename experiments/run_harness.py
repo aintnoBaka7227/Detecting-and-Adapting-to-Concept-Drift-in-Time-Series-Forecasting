@@ -42,6 +42,8 @@ def record_run(
     changepoints: list[int] | None = None,
     point_tolerance: pd.Timedelta | None = None,
     period_grace: pd.Timedelta | None = None,
+    samples_per_year: float | None = None,
+    test_period_days: float | None = None,
 ) -> pd.DataFrame:
     """Append one method's metrics to runs.csv and return the rows.
 
@@ -78,6 +80,23 @@ def record_run(
     pre-drift / drift / post-drift rows instead of one `regime="full"` set.
     Not ground truth — either the dataset's known changepoints (synthetic)
     or a detector's output (AEMO), passed by the caller.
+
+    `samples_per_year`, synthetic detection runs only: when supplied, also
+    logs `n_detections`, `n_false_alarms` and `false_alarms_per_year`
+    (`n_false_alarms / n_samples * samples_per_year`) alongside the
+    standard `detection_delay` / `false_alarms_per_10000` /
+    `missed_detections` rows. Lets a tuning run pick the annualisation
+    appropriate to the cadence it's calibrating for (e.g. 365 for a
+    daily-aggregated deployment vs. 48*365 for half-hourly) instead of
+    every caller sharing one fixed assumption. Omitted (the default),
+    behaviour is unchanged from before this parameter existed.
+
+    `test_period_days`, AEMO documented-event matching only: when
+    supplied, also logs `n_effective_detections` (accepted = Match +
+    Unmatch, excluding refractory-suppressed `Ignored` rows) and
+    `accepted_detections_per_year` (`n_effective_detections /
+    (test_period_days / 365)`). Omitted (the default), behaviour is
+    unchanged from before this parameter existed.
     """
     if (forecast is None) == (detection is None):
         raise ValueError("pass exactly one of forecast= / detection=")
@@ -100,7 +119,16 @@ def record_run(
     if forecast is not None:
         rows = build_forecast_rows(dataset, seed, region, forecast, changepoints, common)
     else:
-        rows = build_detection_rows(dataset, detection, common, region, point_tolerance, period_grace)
+        rows = build_detection_rows(
+            dataset,
+            detection,
+            common,
+            region,
+            point_tolerance,
+            period_grace,
+            samples_per_year,
+            test_period_days,
+        )
 
     results_io.append_runs(rows)
     return pd.DataFrame(rows, columns=results_io.RUN_COLUMNS)
@@ -139,7 +167,14 @@ def build_forecast_rows(dataset, seed, region, forecast, changepoints, common) -
 
 
 def build_detection_rows(
-    dataset, detection, common, region, point_tolerance=None, period_grace=None
+    dataset,
+    detection,
+    common,
+    region,
+    point_tolerance=None,
+    period_grace=None,
+    samples_per_year=None,
+    test_period_days=None,
 ) -> list[dict]:
     detected, truth, n_samples = detection
     common = {**common, "group": "detection"}
@@ -147,7 +182,9 @@ def build_detection_rows(
     if isinstance(truth, pd.DataFrame):
         # AEMO: `truth` is a documented-event catalogue (the caller filtered
         # it to the tier + region being scored), `detected` is timestamps.
-        return build_documented_event_rows(detected, truth, common, region, point_tolerance, period_grace)
+        return build_documented_event_rows(
+            detected, truth, common, region, point_tolerance, period_grace, test_period_days
+        )
 
     if truth is None:
         # No ground truth and no event catalogue: just log the count.
@@ -164,14 +201,35 @@ def build_detection_rows(
         drift_type=drift_type,
         tolerance=DETECTION_TOLERANCE,
     )
-    return [
+    rows = [
         build_row(common, name, result[name], "full")
         for name in ("detection_delay", "false_alarms_per_10000", "missed_detections")
     ]
 
+    if samples_per_year is not None:
+        n_false_alarms = len(result["false_alarm_indices"])
+        rows.append(build_row(common, "n_detections", len(detected), "full"))
+        rows.append(build_row(common, "n_false_alarms", n_false_alarms, "full"))
+        rows.append(
+            build_row(
+                common,
+                "false_alarms_per_year",
+                n_false_alarms / n_samples * samples_per_year,
+                "full",
+            )
+        )
+
+    return rows
+
 
 def build_documented_event_rows(
-    detected_timestamps, events, common, region, point_tolerance=None, period_grace=None
+    detected_timestamps,
+    events,
+    common,
+    region,
+    point_tolerance=None,
+    period_grace=None,
+    test_period_days=None,
 ) -> list[dict]:
     """AEMO documented-event matching (Table T2). The events are NOT ground
     truth — an unmatched detection is `unmatched`, never a false positive.
@@ -193,15 +251,31 @@ def build_documented_event_rows(
     )
     rows = [
         build_row(common, "n_detections", metrics["n_total_detections"], "full"),
+        build_row(common, "n_ignored_detections", metrics["n_ignored_detections"], "full"),
         build_row(common, "n_matched", metrics["n_matched_detections"], "full"),
         build_row(common, "n_matched_t1", metrics["n_matched_t1"], "full"),
         build_row(common, "n_matched_t2", metrics["n_matched_t2"], "full"),
         build_row(common, "n_unmatched_events", metrics["n_unmatched_events"], "full"),
         build_row(common, "n_unmatched_detections", metrics["n_unmatched_detections"], "full"),
         build_row(common, "precision", metrics["precision"], "full"),
+        build_row(common, "precision_t1", metrics["precision_t1"], "full"),
+        build_row(common, "precision_t2", metrics["precision_t2"], "full"),
         build_row(common, "event_recall", metrics["event_recall"], "full"),
         build_row(common, "mean_delay_days", metrics["mean_delay_days"], "full"),
     ]
+
+    if test_period_days is not None:
+        n_effective = metrics["n_effective_detections"]
+        rows.append(build_row(common, "n_effective_detections", n_effective, "full"))
+        rows.append(
+            build_row(
+                common,
+                "accepted_detections_per_year",
+                n_effective / (test_period_days / 365.0),
+                "full",
+            )
+        )
+
     matched = match_results[match_results["label"] == "Match"]
     rows += [
         build_row(common, f"delay_{row.event_id}", row.delay_days, "full")
