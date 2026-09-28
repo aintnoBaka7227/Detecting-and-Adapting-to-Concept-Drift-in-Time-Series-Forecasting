@@ -10,7 +10,9 @@ from drift_lab.evaluation import (
     assign_regime,
     build_event_windows,
     calculate_event_metrics,
+    calculate_interval_pinball_loss,
     calculate_mae,
+    calculate_pinball_loss,
     calculate_regime_metrics,
     calculate_rolling_mae,
     evaluate_aemo_detections,
@@ -30,6 +32,41 @@ def test_mae_rejects_length_mismatch_and_nan():
         calculate_mae([1.0, 2.0], [1.0])
     with pytest.raises(ValueError):
         calculate_mae([1.0, np.nan], [1.0, 2.0])
+
+
+def test_pinball_loss_basic_and_quantile_direction():
+    assert calculate_pinball_loss([10.0, 10.0], [8.0, 12.0], 0.9) == pytest.approx(1.0)
+    assert calculate_pinball_loss([10.0, 10.0], [8.0, 12.0], 0.1) == pytest.approx(1.0)
+
+
+def test_pinball_loss_rejects_invalid_inputs():
+    with pytest.raises(ValueError):
+        calculate_pinball_loss([1.0, 2.0], [1.0], 0.5)
+    with pytest.raises(ValueError):
+        calculate_pinball_loss([1.0, np.nan], [1.0, 2.0], 0.5)
+    with pytest.raises(ValueError):
+        calculate_pinball_loss([1.0], [1.0], 1.0)
+
+
+def test_interval_pinball_loss_averages_tail_losses():
+    actual = [10.0, 10.0]
+    lower = [8.0, 8.0]
+    upper = [12.0, 12.0]
+    expected = (
+        calculate_pinball_loss(actual, lower, 0.05)
+        + calculate_pinball_loss(actual, upper, 0.95)
+    ) / 2
+
+    assert calculate_interval_pinball_loss(actual, lower, upper) == pytest.approx(expected)
+
+
+def test_interval_pinball_loss_rejects_invalid_inputs():
+    with pytest.raises(ValueError):
+        calculate_interval_pinball_loss([1.0], [0.0], [1.0, 2.0])
+    with pytest.raises(ValueError):
+        calculate_interval_pinball_loss([1.0], [2.0], [1.0])
+    with pytest.raises(ValueError):
+        calculate_interval_pinball_loss([1.0], [0.0], [1.0], alpha=1.0)
 
 
 def test_rolling_mae_warmup_then_constant():

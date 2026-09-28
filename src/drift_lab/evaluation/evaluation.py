@@ -303,6 +303,52 @@ def calculate_mae(y_true, y_pred):
     return float((y_true - y_pred).abs().mean())
 
 
+def calculate_pinball_loss(y_true, y_quantile, quantile):
+    """Calculate mean pinball loss for one quantile forecast."""
+    y_true = pd.Series(y_true, dtype=float)
+    y_quantile = pd.Series(y_quantile, dtype=float)
+
+    if len(y_true) != len(y_quantile):
+        raise ValueError("y_true and y_quantile must have the same length.")
+
+    if y_true.isna().any() or y_quantile.isna().any():
+        raise ValueError("y_true and y_quantile must not contain missing values.")
+
+    if not 0 < quantile < 1:
+        raise ValueError("quantile must be strictly between 0 and 1.")
+
+    error = y_true.to_numpy() - y_quantile.to_numpy()
+    losses = pd.Series(
+        quantile * error * (error >= 0)
+        + (quantile - 1) * error * (error < 0),
+        dtype=float,
+    )
+    return float(losses.mean())
+
+
+def calculate_interval_pinball_loss(y_true, lower, upper, alpha=0.10):
+    """Average lower- and upper-tail pinball loss for a prediction interval."""
+    y_true = pd.Series(y_true, dtype=float)
+    lower = pd.Series(lower, dtype=float)
+    upper = pd.Series(upper, dtype=float)
+
+    if len(y_true) != len(lower) or len(y_true) != len(upper):
+        raise ValueError("y_true, lower, and upper must have the same length.")
+
+    if y_true.isna().any() or lower.isna().any() or upper.isna().any():
+        raise ValueError("y_true, lower, and upper must not contain missing values.")
+
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be strictly between 0 and 1.")
+
+    if (lower.to_numpy() > upper.to_numpy()).any():
+        raise ValueError("lower bounds must not exceed upper bounds.")
+
+    lower_loss = calculate_pinball_loss(y_true, lower, alpha / 2)
+    upper_loss = calculate_pinball_loss(y_true, upper, 1 - alpha / 2)
+    return float((lower_loss + upper_loss) / 2)
+
+
 def calculate_rolling_mae(y_true, y_pred, window=48 * 7):
     """
     Calculate rolling Mean Absolute Error.
