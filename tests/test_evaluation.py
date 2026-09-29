@@ -10,6 +10,7 @@ from drift_lab.evaluation import (
     assign_regime,
     build_event_windows,
     calculate_event_metrics,
+    calculate_forecast_metrics_by_regime,
     calculate_interval_pinball_loss,
     calculate_mae,
     calculate_pinball_loss,
@@ -32,6 +33,51 @@ def test_mae_rejects_length_mismatch_and_nan():
         calculate_mae([1.0, 2.0], [1.0])
     with pytest.raises(ValueError):
         calculate_mae([1.0, np.nan], [1.0, 2.0])
+
+
+def test_forecast_metrics_by_regime_pools_errors_and_counts_observations():
+    regime_labels = pd.DataFrame(
+        {"regime": ["pre_drift", "drift", "drift", "post_drift"]}
+    )
+
+    metrics = calculate_forecast_metrics_by_regime(
+        [10.0, 10.0, 20.0, 30.0],
+        [9.0, 8.0, 18.0, 27.0],
+        regime_labels,
+    )
+
+    assert metrics == {
+        "pre_drift": {"mae": 1.0, "n_observations": 1},
+        "drift": {"mae": 2.0, "n_observations": 2},
+        "post_drift": {"mae": 3.0, "n_observations": 1},
+    }
+
+
+def test_forecast_metrics_by_regime_returns_nan_for_empty_regimes():
+    metrics = calculate_forecast_metrics_by_regime(
+        [10.0], [9.0], pd.DataFrame({"regime": ["drift"]})
+    )
+
+    assert np.isnan(metrics["pre_drift"]["mae"])
+    assert metrics["pre_drift"]["n_observations"] == 0
+    assert metrics["drift"] == {"mae": 1.0, "n_observations": 1}
+    assert np.isnan(metrics["post_drift"]["mae"])
+    assert metrics["post_drift"]["n_observations"] == 0
+
+
+@pytest.mark.parametrize(
+    ("y_true", "y_pred", "labels"),
+    [
+        ([1.0, 2.0], [1.0], pd.DataFrame({"regime": ["drift", "drift"]})),
+        ([1.0], [1.0], pd.DataFrame({"regime": ["drift", "drift"]})),
+        ([1.0], [1.0], pd.DataFrame({"label": ["drift"]})),
+        ([1.0], [1.0], pd.DataFrame({"regime": [None]})),
+        ([1.0], [1.0], pd.DataFrame({"regime": ["unassigned"]})),
+    ],
+)
+def test_forecast_metrics_by_regime_rejects_invalid_inputs(y_true, y_pred, labels):
+    with pytest.raises(ValueError):
+        calculate_forecast_metrics_by_regime(y_true, y_pred, labels)
 
 
 def test_pinball_loss_basic_and_quantile_direction():

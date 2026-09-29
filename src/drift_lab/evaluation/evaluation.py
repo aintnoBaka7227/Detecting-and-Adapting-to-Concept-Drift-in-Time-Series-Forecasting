@@ -303,6 +303,53 @@ def calculate_mae(y_true, y_pred):
     return float((y_true - y_pred).abs().mean())
 
 
+def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
+    """Calculate forecast MAE and observation count for each regime.
+
+    ``regime_labels`` is the DataFrame returned by ``assign_regime`` and
+    must contain one row per forecast observation in the same order.
+    """
+    y_true = pd.Series(y_true, dtype=float)
+    y_pred = pd.Series(y_pred, dtype=float)
+
+    if len(y_true) != len(y_pred):
+        raise ValueError("y_true and y_pred must have the same length.")
+
+    if y_true.isna().any() or y_pred.isna().any():
+        raise ValueError("y_true and y_pred must not contain missing values.")
+
+    if "regime" not in regime_labels.columns:
+        raise ValueError("regime_labels must contain a 'regime' column.")
+
+    if len(y_true) != len(regime_labels):
+        raise ValueError("regime_labels must match the forecast length.")
+
+    regimes = regime_labels["regime"].reset_index(drop=True)
+    if regimes.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    expected_regimes = ("pre_drift", "drift", "post_drift")
+    unexpected_regimes = set(regimes.unique()) - set(expected_regimes)
+    if unexpected_regimes:
+        raise ValueError(
+            "regime_labels contains unsupported regimes: "
+            f"{sorted(unexpected_regimes)}."
+        )
+
+    absolute_error = (y_true.reset_index(drop=True) - y_pred.reset_index(drop=True)).abs()
+    metrics = {}
+
+    for regime in expected_regimes:
+        mask = regimes == regime
+        n_observations = int(mask.sum())
+        metrics[regime] = {
+            "mae": float(absolute_error[mask].mean()),
+            "n_observations": n_observations,
+        }
+
+    return metrics
+
+
 def calculate_pinball_loss(y_true, y_quantile, quantile):
     """Calculate mean pinball loss for one quantile forecast."""
     y_true = pd.Series(y_true, dtype=float)
