@@ -23,7 +23,19 @@ def test_adwin_default_config():
         key: value for key, value in vars(detector).items() if not key.startswith("_")
     }
 
-    assert public_config == {"delta": 0.002}
+    assert public_config == {"delta": 0.002, "clock": 32, "min_window_length": 5}
+
+
+def test_adwin_forwards_clock_and_min_window_length_to_river():
+    rng = np.random.default_rng(3)
+    stream = np.concatenate([rng.normal(0, 1, 3000), rng.normal(2, 1, 3000)])
+
+    project_detected = ADWINDetector(delta=1e-4, clock=48, min_window_length=100).detect(stream)
+    river_detected = detect_with_river(
+        drift.ADWIN(delta=1e-4, clock=48, min_window_length=100), stream
+    )
+
+    assert project_detected == river_detected
 
 
 def test_adwin_detect_returns_positional_indices():
