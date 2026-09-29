@@ -1,6 +1,7 @@
 from drift_lab.evaluation.evaluation import (
     assign_regime,
     build_event_windows,
+    calculate_adaptation_gain,
     calculate_detection_delay,
     calculate_event_metrics,
     calculate_false_alarms_per_10000,
@@ -19,6 +20,7 @@ from drift_lab.evaluation.evaluation import (
 __all__ = [
     "assign_regime",
     "build_event_windows",
+    "calculate_adaptation_gain",
     "calculate_detection_delay",
     "calculate_event_metrics",
     "calculate_false_alarms_per_10000",

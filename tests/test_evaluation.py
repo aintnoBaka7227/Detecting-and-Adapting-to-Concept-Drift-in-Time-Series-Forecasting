@@ -9,6 +9,7 @@ import pytest
 from drift_lab.evaluation import (
     assign_regime,
     build_event_windows,
+    calculate_adaptation_gain,
     calculate_event_metrics,
     calculate_forecast_metrics_by_regime,
     calculate_interval_pinball_loss,
@@ -78,6 +79,44 @@ def test_forecast_metrics_by_regime_returns_nan_for_empty_regimes():
 def test_forecast_metrics_by_regime_rejects_invalid_inputs(y_true, y_pred, labels):
     with pytest.raises(ValueError):
         calculate_forecast_metrics_by_regime(y_true, y_pred, labels)
+
+
+def test_adaptation_gain_reports_difference_and_per_retrain():
+    result = calculate_adaptation_gain(
+        arm_drift_mae=80.0,
+        arm_a_drift_mae=100.0,
+        n_retrains=4,
+    )
+
+    assert result == {
+        "drift_mae_difference_vs_arm_a": -20.0,
+        "drift_mae_difference_per_retrain": -5.0,
+    }
+
+
+def test_adaptation_gain_returns_nan_per_retrain_when_no_retrains():
+    result = calculate_adaptation_gain(110.0, 100.0, 0)
+
+    assert result["drift_mae_difference_vs_arm_a"] == 10.0
+    assert np.isnan(result["drift_mae_difference_per_retrain"])
+
+
+@pytest.mark.parametrize(
+    ("arm_drift_mae", "arm_a_drift_mae", "n_retrains"),
+    [
+        (-1.0, 2.0, 1),
+        (1.0, np.nan, 1),
+        (np.inf, 2.0, 1),
+        (1.0, 2.0, -1),
+        (1.0, 2.0, 1.5),
+        (1.0, 2.0, True),
+    ],
+)
+def test_adaptation_gain_rejects_invalid_inputs(
+    arm_drift_mae, arm_a_drift_mae, n_retrains
+):
+    with pytest.raises((TypeError, ValueError)):
+        calculate_adaptation_gain(arm_drift_mae, arm_a_drift_mae, n_retrains)
 
 
 def test_pinball_loss_basic_and_quantile_direction():
