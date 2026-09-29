@@ -38,13 +38,17 @@ def test_mae_rejects_length_mismatch_and_nan():
 
 def test_forecast_metrics_by_regime_pools_errors_and_counts_observations():
     regime_labels = pd.DataFrame(
-        {"regime": ["pre_drift", "drift", "drift", "post_drift"]}
+        {
+            "timestamp": pd.date_range("2020-01-01", periods=4),
+            "regime": ["pre_drift", "drift", "drift", "post_drift"],
+        }
     )
 
     metrics = calculate_forecast_metrics_by_regime(
         [10.0, 10.0, 20.0, 30.0],
         [9.0, 8.0, 18.0, 27.0],
         regime_labels,
+        pd.date_range("2020-01-01", periods=4),
     )
 
     assert metrics == {
@@ -56,7 +60,12 @@ def test_forecast_metrics_by_regime_pools_errors_and_counts_observations():
 
 def test_forecast_metrics_by_regime_returns_nan_for_empty_regimes():
     metrics = calculate_forecast_metrics_by_regime(
-        [10.0], [9.0], pd.DataFrame({"regime": ["drift"]})
+        [10.0],
+        [9.0],
+        pd.DataFrame(
+            {"timestamp": [pd.Timestamp("2020-01-01")], "regime": ["drift"]}
+        ),
+        [pd.Timestamp("2020-01-01")],
     )
 
     assert np.isnan(metrics["pre_drift"]["mae"])
@@ -66,19 +75,88 @@ def test_forecast_metrics_by_regime_returns_nan_for_empty_regimes():
     assert metrics["post_drift"]["n_observations"] == 0
 
 
+def test_forecast_metrics_by_regime_aligns_out_of_order_timestamps():
+    forecast_timestamps = pd.to_datetime(
+        ["2020-06-22", "2020-06-16", "2020-06-20"]
+    )
+    regime_labels = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2020-06-16", "2020-06-20", "2020-06-22"]),
+            "regime": ["pre_drift", "drift", "post_drift"],
+        }
+    )
+
+    metrics = calculate_forecast_metrics_by_regime(
+        y_true=[0.0, 0.0, 0.0],
+        y_pred=[8.0, 2.0, 40.0],
+        regime_labels=regime_labels,
+        forecast_timestamps=forecast_timestamps,
+    )
+
+    assert metrics["pre_drift"] == {"mae": 2.0, "n_observations": 1}
+    assert metrics["drift"] == {"mae": 40.0, "n_observations": 1}
+    assert metrics["post_drift"] == {"mae": 8.0, "n_observations": 1}
+
+
+def test_forecast_metrics_by_regime_reuses_label_for_duplicate_timestamps():
+    timestamp = pd.Timestamp("2020-06-20")
+    metrics = calculate_forecast_metrics_by_regime(
+        y_true=[0.0, 0.0],
+        y_pred=[5.0, 15.0],
+        regime_labels=pd.DataFrame(
+            {"timestamp": [timestamp], "regime": ["drift"]}
+        ),
+        forecast_timestamps=[timestamp, timestamp],
+    )
+
+    assert metrics["drift"] == {"mae": 10.0, "n_observations": 2}
+
+
 @pytest.mark.parametrize(
-    ("y_true", "y_pred", "labels"),
+    ("y_true", "y_pred", "labels", "timestamps"),
     [
-        ([1.0, 2.0], [1.0], pd.DataFrame({"regime": ["drift", "drift"]})),
-        ([1.0], [1.0], pd.DataFrame({"regime": ["drift", "drift"]})),
-        ([1.0], [1.0], pd.DataFrame({"label": ["drift"]})),
-        ([1.0], [1.0], pd.DataFrame({"regime": [None]})),
-        ([1.0], [1.0], pd.DataFrame({"regime": ["unassigned"]})),
+        (
+            [1.0, 2.0],
+            [1.0],
+            pd.DataFrame(
+                {"timestamp": pd.date_range("2020-01-01", periods=2), "regime": ["drift", "drift"]}
+            ),
+            pd.date_range("2020-01-01", periods=2),
+        ),
+        (
+            [1.0],
+            [1.0],
+            pd.DataFrame(
+                {"timestamp": pd.date_range("2020-01-01", periods=2), "regime": ["drift", "drift"]}
+            ),
+            pd.date_range("2020-01-01", periods=2),
+        ),
+        ([1.0], [1.0], pd.DataFrame({"regime": ["drift"]}), ["2020-01-01"]),
+        (
+            [1.0],
+            [1.0],
+            pd.DataFrame({"timestamp": ["2020-01-01"], "regime": [None]}),
+            ["2020-01-01"],
+        ),
+        (
+            [1.0],
+            [1.0],
+            pd.DataFrame({"timestamp": ["2020-01-01"], "regime": ["unassigned"]}),
+            ["2020-01-01"],
+        ),
+        (
+            [1.0],
+            [1.0],
+            pd.DataFrame({"timestamp": ["2020-01-02"], "regime": ["drift"]}),
+            ["2020-01-01"],
+        ),
     ],
 )
-def test_forecast_metrics_by_regime_rejects_invalid_inputs(y_true, y_pred, labels):
+def test_forecast_metrics_by_regime_rejects_invalid_inputs(
+    y_true, y_pred, labels, timestamps
+):
     with pytest.raises(ValueError):
-        calculate_forecast_metrics_by_regime(y_true, y_pred, labels)
+        calculate_forecast_metrics_by_regime(y_true, y_pred, labels, timestamps)
 
 
 def test_adaptation_gain_reports_difference_and_per_retrain():

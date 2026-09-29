@@ -305,11 +305,17 @@ def calculate_mae(y_true, y_pred):
     return float((y_true - y_pred).abs().mean())
 
 
-def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
+def calculate_forecast_metrics_by_regime(
+    y_true,
+    y_pred,
+    regime_labels,
+    forecast_timestamps,
+):
     """Calculate forecast MAE and observation count for each regime.
 
     ``regime_labels`` is the DataFrame returned by ``assign_regime`` and
-    must contain one row per forecast observation in the same order.
+    must contain ``timestamp`` and ``regime`` columns. Forecast errors are
+    aligned to labels by timestamp, so input ordering does not matter.
     """
     y_true = pd.Series(y_true, dtype=float)
     y_pred = pd.Series(y_pred, dtype=float)
@@ -320,13 +326,44 @@ def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
     if y_true.isna().any() or y_pred.isna().any():
         raise ValueError("y_true and y_pred must not contain missing values.")
 
-    if "regime" not in regime_labels.columns:
-        raise ValueError("regime_labels must contain a 'regime' column.")
+    required_columns = {"timestamp", "regime"}
+    missing_columns = required_columns - set(regime_labels.columns)
+    if missing_columns:
+        raise ValueError(
+            "regime_labels is missing columns: "
+            f"{sorted(missing_columns)}"
+        )
 
-    if len(y_true) != len(regime_labels):
-        raise ValueError("regime_labels must match the forecast length.")
+    forecast_timestamps = pd.DatetimeIndex(
+        pd.to_datetime(list(forecast_timestamps))
+    )
+    label_timestamps = pd.DatetimeIndex(
+        pd.to_datetime(regime_labels["timestamp"])
+    )
 
-    regimes = regime_labels["regime"].reset_index(drop=True)
+    if len(y_true) != len(forecast_timestamps):
+        raise ValueError("forecast_timestamps must match the forecast length.")
+
+    if forecast_timestamps.isna().any() or label_timestamps.isna().any():
+        raise ValueError("forecast and regime timestamps must not be missing.")
+
+    if label_timestamps.has_duplicates:
+        raise ValueError("regime_labels must contain unique timestamps.")
+
+    forecast_unique = forecast_timestamps.unique()
+    if (
+        len(forecast_unique.difference(label_timestamps))
+        or len(label_timestamps.difference(forecast_unique))
+    ):
+        raise ValueError(
+            "regime_labels timestamps must match the forecast timestamps."
+        )
+
+    regimes_by_timestamp = pd.Series(
+        regime_labels["regime"].to_numpy(),
+        index=label_timestamps,
+    )
+    regimes = pd.Series(forecast_timestamps).map(regimes_by_timestamp)
     if regimes.isna().any():
         raise ValueError("regime_labels must not contain missing values.")
 
@@ -338,7 +375,9 @@ def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
             f"{sorted(unexpected_regimes)}."
         )
 
-    absolute_error = (y_true.reset_index(drop=True) - y_pred.reset_index(drop=True)).abs()
+    absolute_error = (
+        y_true.reset_index(drop=True) - y_pred.reset_index(drop=True)
+    ).abs()
     metrics = {}
 
     for regime in expected_regimes:
