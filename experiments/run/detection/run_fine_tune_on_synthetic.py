@@ -1,71 +1,27 @@
-"""Final synthetic-only detector tuning against the false-alarm budget.
+"""Synthetic-only detector tuning against the false-alarm budget.
 
-One tuning pass, not split by deployment cadence. `SAMPLES_PER_YEAR` is
-fixed at the synthetic generator's own native assumption -- `make_series`
-already models `_PERIOD = 48`, i.e. half-hourly data:
+Constrained grid search: every candidate config runs on the synthetic
+benchmark (N=20,000, noise=1.0, kinds none/sudden/gradual/recurring, the
+shared five seeds). No AEMO data is used. False alarms are annualised at
+48*365 samples/year (the generator is half-hourly).
 
-    SAMPLES_PER_YEAR = 48 * 365
+Eligible configs must, on every seed:
+    - raise zero false alarms on the no-drift series;
+    - stay at <= 2 false alarms/year on every row;
+    - miss no drift.
+Winner per detector: fewest false alarms (mean false alarms/year over all
+rows -- no-drift and every drift scenario), then shortest mean detection
+delay, then parameter order. No eligible config ->
+status "no_eligible_configuration".
 
-(A per-cadence split was tried and reverted: it forced re-imagining the
-same fixed N=20,000 series as spanning a different number of years
-depending on which cadence was being scored -- e.g. treating it as ~55
-simulated years under a "daily" assumption -- which produced misleading
-budget comparisons rather than a genuine cadence-specific result. The
-AEMO side's own annualisation, `accepted_detections_per_year` in
-run_harness.py, is unaffected by this: it's computed from real elapsed
-calendar days, not from a samples-per-year assumption, so it never
-depended on this cadence split in the first place.)
+Configs run in parallel worker processes; only the parent writes files.
+Per-config checkpoints (results/runs/<config_hash>/) let a re-run skip
+finished configs -- clear them if the eligibility rules change.
 
-Synthetic benchmark (unchanged): N=20,000, noise=1.0, kinds = none /
-sudden / gradual / recurring, the shared five seeds, detectors = ADWIN /
-KSWIN / Page-Hinkley. No AEMO data or AEMO events are used here.
-
-Eligibility per detector configuration -- checked per row, across every
-detector and every seed, not as an average:
-    every no-drift seed has exactly zero false alarms (`none_clean`,
-        strict -- there is no tolerance window to argue about on a pure
-        no-drift series, so any detection there is unambiguously wrong)
-    every row's false-alarms/year (no-drift AND every drift scenario)
-        is <= 2
-    total missed drifts across sudden + gradual + recurring == 0
-
-Winner selection per detector, among eligible configs only:
-    1. lowest mean detection delay on drift scenarios (none excluded)
-    2. lowest mean no-drift false alarms/year
-    3. lowest maximum no-drift false alarms/year
-    4. deterministic parameter ordering (canonical JSON string)
-(Criteria 2-3 are usually a tie among eligible configs, since
-`none_clean` forces every eligible config's no-drift rate to exactly 0 --
-criterion 1, then 4, does the actual tie-breaking in practice.)
-A detector with no eligible configuration is recorded with status
-"no_eligible_configuration" rather than a failing fallback.
-
-Runtime: a fresh detector instance is created for every single
-(configuration, kind, seed) combination -- detector state is never
-reused across calls. Within one configuration's unit, all five no-drift
-seeds run first; a unit that fails `none_clean` skips its drift
-scenarios entirely, and a unit stops at its first missed drift or first
-over-budget row since it can no longer become eligible either way.
-Independent units run in worker processes via ProcessPoolExecutor;
-workers only return data, never write a file -- the parent process is
-the only writer of runs.csv, config.json and the checkpoint files. A
-completed unit's checkpoint file (under results/runs/<config_hash>/)
-lets a re-run skip units that are already done instead of recomputing
-and re-logging them -- but a checkpoint encodes the eligibility rule
-that was active when it was written, so a rule change requires clearing
-old checkpoints, not just re-running.
-
-Outputs (unchanged filenames):
-    results/tables/fine_tune_on_synthetic.csv          -- every row
-    results/tables/fine_tune_on_synthetic_winners.csv  -- one row per
-        eligible detector
-
-Scalar metrics (n_detections, n_false_alarms, false_alarms_per_year,
-missed_detections, detection_delay, runtime) are written to runs.csv
-through the shared harness (experiments.run_harness.record_run), which
-still uses `drift_lab.evaluation.evaluate_detections` as the one trusted
-metric implementation -- this script never recomputes a metric it also
-sends through record_run.
+Outputs:
+    results/tables/fine_tune_on_synthetic.csv          every row
+    results/tables/fine_tune_on_synthetic_winners.csv  one row per detector
+    runs.csv                                           per-row metrics via record_run
 """
 
 from __future__ import annotations
@@ -98,6 +54,19 @@ SAMPLES_PER_YEAR = 48 * 365
 
 FALSE_ALARM_BUDGET_PER_YEAR = 2.0
 
+# delta / alpha act through a logarithm, so they are swept in 10x steps.
+# KSWIN alpha starts near 2 / 17,520: the per-test level that keeps <= 2
+# false alarms/year when testing once per half-hour.
+ADWIN_DELTAS = tuple(10.0**-k for k in range(3, 10))  # 1e-3 ... 1e-9
+ADWIN_CLOCKS = (32, 48, 336)  # check every 16 h (river default), 1 day, 1 week
+ADWIN_MIN_WINDOW_LENGTHS = (5, 48, 336, 1344)  # river default, 1 day, 1 week, 4 weeks
+KSWIN_ALPHAS = tuple(10.0**-k for k in range(4, 10))  # 1e-4 ... 1e-9
+# KSWIN sizes in whole days of half-hours. The reference window covers at
+# least a full weekly cycle and at most ~a month (longer spans mix seasonal
+# demand levels); the recent sample holds whole days.
+KSWIN_STAT_SIZES = (96, 144, 240, 336, 672)  # 2, 3, 5 days, 1, 2 weeks
+KSWIN_WINDOW_SIZES = (336, 480, 672, 1344)  # 7, 10, 14, 28 days
+
 OUTPUT = results_io.TABLES_DIR / "fine_tune_on_synthetic.csv"
 WINNERS_OUTPUT = results_io.TABLES_DIR / "fine_tune_on_synthetic_winners.csv"
 
@@ -107,27 +76,36 @@ def false_alarms_per_year(n_false_alarms: int, n_observations: int) -> float:
 
 
 def candidate_sweeps():
-    """Yield (sweep_name, detector_class, kwargs) for every candidate
-    configuration. Classes + kwargs only (not instances), so each worker
-    builds its own fresh instances -- nothing built here crosses into a
-    worker process and gets reused."""
+    """Yield (sweep_name, detector_class, kwargs) per candidate; workers
+    build fresh instances."""
 
-    for delta in (0.0001, 0.00025, 0.0005, 0.00075, 0.001, 0.0015, 0.002):
-        yield ("adwin_budget_delta", ADWINDetector, {"delta": delta})
-
-    for alpha in (0.0005, 0.001, 0.005, 0.01, 0.02, 0.05):
-        for window_size in (300, 450):
-            for stat_size in (40, 44, 48, 50, 55, 60, 65):
+    for delta in ADWIN_DELTAS:
+        for clock in ADWIN_CLOCKS:
+            for min_window_length in ADWIN_MIN_WINDOW_LENGTHS:
                 yield (
-                    "kswin_budget_grid",
-                    KSWINDetector,
-                    {
-                        "alpha": alpha,
-                        "window_size": window_size,
-                        "stat_size": stat_size,
-                        "seed": 42,
-                    },
+                    "adwin_budget_grid",
+                    ADWINDetector,
+                    {"delta": delta, "clock": clock, "min_window_length": min_window_length},
                 )
+
+    size_pairs = [
+        (window_size, stat_size)
+        for window_size in KSWIN_WINDOW_SIZES
+        for stat_size in KSWIN_STAT_SIZES
+        if window_size >= 2 * stat_size  # river samples the reference from the rest
+    ]
+    for alpha in KSWIN_ALPHAS:
+        for window_size, stat_size in size_pairs:
+            yield (
+                "kswin_budget_grid",
+                KSWINDetector,
+                {
+                    "alpha": alpha,
+                    "window_size": window_size,
+                    "stat_size": stat_size,
+                    "seed": 42,
+                },
+            )
 
     for delta in (0.0005, 0.001, 0.005, 0.01, 0.02, 0.05):
         for min_instances in (20, 30, 50):
@@ -144,8 +122,7 @@ def candidate_sweeps():
 
 
 def full_config(kwargs: dict) -> dict:
-    """Detector kwargs plus samples_per_year -- the identity a
-    config_hash is computed from."""
+    """Detector kwargs plus samples_per_year, hashed into config_hash."""
     return {**kwargs, "samples_per_year": SAMPLES_PER_YEAR}
 
 
@@ -182,19 +159,9 @@ def _run_one(detector_class, kwargs: dict, kind: str, seed: int) -> dict:
 
 
 def evaluate_unit(sweep_name: str, detector_class, kwargs: dict) -> dict:
-    """Runs inside a worker process. Pure computation: no file I/O, no
-    record_run, no shared state -- only returns data for the parent to
-    log and persist.
-
-    Runtime shortcuts applied here, in order:
-      1. every no-drift seed runs first;
-      2. if any no-drift seed has a false alarm, drift scenarios are
-         skipped entirely for this unit;
-      3. otherwise drift scenarios run kind by kind, seed by seed, and
-         stop at the first missed drift or over-budget row, since one
-         already fails eligibility regardless of what the remaining
-         seeds/kinds would have shown.
-    """
+    """Worker-side evaluation of one config (no file I/O). Runs no-drift
+    seeds first and stops at the first failure, since one failure already
+    makes the config ineligible."""
     method = detector_class.name
     rows: list[dict] = []
 
@@ -207,12 +174,7 @@ def evaluate_unit(sweep_name: str, detector_class, kwargs: dict) -> dict:
     mean_none_fa_year = sum(none_fa_per_year) / len(none_fa_per_year)
     max_none_fa_year = max(none_fa_per_year)
 
-    # Strict: every single no-drift seed must have exactly zero false
-    # alarms. There is no tolerance window to argue about on a pure
-    # no-drift series -- any detection there is unambiguously wrong, so
-    # this is a hard per-seed gate, not folded into the annualised
-    # budget below. (`none_clean` implies the budget trivially, since
-    # 0 <= FALSE_ALARM_BUDGET_PER_YEAR.)
+    # Any alarm on a no-drift series is wrong, so this gate is per seed.
     none_clean = all(row["n_false_alarms"] == 0 for row in rows)
 
     stopped_early = False
@@ -223,11 +185,7 @@ def evaluate_unit(sweep_name: str, detector_class, kwargs: dict) -> dict:
             for seed in SEEDS:
                 row = _run_one(detector_class, kwargs, kind, seed)
                 rows.append(row)
-                # The <=2/year budget applies per row here -- every
-                # detector, every seed, every kind -- not just as a mean
-                # over the no-drift seeds. One missed drift or one
-                # over-budget row already rules the config out, so
-                # evaluation stops at the first of either.
+                # Budget is per row, not averaged.
                 if (
                     row["missed_detections"] > 0
                     or row["false_alarms_per_year"] > FALSE_ALARM_BUDGET_PER_YEAR
@@ -269,8 +227,7 @@ def save_checkpoint(config_hash: str, unit: dict) -> None:
 
 
 def log_unit_to_runs_csv(config_hash: str, config: dict, unit: dict) -> None:
-    """The only place this script calls record_run -- always in the
-    parent process, never inside a worker."""
+    """Log one config's rows to runs.csv (parent process only)."""
     for row in unit["rows"]:
         record_run(
             method=unit["method"],
@@ -285,9 +242,7 @@ def log_unit_to_runs_csv(config_hash: str, config: dict, unit: dict) -> None:
 
 
 def select_winners(completed_units: dict[str, dict]) -> pd.DataFrame:
-    """One winner per detector among eligible units only. Pure function
-    of `completed_units`, so re-running it on the same input is the
-    determinism check `validate_before_saving` relies on."""
+    """One winner per detector among eligible configs (pure function)."""
 
     by_method: dict[str, list[dict]] = {}
     for config_hash, unit in completed_units.items():
@@ -295,10 +250,12 @@ def select_winners(completed_units: dict[str, dict]) -> pd.DataFrame:
             continue
         drift_delays = [row["detection_delay"] for row in unit["rows"] if row["kind"] != "none"]
         mean_delay = sum(drift_delays) / len(drift_delays) if drift_delays else float("nan")
+        fa_per_year = [row["false_alarms_per_year"] for row in unit["rows"]]
         by_method.setdefault(unit["method"], []).append(
             {
                 "config_hash": config_hash,
                 "kwargs": unit["kwargs"],
+                "mean_false_alarms_per_year": sum(fa_per_year) / len(fa_per_year),
                 "mean_detection_delay": mean_delay,
                 "mean_none_false_alarms_per_year": unit["mean_none_false_alarms_per_year"],
                 "max_none_false_alarms_per_year": unit["max_none_false_alarms_per_year"],
@@ -315,6 +272,7 @@ def select_winners(completed_units: dict[str, dict]) -> pd.DataFrame:
                     "detector": method,
                     "config_hash": None,
                     "detector_parameters": None,
+                    "mean_false_alarms_per_year": None,
                     "mean_detection_delay": None,
                     "mean_none_false_alarms_per_year": None,
                     "max_none_false_alarms_per_year": None,
@@ -326,9 +284,8 @@ def select_winners(completed_units: dict[str, dict]) -> pd.DataFrame:
         ranked = sorted(
             candidates,
             key=lambda c: (
+                c["mean_false_alarms_per_year"],
                 c["mean_detection_delay"],
-                c["mean_none_false_alarms_per_year"],
-                c["max_none_false_alarms_per_year"],
                 json.dumps(c["kwargs"], sort_keys=True),
             ),
         )
@@ -338,6 +295,7 @@ def select_winners(completed_units: dict[str, dict]) -> pd.DataFrame:
                 "detector": method,
                 "config_hash": winner["config_hash"],
                 "detector_parameters": json.dumps(winner["kwargs"], sort_keys=True),
+                "mean_false_alarms_per_year": winner["mean_false_alarms_per_year"],
                 "mean_detection_delay": winner["mean_detection_delay"],
                 "mean_none_false_alarms_per_year": winner["mean_none_false_alarms_per_year"],
                 "max_none_false_alarms_per_year": winner["max_none_false_alarms_per_year"],
@@ -353,8 +311,7 @@ def validate_before_saving(
     winners: pd.DataFrame,
     completed_units: dict[str, dict],
 ) -> None:
-    """Every check runs before the winners file is written; a failure
-    raises instead of silently saving a questionable pick."""
+    """Re-check winners before saving; raise rather than save a bad pick."""
 
     assert set(full_results["detector"]) == set(DETECTOR_NAMES), "all three detectors must be present"
     assert set(full_results["seed"]) == set(SEEDS), "all five seeds must have been used"
@@ -382,13 +339,8 @@ def validate_before_saving(
         ), (
             f"winner {winner['detector']} exceeds the false-alarm budget on at least one row"
         )
-        # Every row was produced by _run_one(), which always builds
-        # `detector_class(**kwargs)` fresh immediately before the single
-        # .detect() call it's used for -- no detector instance is ever
-        # stored and reused across rows, units, kinds or seeds.
 
-    # Determinism: selecting winners twice from the same completed units
-    # must produce the identical table.
+    # Selection must be deterministic.
     winners_again = select_winners(completed_units)
     pd.testing.assert_frame_equal(
         winners.reset_index(drop=True), winners_again.reset_index(drop=True)
