@@ -6,9 +6,9 @@ aggregation rules (see table_t2_common.py), pinned instead to
 run_aemo_detectors_raw_post_tune.py's rows -- raw half-hourly AEMO demand,
 post-tuning (frozen) detector configs.
 
-Comparing this table to produce_table_t2_raw_pre_tune.py's output isolates
-what tuning bought on raw demand, holding the input processing fixed;
-comparing it to produce_table_t2_daily_post_tune.py's output isolates the
+Comparing it with the pre-tuning raw rows in
+produce_table_t2_all_streams_all_tuning.py's output isolates what tuning
+bought on raw demand, holding the input processing fixed; comparing it to produce_table_t2_daily_post_tune.py's output isolates the
 combined effect of both daily aggregation and tuning.
 """
 

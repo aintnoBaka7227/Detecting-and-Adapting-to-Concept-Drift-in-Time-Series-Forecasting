@@ -108,6 +108,7 @@ def test_record_run_with_regime_labels_logs_regimes_curve_and_retrains(results_i
         retrain_timestamps=retrains,
     )
 
+    assert set(rows["group"]) == {"adaptation"}
     mae = rows[rows["metric_name"] == "mae"].set_index("regime")["metric_value"]
     assert mae.to_dict() == {"full": 10.0, "pre-drift": 10.0, "drift": 10.0, "post-drift": 10.0}
     counts = rows[rows["metric_name"] == "n_observations"].set_index("regime")["metric_value"]
