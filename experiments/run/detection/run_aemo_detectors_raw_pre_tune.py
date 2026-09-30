@@ -10,8 +10,8 @@ breakdown and `event_recall`) plus one `delay_<event_id>` row per match;
 the raw detection timestamps are dumped alongside for F2.
 
 Feeds Figure F2, and (as a second, read-only consumer of the same rows)
-Table T2's pre-tuning + raw-30-minute sibling
-(produce_table_t2_raw_pre_tune.py) -- not the canonical Table T2, which
+the pre-tuning raw rows of produce_table_t2_all_streams_all_tuning.py
+-- not the canonical Table T2, which
 reads `run_aemo_detectors_standard_daily_post_tune.py`'s standard-daily,
 post-tuning rows instead.
 

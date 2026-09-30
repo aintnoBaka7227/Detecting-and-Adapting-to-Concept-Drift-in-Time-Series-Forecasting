@@ -3,9 +3,10 @@ hyperparameters, against the synthetic benchmark.
 
 One `record_run` call per (detector, drift_type, seed); nothing is computed
 here beyond `.detect()` — metrics come from `evaluation.evaluate_detections`
-inside `record_run`. Feeds Table T1's pre-tuning table
-(produce_table_t1_pre_tune.py); run_post_tune_on_synthetic.py is this
-script's post-tuning (frozen-config) sibling.
+inside `record_run`. No report table reads these rows now (the
+pre-tuning T1 was retired); kept as the class-default baseline.
+run_post_tune_on_synthetic.py is this script's post-tuning (frozen-config)
+sibling.
 """
 
 from __future__ import annotations

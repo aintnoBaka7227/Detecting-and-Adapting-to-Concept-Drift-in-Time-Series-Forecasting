@@ -16,10 +16,10 @@ Per the supervisor, T2 shows Tier 1 by name, and an unmatched detection
 is reported as `unmatched`, never as a false positive.
 
 This is the canonical, post-tuning, standard-daily T2. Siblings --
-produce_table_t2_raw_pre_tune.py, produce_table_t2_standard_daily_pre_tune.py,
-and produce_table_t2_standard_half_hourly_post_tune.py -- share every
-column and rule here (see table_t2_common.py) but read a different
-(tuning stage, input stream) combination instead.
+produce_table_t2_raw_post_tune.py and
+produce_table_t2_standard_half_hourly_post_tune.py -- share every column
+and rule here (see table_t2_common.py) but read a different input stream
+instead.
 """
 
 from __future__ import annotations

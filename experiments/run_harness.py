@@ -51,6 +51,8 @@ def record_run(
 
     Pass exactly one of:
       forecast  = (y_true, y_pred, index)        -> group "baseline"
+                  (group "adaptation" when `regime_labels` is also
+                  passed -- an adaptation-arm run, not a baseline)
       detection = (detected, truth, n_samples)   -> group "detection"
         `truth` a list of int indices  -> synthetic; `dataset` must be
           "synthetic_<drift_type>" and evaluation.evaluate_detections scores it.
@@ -200,7 +202,7 @@ def build_regime_forecast_rows(
     labels = pd.Series(regime_labels).astype(str).str.replace("_", "-", regex=False).to_numpy()
 
     curve = evaluation.calculate_rolling_mae(y_true, y_pred, window=ROLLING_WINDOW)
-    common = {**common, "group": "baseline"}
+    common = {**common, "group": "adaptation"}
     results_io.dump_forecast_curve(
         common["config_hash"],
         dataset,

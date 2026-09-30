@@ -2,7 +2,8 @@
 
 Reads saved curves and all Tier 1 and Tier 2 documented events. No metric is
 recalculated.
-Writes one yearly figure with SA1 and NSW1 shown as stacked panels.
+Writes one yearly figure with SA1 and NSW1 shown as stacked panels, plus a
+joined figure covering every test year on one continuous time axis.
 """
 
 from __future__ import annotations
@@ -110,18 +111,24 @@ def test_years(
     ]
 
 
-def events_in_year(
+def year_window(year: int) -> tuple[pd.Timestamp, pd.Timestamp]:
+    return (
+        pd.Timestamp(year=year, month=1, day=1),
+        pd.Timestamp(year=year + 1, month=1, day=1),
+    )
+
+
+def events_in_window(
     events: pd.DataFrame,
     region: str,
-    year: int,
+    window_start: pd.Timestamp,
+    window_end: pd.Timestamp,
 ) -> pd.DataFrame:
-    year_start = pd.Timestamp(year=year, month=1, day=1)
-    year_end = pd.Timestamp(year=year + 1, month=1, day=1)
     return (
         events[
             events["region"].isin([region, "NEM"])
-            & (events["start_date"] < year_end)
-            & (events["end_date"] >= year_start)
+            & (events["start_date"] < window_end)
+            & (events["end_date"] >= window_start)
         ]
         .sort_values("start_date")
         .reset_index(drop=True)
@@ -132,12 +139,12 @@ def annotate_events_with_names(
     ax: plt.Axes,
     events: pd.DataFrame,
     region: str,
-    year: int,
+    window_start: pd.Timestamp,
+    window_end: pd.Timestamp,
 ) -> None:
     """Draw tier-coloured markers and compact vertical event names."""
-    year_start = pd.Timestamp(year=year, month=1, day=1)
-    year_end = pd.Timestamp(year=year + 1, month=1, day=1)
-    in_scope = events_in_year(events, region, year)
+    year_start, year_end = window_start, window_end
+    in_scope = events_in_window(events, region, window_start, window_end)
 
     tier_counts = {1: 0, 2: 0}
     for _, event in in_scope.iterrows():
@@ -207,12 +214,29 @@ def annotate_events_with_names(
 
 
 def format_year_axis(ax: plt.Axes, year: int) -> None:
-    ax.set_xlim(
-        pd.Timestamp(year=year, month=1, day=1),
-        pd.Timestamp(year=year + 1, month=1, day=1),
-    )
+    ax.set_xlim(*year_window(year))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
+    style_axes(ax)
+
+
+def format_multi_year_axis(ax: plt.Axes, years: list[int]) -> None:
+    ax.set_xlim(year_window(years[0])[0], year_window(years[-1])[1])
+    ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    style_axes(ax)
+    for year in years[1:]:
+        ax.axvline(
+            year_window(year)[0],
+            color="#7A8594",
+            lw=1.0,
+            alpha=0.7,
+            zorder=1,
+        )
+
+
+def style_axes(ax: plt.Axes) -> None:
     ax.tick_params(axis="x", labelrotation=0, labelsize=8)
     ax.tick_params(axis="y", labelsize=8)
     ax.grid(axis="y", color=GRID_COLOR, lw=0.7, alpha=0.85)
@@ -266,7 +290,7 @@ def plot_year(
             # plotting height, while event labels begin above 82%.
             ax.set_ylim(0, peak * 1.65)
 
-        annotate_events_with_names(ax, events, region, year)
+        annotate_events_with_names(ax, events, region, *year_window(year))
         ax.set_title(region, loc="left", fontsize=12, fontweight="bold", pad=8)
         ax.set_ylabel("7-day rolling MAE (MW)")
         format_year_axis(ax, year)
@@ -298,6 +322,21 @@ def plot_year(
         color="#555555",
     )
 
+    add_event_legend(fig)
+
+    fig.tight_layout(rect=(0, 0.035, 1, 0.95), h_pad=2.0)
+    out_path = FIGURE1_DIR / f"f1_degradation_{year}.png"
+    fig.savefig(
+        out_path,
+        dpi=180,
+        bbox_inches="tight",
+        facecolor="white",
+    )
+    plt.close(fig)
+    print(f"wrote {out_path}")
+
+
+def add_event_legend(fig: plt.Figure) -> None:
     event_legend = [
         Line2D(
             [], [], color=EVENT_STYLE[1][0], lw=1.1, ls="--",
@@ -317,8 +356,69 @@ def plot_year(
         fontsize=8,
     )
 
+
+def plot_all_years(
+    years: list[int],
+    region_curves: dict[str, dict[str, pd.Series]],
+    events: pd.DataFrame,
+) -> None:
+    """Draw every test year on one continuous axis, one panel per region."""
+    window_start = year_window(years[0])[0]
+    window_end = year_window(years[-1])[1]
+    fig, axes = plt.subplots(
+        len(REGIONS),
+        1,
+        figsize=(8.0 * len(years), 5.6 * len(REGIONS)),
+        sharex=True,
+    )
+    fig.patch.set_facecolor("white")
+
+    for ax, region in zip(axes, REGIONS):
+        ax.set_facecolor("#FAFBFC")
+        window_curves = {
+            method: curve[(curve.index >= window_start) & (curve.index < window_end)]
+            for method, curve in region_curves[region].items()
+        }
+        peak = plot_curves(ax, window_curves)
+        if peak > 0:
+            ax.set_ylim(0, peak * 1.65)
+
+        annotate_events_with_names(ax, events, region, window_start, window_end)
+        ax.set_title(region, loc="left", fontsize=12, fontweight="bold", pad=8)
+        ax.set_ylabel("7-day rolling MAE (MW)")
+        format_multi_year_axis(ax, years)
+        ax.legend(
+            loc="lower right",
+            ncol=4,
+            fontsize=8,
+            framealpha=0.92,
+            facecolor="white",
+            edgecolor="#C7CDD4",
+        )
+
+    axes[-1].set_xlabel(f"Date ({years[0]}–{years[-1]})")
+    fig.suptitle(
+        f"F1: 7-day rolling MAE for frozen baselines — {years[0]}–{years[-1]}",
+        x=0.01,
+        y=0.995,
+        ha="left",
+        fontsize=15,
+        fontweight="bold",
+    )
+    fig.text(
+        0.01,
+        0.969,
+        "All test years joined on one axis; solid grey lines mark year boundaries. "
+        "Vertical labels show all documented Tier 1 and Tier 2 events.",
+        ha="left",
+        va="top",
+        fontsize=9,
+        color="#555555",
+    )
+    add_event_legend(fig)
+
     fig.tight_layout(rect=(0, 0.035, 1, 0.95), h_pad=2.0)
-    out_path = FIGURE1_DIR / f"f1_degradation_{year}.png"
+    out_path = FIGURE1_DIR / f"f1_degradation_{years[0]}_{years[-1]}.png"
     fig.savefig(
         out_path,
         dpi=180,
@@ -337,8 +437,11 @@ def main() -> None:
         for region in REGIONS
     }
 
-    for year in test_years(region_curves):
+    years = test_years(region_curves)
+    for year in years:
         plot_year(year, region_curves, events)
+    if len(years) > 1:
+        plot_all_years(years, region_curves, events)
 
 
 if __name__ == "__main__":

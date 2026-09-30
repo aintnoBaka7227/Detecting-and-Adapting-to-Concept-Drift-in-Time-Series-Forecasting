@@ -1,13 +1,9 @@
 """Shared build logic for Table T1 (synthetic drift detection).
 
-Pre-tuning (produce_table_t1_pre_tune.py, reading run_pre_tune_on_synthetic.py's
-rows) and post-tuning (produce_table_t1_post_tune.py, reading
-run_post_tune_on_synthetic.py's rows) share every column definition and
-aggregation rule; the only thing that differs between them is which
-split_ids they read, via the `split_id_filter` callable passed to
-build_table(). (The post-tuning table was briefly retired, then recreated
-once a systematic pre/post-tuning x table-1/figure-2 matrix for the
-synthetic benchmark was wanted -- see DECISIONS.md.)
+Read by produce_table_t1_post_tune.py (run_post_tune_on_synthetic.py's
+rows), which picks its rows via the `split_id_filter` callable passed to
+build_table(). (A pre-tuning T1 once shared this module; it was
+retired.)
 
 `build_table()` takes an explicit `split_id_filter` rather than
 hardcoding one, since the un-filtered version of this exact function
@@ -19,17 +15,21 @@ mixing can't reappear by omission if a second T1 variant is added again.
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Callable
 
 import pandas as pd
 
+from drift_lab.detection.adwin import ADWINDetector
+from drift_lab.detection.kswin import KSWINDetector
+from drift_lab.detection.page_hinkley import PageHinkleyDetector
 from experiments.results_io import RUNS_CSV, RUNS_DIR
 
-THRESHOLD_LABEL_BY_METHOD = {
-    "adwin": lambda c: f"delta = {c['delta']}",
-    "kswin": lambda c: f"alpha = {c['alpha']}",
-    "page_hinkley": lambda c: f"threshold = {c['threshold']}",
+DETECTOR_CLASS_BY_METHOD = {
+    "adwin": ADWINDetector,
+    "kswin": KSWINDetector,
+    "page_hinkley": PageHinkleyDetector,
 }
 
 TABLE_COLUMNS = [
@@ -38,15 +38,32 @@ TABLE_COLUMNS = [
     "delay (mean ± sd)",
     "false alarms / 10k",
     "missed",
-    "threshold",
+    "config",
     "seeds",
 ]
 
 
-def threshold_label_for(config_hash: str, method: str) -> str:
+def _format_value(value: object) -> str:
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def config_label_for(config_hash: str, method: str) -> str:
+    """Every constructor hyperparameter of the detector, as the run
+    recorded it -- not just the one that sets its threshold. Run
+    bookkeeping in config.json (samples_per_year, parameter_selection, ...)
+    is left out. Raises if the run didn't record a hyperparameter, rather
+    than guessing a default: re-run the producing script instead."""
     config = json.loads((RUNS_DIR / config_hash / "config.json").read_text())
-    label = THRESHOLD_LABEL_BY_METHOD.get(method)
-    return label(config) if label else json.dumps(config)
+    detector_class = DETECTOR_CLASS_BY_METHOD[method]
+    names = list(inspect.signature(detector_class.__init__).parameters)[1:]
+
+    missing = [name for name in names if name not in config]
+    if missing:
+        raise ValueError(
+            f"{method} run {config_hash} did not record {missing} in config.json -- "
+            "re-run its producing script so every hyperparameter is logged"
+        )
+    return ", ".join(f"{name}={_format_value(config[name])}" for name in sorted(names))
 
 
 def format_delay_summary(delay: pd.Series) -> str:
@@ -102,7 +119,7 @@ def build_table(split_id_filter: Callable[[pd.Series], pd.Series]) -> pd.DataFra
                 "delay (mean ± sd)": format_delay_summary(delay),
                 "false alarms / 10k": round(alarms.mean(), 1),
                 "missed": int(missed.sum()),
-                "threshold": threshold_label_for(g["config_hash"].iloc[0], method),
+                "config": config_label_for(g["config_hash"].iloc[0], method),
                 "seeds": g["seed"].nunique(),
             }
         )
