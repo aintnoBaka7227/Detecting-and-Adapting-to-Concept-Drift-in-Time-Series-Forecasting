@@ -1,9 +1,8 @@
-"""The three river-backed drift detectors, mirroring detection/."""
+"""Behavior tests for the three native project drift detectors."""
 
 import numpy as np
 import pandas as pd
 import pytest
-from river import drift
 
 from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
@@ -12,39 +11,23 @@ from drift_lab.evaluation import evaluate_detections
 from drift_lab.synthetic.generator import make_series
 
 CASES = [
-    (ADWINDetector(), lambda: drift.ADWIN(delta=0.002), "adwin"),
-    (
-        KSWINDetector(),
-        lambda: drift.KSWIN(alpha=0.005, window_size=100, stat_size=30, seed=42),
-        "kswin",
-    ),
-    (
-        PageHinkleyDetector(),
-        lambda: drift.PageHinkley(min_instances=30, delta=0.005, threshold=50),
-        "page_hinkley",
-    ),
+    (ADWINDetector(), "adwin"),
+    (KSWINDetector(), "kswin"),
+    (PageHinkleyDetector(), "page_hinkley"),
 ]
 
 
-def _raw_river(factory, y) -> list[int]:
-    detector = factory()
-    flagged = []
-    for i, x in enumerate(y):
-        detector.update(float(x))
-        if detector.drift_detected:
-            flagged.append(i)
-    return flagged
-
-
-@pytest.mark.parametrize("detector,factory,name", CASES)
-def test_wrapper_matches_raw_river_and_exposes_name(detector, factory, name):
+@pytest.mark.parametrize("detector,name", CASES)
+def test_detector_exposes_name_and_positional_indices(detector, name):
     y, _ = make_series("sudden", n=6000, noise=1.0, seed=1)
     assert detector.name == name
-    assert detector.detect(y) == _raw_river(factory, y)
+    detected = detector.detect(y)
+    assert all(0 <= index < len(y) for index in detected)
+    assert detected == sorted(set(detected))
 
 
-@pytest.mark.parametrize("detector,factory,name", CASES)
-def test_detects_the_sudden_changepoint(detector, factory, name):
+@pytest.mark.parametrize("detector,name", CASES)
+def test_detects_the_sudden_changepoint(detector, name):
     y, changepoints = make_series("sudden", n=20000, noise=1.0, seed=2)
     result = evaluate_detections(
         detector.detect(y),

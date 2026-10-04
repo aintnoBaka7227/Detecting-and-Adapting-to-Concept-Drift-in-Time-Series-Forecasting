@@ -2,9 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from river import drift
 
-from drift_lab.detection.base import detect_with_river
 from drift_lab.detection.kswin import KSWINDetector
 
 
@@ -65,32 +63,11 @@ def test_kswin_accepts_pandas_series():
 
     detected = detector.detect(stream)
 
-    assert isinstance(detected, list)
+    assert detected == detector.detect(stream.to_numpy())
 
 
-def test_kswin_wrapper_matches_river():
-    stream = np.concatenate(
-        [
-            np.zeros(500),
-            np.full(500, 5.0),
-        ]
-    )
+def test_kswin_is_deterministic_for_each_stream():
+    stream = np.concatenate([np.zeros(500), np.full(500, 5.0)])
+    detector = KSWINDetector()
 
-    project_detected = KSWINDetector(
-        alpha=0.005,
-        window_size=100,
-        stat_size=30,
-        seed=42,
-    ).detect(stream)
-
-    river_detected = detect_with_river(
-        drift.KSWIN(
-            alpha=0.005,
-            window_size=100,
-            stat_size=30,
-            seed=42,
-        ),
-        stream,
-    )
-
-    assert project_detected == river_detected
+    assert detector.detect(stream) == detector.detect(stream)

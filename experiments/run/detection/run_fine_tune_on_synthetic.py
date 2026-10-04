@@ -78,6 +78,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 
 from drift_lab.config import SEEDS
+from drift_lab.detection.base import DriftDetector
 from drift_lab.detection.adwin import ADWINDetector
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
@@ -112,8 +113,30 @@ def candidate_sweeps():
     builds its own fresh instances -- nothing built here crosses into a
     worker process and gets reused."""
 
-    for delta in (0.0001, 0.00025, 0.0005, 0.00075, 0.001, 0.0015, 0.002):
-        yield ("adwin_budget_delta", ADWINDetector, {"delta": delta})
+    for delta in (
+        1e-7,
+        1e-6,
+        1e-5,
+        5e-5,
+        0.0001,
+        0.00025,
+        0.0005,
+        0.00075,
+        0.001,
+        0.0015,
+        0.002,
+    ):
+        for max_window_size in (512, 1024, 2048, 4096):
+            for cooldown in (1024, 2048):
+                yield (
+                    "adwin_budget_grid",
+                    ADWINDetector,
+                    {
+                        "delta": delta,
+                        "max_window_size": max_window_size,
+                        "cooldown": cooldown,
+                    },
+                )
 
     for alpha in (0.0005, 0.001, 0.005, 0.01, 0.02, 0.05):
         for window_size in (300, 450):
@@ -144,9 +167,12 @@ def candidate_sweeps():
 
 
 def full_config(kwargs: dict) -> dict:
-    """Detector kwargs plus samples_per_year -- the identity a
-    config_hash is computed from."""
-    return {**kwargs, "samples_per_year": SAMPLES_PER_YEAR}
+    """Detector settings and implementation version used for cache identity."""
+    return {
+        **kwargs,
+        "samples_per_year": SAMPLES_PER_YEAR,
+        "detector_implementation": DriftDetector.implementation,
+    }
 
 
 def _run_one(detector_class, kwargs: dict, kind: str, seed: int) -> dict:

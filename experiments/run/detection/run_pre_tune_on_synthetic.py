@@ -25,12 +25,10 @@ KINDS: tuple[Kind, ...] = ("none", "sudden", "gradual", "recurring")
 N = 20_000
 NOISE = 1.0
 
-# One instance per detector, reused across every (drift_type, seed): river
-# detectors are rebuilt fresh inside .detect() each call (see
-# detection/base.py::detect_with_river), so this is safe — and it keeps
-# config_hash identical across all of a detector's runs. KSWIN's own `seed`
-# (its internal reservoir sampling) is therefore fixed at its default, not
-# tied to the experiment seed below, which only drives make_series.
+# One instance per detector is reused across every (drift_type, seed). The
+# implementations keep their runtime state local to .detect(), and this
+# keeps config_hash identical across a detector's runs. KSWIN's own `seed`
+# controls its reference sampling and is independent of the experiment seed.
 DETECTORS = (ADWINDetector(), KSWINDetector(), PageHinkleyDetector())
 
 

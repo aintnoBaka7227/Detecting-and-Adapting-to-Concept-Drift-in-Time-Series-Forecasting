@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from drift_lab.forecasting.seasonal_naive import SeasonalNaive
+from drift_lab.detection.adwin import ADWINDetector
 from experiments import results_io
 from experiments.run_harness import config_of, record_run
 
@@ -31,6 +32,15 @@ def test_config_of_keeps_only_public_attrs():
         pd.Series([1.0, 2.0, 3.0], index=pd.date_range("2020", periods=3, freq="30min")),
     )
     assert config_of(model) == {"season_length": 48}
+
+
+def test_config_of_records_native_detector_implementation():
+    assert config_of(ADWINDetector()) == {
+        "delta": 0.002,
+        "max_window_size": 2048,
+        "cooldown": 1024,
+        "detector_implementation": "native_v2",
+    }
 
 
 def test_forecast_run_writes_expected_rows(results_in_tmp):

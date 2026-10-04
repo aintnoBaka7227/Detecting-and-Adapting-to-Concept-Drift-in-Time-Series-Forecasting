@@ -22,6 +22,20 @@ def test_page_hinkley_detects_gradual_drift():
     assert changepoints[0] >= 1000
 
 
+def test_page_hinkley_detects_downward_mean_change():
+    rng = np.random.default_rng(7)
+    stream = np.concatenate(
+        [
+            rng.normal(5.0, 0.5, 1000),
+            rng.normal(0.0, 0.5, 1000),
+        ]
+    )
+
+    changepoints = PageHinkleyDetector().detect(stream)
+
+    assert any(1000 <= index < 1100 for index in changepoints)
+
+
 def test_adwin_detects_gradual_drift():
     rng = np.random.default_rng(42)
 

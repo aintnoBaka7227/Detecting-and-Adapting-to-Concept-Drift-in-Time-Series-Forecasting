@@ -22,8 +22,12 @@ REGIME_NAMES = ("pre-drift", "drift", "post-drift")
 
 
 def config_of(obj) -> dict:
-    """The public (non-underscore) constructor attributes of a model / detector."""
-    return {k: v for k, v in vars(obj).items() if not k.startswith("_")}
+    """The public constructor attributes and implementation version."""
+    config = {k: v for k, v in vars(obj).items() if not k.startswith("_")}
+    implementation = getattr(obj, "implementation", None)
+    if implementation is not None:
+        config["detector_implementation"] = implementation
+    return config
 
 
 def record_run(

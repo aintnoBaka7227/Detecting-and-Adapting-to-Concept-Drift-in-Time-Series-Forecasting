@@ -4,10 +4,9 @@
 
 See docs/interfaces.md for the full rationale.
 
-How to implement a detector (Sprint 3, Step 4)
------------------------------------------------
-Add a new file next to this one, e.g. `adwin.py`, and subclass
-`DriftDetector`:
+How to implement a detector
+---------------------------
+Subclass `DriftDetector` and process observations in order:
 
     import numpy as np
     from drift_lab.detection.base import DriftDetector
@@ -16,16 +15,14 @@ Add a new file next to this one, e.g. `adwin.py`, and subclass
         def __init__(self, delta: float = 0.002):
             self.delta = delta
 
-        def detect(self, stream: np.ndarray) -> list[int]:
-            # e.g. feed `stream` through river.drift.ADWIN one value at a
-            # time and collect the indices where it flags a change.
+        def detect(self, stream: np.ndarray | pd.Series) -> list[int]:
+            values = stream_values(stream)
+            # Update online state once per value and record flagged indices.
             ...
             return changepoint_indices
 
-Wrapping an online/streaming detector (river's ADWIN, Page-Hinkley,
-KSWIN, ...) is fine internally — the class just has to expose this one
-batch-style method so every detector can be run and scored the same way
-against the synthetic benchmark (Step 4) before ever touching AEMO.
+The public batch-style method keeps every detector comparable on the
+synthetic benchmark before it is evaluated on AEMO.
 """
 
 from abc import ABC, abstractmethod
@@ -36,6 +33,7 @@ import pandas as pd
 
 class DriftDetector(ABC):
     name: str = ""
+    implementation: str = "native_v2"
 
     @abstractmethod
     def detect(self, stream: np.ndarray | pd.Series) -> list[int]:
@@ -53,9 +51,18 @@ class DriftDetector(ABC):
         """Drop any internal state so the detector can be reused. Default no-op."""
 
 
+def stream_values(stream: np.ndarray | pd.Series) -> np.ndarray:
+    """Convert a detector input to a finite, one-dimensional float array."""
+    values = stream.to_numpy(dtype=float) if isinstance(stream, pd.Series) else np.asarray(stream, dtype=float)
+    if values.ndim != 1:
+        raise ValueError("stream must be one-dimensional")
+    if not np.isfinite(values).all():
+        raise ValueError("stream must contain only finite values")
+    return values
+
+
 def detect_with_river(river_detector, stream: np.ndarray | pd.Series) -> list[int]:
-    """Feed `stream` through a fresh river drift detector one value at a time,
-    returning the positional indices where it flags a change."""
+    """Adapt a River-style online detector to the project batch interface."""
     values = stream.to_numpy() if isinstance(stream, pd.Series) else np.asarray(stream)
     flagged: list[int] = []
     for i, x in enumerate(values):
