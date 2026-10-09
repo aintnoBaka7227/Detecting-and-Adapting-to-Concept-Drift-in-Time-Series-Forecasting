@@ -41,6 +41,16 @@ def test_forecast_metrics_by_regime_accepts_hyphenated_labels():
     assert set(metrics) == {"pre_drift", "post_drift"}
 
 
+def test_forecast_metrics_by_regime_counts_but_does_not_score_unassigned():
+    metrics = calculate_forecast_metrics_by_regime(
+        [10, 10, 10], [11, 13, 0], ["drift", "drift", "unassigned"]
+    )
+    assert metrics == {
+        "drift": {"mae": 2.0, "n_observations": 2},
+        "unassigned": {"n_observations": 1},
+    }
+
+
 @pytest.mark.parametrize(
     "labels",
     [["drift"], ["drift", None], ["drift", "stable"]],
@@ -91,7 +101,7 @@ def test_pinball_loss_matches_definition():
 def test_record_run_with_regime_labels_logs_regimes_curve_and_retrains(results_in_tmp):
     n = 1000
     index = pd.date_range("2020-03-01", periods=n, freq="30min")
-    labels = np.array(["pre_drift"] * 300 + ["drift"] * 300 + ["post_drift"] * 400)
+    labels = np.array(["pre_drift"] * 300 + ["drift"] * 300 + ["post_drift"] * 300 + ["unassigned"] * 100)
     retrains = [pd.Timestamp("2020-03-05 23:30")]
 
     rows = record_run(
@@ -112,7 +122,7 @@ def test_record_run_with_regime_labels_logs_regimes_curve_and_retrains(results_i
     mae = rows[rows["metric_name"] == "mae"].set_index("regime")["metric_value"]
     assert mae.to_dict() == {"full": 10.0, "pre-drift": 10.0, "drift": 10.0, "post-drift": 10.0}
     counts = rows[rows["metric_name"] == "n_observations"].set_index("regime")["metric_value"]
-    assert counts.to_dict() == {"pre-drift": 300, "drift": 300, "post-drift": 400}
+    assert counts.to_dict() == {"pre-drift": 300, "drift": 300, "post-drift": 300, "unassigned": 100}
 
     chash = rows["config_hash"].iloc[0]
     curve = pd.read_csv(results_io.curve_path(chash, "aemo", "SA1", 1))
@@ -129,4 +139,46 @@ def test_record_run_rejects_changepoints_with_regime_labels(results_in_tmp):
         record_run(
             method="m", dataset="aemo", seed=None, config={}, wall_clock_s=0.0, split_id="t",
             forecast=(np.ones(10), np.ones(10), index), changepoints=[5], regime_labels=["drift"] * 10,
+        )
+
+
+def test_record_run_with_interval_logs_pinball_and_bounds(results_in_tmp):
+    n = 400
+    index = pd.date_range("2020-03-01", periods=n, freq="30min")
+    y_true, y_pred = np.full(n, 100.0), np.full(n, 90.0)
+
+    rows = record_run(
+        method="nhits/A_never_retrain",
+        dataset="aemo",
+        region="SA1",
+        seed=1,
+        config={"arm": "A_never_retrain"},
+        wall_clock_s=0.0,
+        split_id="test_v1",
+        forecast=(y_true, y_pred, index),
+        regime_labels=np.array(["drift"] * n),
+        interval=(y_pred - 20.0, y_pred + 20.0, 0.10),
+    )
+
+    # Bounds [70, 110] around actual 100: (0.05 * 30 + 0.05 * 10) / 2 = 1.0
+    pinball = rows[rows["metric_name"] == "pinball_loss"]
+    assert pinball["regime"].tolist() == ["full"]
+    assert pinball["metric_value"].iloc[0] == pytest.approx(1.0)
+
+    curve = pd.read_csv(results_io.curve_path(rows["config_hash"].iloc[0], "aemo", "SA1", 1))
+    assert curve["lower"].eq(70.0).all() and curve["upper"].eq(110.0).all()
+
+
+def test_record_run_rejects_interval_without_regime_labels(results_in_tmp):
+    index = pd.date_range("2020-03-01", periods=2, freq="30min")
+    with pytest.raises(ValueError):
+        record_run(
+            method="nhits",
+            dataset="aemo",
+            seed=1,
+            config={},
+            wall_clock_s=0.0,
+            split_id="test_v1",
+            forecast=([1.0, 2.0], [1.0, 2.0], index),
+            interval=([0.0, 0.0], [3.0, 3.0], 0.10),
         )

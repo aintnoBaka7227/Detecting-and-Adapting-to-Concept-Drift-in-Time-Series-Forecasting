@@ -140,7 +140,7 @@ def test_invalid_parameters_rejected():
 
 # --- retraining boundary in the arm runner -----------------------------------
 
-from experiments.run.forecasting.run_aemo_adaptation_arms import run_arm
+from experiments.run.adaptation.run_aemo_adaptation_arms import run_arm
 
 
 def test_run_arm_old_model_through_day_d_new_model_from_d_plus_1():

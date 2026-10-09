@@ -28,10 +28,14 @@ same labels for every arm. Cost fields per run: `n_retrains`,
 `train_samples` (cumulative retrain samples) and `wall_clock_s`
 (cumulative retrain fit time); the initial TRAIN fit is excluded.
 
+Seeds: nhits and xgboost are stochastic, so `--seed` is required and must
+come from the shared `config.SEEDS`; it is the model's `random_seed` /
+`random_state`. dhr_arima is deterministic and takes no seed.
+
 Logged under split_id "aemo_adapt_adwin_std_hh_v1", method "<model>/<arm>".
 
 Usage:
-    python -m experiments.run.forecasting.run_aemo_adaptation_arms --model nhits --region SA1 --seed 1
+    python -m experiments.run.adaptation.run_aemo_adaptation_arms --model nhits --region SA1 --seed 1
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ from drift_lab.adaptation.retrain_using_recent_window import (
     RetrainUsingRecentWindow,
 )
 from drift_lab.aemo import loader
-from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
+from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SEEDS
 from drift_lab.evaluation import assign_regime, build_event_windows
 from drift_lab.forecasting.base import Forecaster
 from experiments.run.detection.run_adwin_changepoints import (
@@ -68,6 +72,7 @@ from experiments.run_harness import config_of, record_run
 SPLIT_ID = "aemo_adapt_adwin_std_hh_v1"
 TARGET_COLUMN = "TOTALDEMAND"
 MODELS = ("nhits", "xgboost", "dhr_arima")
+SEEDED_MODELS = ("nhits", "xgboost")
 
 # Shared NHITS settings (SHARED_DECISIONS.md 14) -- constructor arguments.
 NHITS_SHARED_SETTINGS = {"horizon": 48, "input_size": 336, "max_steps": 500}
@@ -105,7 +110,7 @@ def make_model(model_name: str, seed: int | None) -> Forecaster:
     if model_name == "xgboost":
         from drift_lab.forecasting.xgboost_forecaster import XGBoostForecaster
 
-        return XGBoostForecaster()
+        return XGBoostForecaster(random_state=seed)
     if model_name == "dhr_arima":
         from drift_lab.forecasting.dhr_arima import DHRArima
 
@@ -264,7 +269,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the four adaptation arms on AEMO.")
     parser.add_argument("--model", choices=MODELS, required=True)
     parser.add_argument("--region", choices=REGIONS, required=True)
-    parser.add_argument("--seed", type=int, default=None, help="NHITS random seed")
+    parser.add_argument(
+        "--seed", type=int, choices=SEEDS, default=None, help="model seed (nhits / xgboost)"
+    )
     parser.add_argument("--arms", default=",".join(ARMS), help=f"comma list from {ARMS}")
     parser.add_argument("--torch-threads", type=int, default=None)
     args = parser.parse_args()
@@ -274,9 +281,13 @@ def main() -> None:
     if unknown:
         parser.error(f"unknown arms {unknown}")
 
-    if args.model == "nhits":
+    if args.model in SEEDED_MODELS:
         if args.seed is None:
-            parser.error("--seed is required for nhits")
+            parser.error(f"--seed is required for {args.model}")
+    elif args.seed is not None:
+        parser.error(f"{args.model} is deterministic; --seed applies to {SEEDED_MODELS} only")
+
+    if args.model == "nhits":
         logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
         logging.getLogger("lightning").setLevel(logging.ERROR)
         warnings.filterwarnings("ignore")
@@ -284,8 +295,6 @@ def main() -> None:
             import torch
 
             torch.set_num_threads(args.torch_threads)
-    elif args.seed is not None:
-        parser.error(f"{args.model} is deterministic; --seed applies to nhits only")
 
     run_one(args.model, args.region, args.seed, arms)
 

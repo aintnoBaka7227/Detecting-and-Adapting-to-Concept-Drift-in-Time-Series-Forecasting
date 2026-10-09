@@ -23,7 +23,7 @@ from experiments.produce.table_adaptation_common import (
 )
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE4_DIR
-from experiments.run.forecasting.run_aemo_adaptation_arms import ARM_A
+from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A
 
 
 def build_table() -> pd.DataFrame:

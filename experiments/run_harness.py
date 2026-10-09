@@ -46,6 +46,7 @@ def record_run(
     test_period_days: float | None = None,
     regime_labels=None,
     retrain_timestamps=None,
+    interval: tuple | None = None,
 ) -> pd.DataFrame:
     """Append one method's metrics to runs.csv and return the rows.
 
@@ -98,9 +99,15 @@ def record_run(
     `regime_labels`, forecast runs only: one documented-event regime label
     per forecast timestamp (from `evaluation.assign_regime`), shared by
     every adaptation arm. Logs the `regime="full"` rows plus a pooled `mae`
-    and `n_observations` row per regime (Table T3), and writes the full
+    and `n_observations` row per regime (Table T3) -- `n_observations` only
+    for timestamps outside every event window ("unassigned") -- and writes the full
     per-timestamp curve (actual, forecast, absolute error, rolling MAE,
     regime, arm, seed). Mutually exclusive with `changepoints`.
+
+    `interval`, with `regime_labels` only: `(lower, upper, alpha)` -- the
+    prediction-interval bounds issued for every forecast timestamp and
+    their nominal miscoverage. Adds `lower` / `upper` to the curve file and
+    logs `pinball_loss` over the whole TEST stream (`regime="full"`, T3).
 
     `retrain_timestamps`, forecast runs only: the exact retraining
     boundaries, written to `retrains_<dataset>_<region>_<seed>.csv` (F3).
@@ -132,10 +139,12 @@ def record_run(
 
     if regime_labels is not None and changepoints:
         raise ValueError("pass at most one of changepoints= / regime_labels=")
+    if interval is not None and (forecast is None or regime_labels is None):
+        raise ValueError("interval= needs forecast= and regime_labels=")
 
     if forecast is not None and regime_labels is not None:
         rows = build_regime_forecast_rows(
-            dataset, seed, region, forecast, regime_labels, config.get("arm"), common
+            dataset, seed, region, forecast, regime_labels, config.get("arm"), common, interval
         )
     elif forecast is not None:
         rows = build_forecast_rows(dataset, seed, region, forecast, changepoints, common)
@@ -191,10 +200,11 @@ def build_forecast_rows(dataset, seed, region, forecast, changepoints, common) -
 
 
 def build_regime_forecast_rows(
-    dataset, seed, region, forecast, regime_labels, arm, common
+    dataset, seed, region, forecast, regime_labels, arm, common, interval=None
 ) -> list[dict]:
     """Forecast rows split by documented-event regime (T3), plus the full
-    per-timestamp curve file (F3)."""
+    per-timestamp curve file (F3). With `interval`, the curve also carries
+    the issued bounds and a whole-stream `pinball_loss` row is logged."""
     y_true, y_pred, index = forecast
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
@@ -203,24 +213,23 @@ def build_regime_forecast_rows(
 
     curve = evaluation.calculate_rolling_mae(y_true, y_pred, window=ROLLING_WINDOW)
     common = {**common, "group": "adaptation"}
-    results_io.dump_forecast_curve(
-        common["config_hash"],
-        dataset,
-        region,
-        seed,
-        pd.DataFrame(
-            {
-                "timestamp": pd.DatetimeIndex(index),
-                "actual": y_true,
-                "forecast": y_pred,
-                "absolute_error": evaluation.calculate_absolute_error(y_true, y_pred).to_numpy(),
-                "rolling_mae_7d": curve.to_numpy(),
-                "regime": labels,
-                "arm": arm,
-                "seed": seed,
-            }
-        ),
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.DatetimeIndex(index),
+            "actual": y_true,
+            "forecast": y_pred,
+            "absolute_error": evaluation.calculate_absolute_error(y_true, y_pred).to_numpy(),
+            "rolling_mae_7d": curve.to_numpy(),
+            "regime": labels,
+            "arm": arm,
+            "seed": seed,
+        }
     )
+    if interval is not None:
+        lower, upper, alpha = interval
+        frame["lower"] = np.asarray(lower, dtype=float)
+        frame["upper"] = np.asarray(upper, dtype=float)
+    results_io.dump_forecast_curve(common["config_hash"], dataset, region, seed, frame)
     curve_values = curve.to_numpy()
 
     rows = [
@@ -228,9 +237,15 @@ def build_regime_forecast_rows(
         build_row(common, "rolling_mae_7d_mean", np.nanmean(curve_values), "full"),
         build_row(common, "rolling_mae_7d_max", np.nanmax(curve_values), "full"),
     ]
+    if interval is not None:
+        pinball = evaluation.calculate_interval_pinball_loss(
+            y_true, frame["lower"], frame["upper"], alpha=alpha
+        )
+        rows.append(build_row(common, "pinball_loss", pinball, "full"))
     for regime, metrics in by_regime.items():
         name = regime.replace("_", "-")  # runs.csv spelling: pre-drift / drift / post-drift
-        rows.append(build_row(common, "mae", metrics["mae"], name))
+        if "mae" in metrics:  # "unassigned" timestamps are counted, not scored
+            rows.append(build_row(common, "mae", metrics["mae"], name))
         rows.append(build_row(common, "n_observations", metrics["n_observations"], name))
     return rows
 
