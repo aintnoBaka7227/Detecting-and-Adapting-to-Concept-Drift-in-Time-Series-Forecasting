@@ -4,8 +4,8 @@ Columns (required-outputs T4): model, arm, region, retrains, cumulative
 train samples, wall clock (s) (cumulative TEST retrain fit time), drift-MAE
 gain vs arm A and gain per retrain (evaluation.calculate_adaptation_gain,
 paired with arm A on region and seed; negative = better than never
-retraining), seeds. Every arm D window is listed; the official one is
-marked "(selected)".
+retraining), seeds. Arm D is reported at the 180-day window only; the
+other sweep windows stay in T3.
 """
 
 from __future__ import annotations
@@ -14,21 +14,23 @@ import pandas as pd
 
 from drift_lab.evaluation import calculate_adaptation_gain
 from experiments.produce.table_adaptation_common import (
-    arm_label,
+    D_PREFIX,
     arm_sort_key,
     latest_adaptation_rows,
     mae_by_run,
     mean_sd,
-    official_d_arms,
 )
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE4_DIR
-from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A
+from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, arm_d
+
+REPORTED_D_ARM = arm_d(180)
 
 
 def build_table() -> pd.DataFrame:
     per_run = mae_by_run(latest_adaptation_rows())
-    official = official_d_arms(per_run)
+    other_windows = per_run["arm"].str.startswith(D_PREFIX) & (per_run["arm"] != REPORTED_D_ARM)
+    per_run = per_run[~other_windows].reset_index(drop=True)
     arm_a = per_run[per_run["arm"] == ARM_A].set_index(["model", "region", "seed_key"])["drift"]
 
     gains = []
@@ -48,7 +50,7 @@ def build_table() -> pd.DataFrame:
         rows.append(
             {
                 "model": model,
-                "arm": arm_label(arm, model, region, official),
+                "arm": arm,
                 "region": region,
                 "retrains": mean_sd(g["n_retrains"], 0),
                 "cumulative train samples": mean_sd(g["train_samples"], 0),

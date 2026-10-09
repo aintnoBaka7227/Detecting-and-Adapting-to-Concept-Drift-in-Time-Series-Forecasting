@@ -193,6 +193,8 @@ The evaluation order is:
 
 `drift → pre_drift → bounded event-linked post_drift → general unassigned post_drift`
 
+**Current change (10 Oct 2026, open to fallback):** the last two table rows are replaced for now. Any timestamp outside every event's pre-drift, drift and bounded post-drift window is labelled `unassigned` (regime and `event_id`), both before the first event and after an earlier one. Unassigned timestamps stay valid and count in whole-stream metrics, but are left out of per-regime metrics. The order is now `drift → pre_drift → post_drift → unassigned`. The rows above are kept as the fallback: reverting needs only the old `assign_regime()` rule and a re-score from saved forecasts, with no reruns.
+
 ## 10. Table T1 decisions
 
 T1 reports synthetic detector validation.

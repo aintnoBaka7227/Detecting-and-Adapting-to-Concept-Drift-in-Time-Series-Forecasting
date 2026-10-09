@@ -26,6 +26,7 @@ TABLE3_DIR = TABLES_DIR / "table3"
 TABLE4_DIR = TABLES_DIR / "table4"
 FIGURE1_DIR = FIGURES_DIR / "figure1"
 FIGURE2_DIR = FIGURES_DIR / "figure2"
+FIGURE3_DIR = FIGURES_DIR / "figure3"
 
 RUN_COLUMNS = [
     "group",

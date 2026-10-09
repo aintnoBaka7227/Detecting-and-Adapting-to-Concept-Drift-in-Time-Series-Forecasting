@@ -309,6 +309,8 @@ Adapters do not add a second cooldown; the refractory filter controls retraining
 
 The current `evaluation.py` is not final, but it already establishes the following effective regime policy. These rules should be reused for T3 rather than introducing a second, inconsistent regime implementation.
 
+**Current change (10 Oct 2026, open to fallback):** `assign_regime()` now labels any timestamp outside every event's pre-drift, drift and bounded post-drift window as `unassigned`, replacing the "general post-drift fallback" and the "before the first event is `pre_drift`" rules below. Unassigned timestamps are kept and count in whole-stream metrics (full MAE, pinball loss) but not in the per-regime T3 columns. The table below is kept as the fallback; switching back needs the old rule plus `experiments/run/adaptation/rescore_adaptation_runs.py`, with no reruns.
+
 | Regime item | Current implemented rule | Function/value |
 |---|---|---|
 | Event source | Use every `NEM` event and every event for the selected region that is present in the supplied catalogue. The function does not filter by tier. | `build_event_windows()` |
