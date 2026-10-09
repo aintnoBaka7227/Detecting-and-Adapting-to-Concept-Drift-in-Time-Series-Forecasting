@@ -12,7 +12,7 @@ from __future__ import annotations
 import pandas as pd
 
 from experiments.results_io import RUNS_CSV
-from experiments.run.forecasting.run_aemo_adaptation_arms import ARM_A, SPLIT_ID
+from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, SPLIT_ID
 
 REGIMES = ("pre-drift", "drift", "post-drift")
 D_PREFIX = "D_drift_recent_"
@@ -43,6 +43,15 @@ def mae_by_run(rows: pd.DataFrame) -> pd.DataFrame:
         ["n_retrains", "train_samples", "wall_clock_s"]
     ].first()
     return wide.join(cost).reset_index()
+
+
+def pinball_by_run(rows: pd.DataFrame) -> pd.DataFrame:
+    """One row per (model, arm, region, seed) with the whole-TEST interval
+    pinball loss; empty when no run has intervals yet."""
+    pinball = rows[(rows["metric_name"] == "pinball_loss") & (rows["regime"] == "full")]
+    return pinball[["model", "arm", "region", "seed_key", "metric_value"]].rename(
+        columns={"metric_value": "pinball_loss"}
+    )
 
 
 def official_d_arms(per_run: pd.DataFrame) -> dict[tuple[str, str], str]:

@@ -137,6 +137,14 @@ def dump_retrains(
     return path
 
 
+def calibration_path(model: str, region: str, seed: int | None) -> Path:
+    """Calibration-window forecasts of one model x region x seed, written
+    by run_aemo_calibration_forecasts.py: the residuals every conformal
+    interval for that stream is calibrated on."""
+    seed_token = "none" if seed is None else str(seed)
+    return RUNS_DIR / "calibration" / f"calibration_{model}_{region}_{seed_token}.csv"
+
+
 def detections_path(
     config_hash_: str, dataset: str, region: str | None, seed: int | None
 ) -> Path:

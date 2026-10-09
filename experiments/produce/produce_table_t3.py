@@ -2,8 +2,10 @@
 
 Columns (required-outputs T3): model, arm, region, MAE pre-drift / drift /
 post-drift (mean ± sd across seeds, errors pooled within each regime),
-pinball loss, seeds. Pinball loss needs the UQ intervals (Step 6), so it
-reads "pending UQ" until they exist. Every arm D window is listed; the
+pinball loss, seeds. Pinball loss is the 90% interval score (mean of the
+q = 0.05 and q = 0.95 losses) over every TEST timestamp, with bounds from
+fixed split conformal (rescore_adaptation_runs.py); an arm with no
+intervals logged reads "pending UQ". Every arm D window is listed; the
 official one is marked "(selected)".
 """
 
@@ -19,23 +21,28 @@ from experiments.produce.table_adaptation_common import (
     mae_by_run,
     mean_sd,
     official_d_arms,
+    pinball_by_run,
 )
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE3_DIR
 
 
 def build_table() -> pd.DataFrame:
-    per_run = mae_by_run(latest_adaptation_rows())
+    latest = latest_adaptation_rows()
+    per_run = mae_by_run(latest).merge(
+        pinball_by_run(latest), on=["model", "arm", "region", "seed_key"], how="left"
+    )
     official = official_d_arms(per_run)
     rows = []
     for (model, arm, region), g in per_run.groupby(["model", "arm", "region"]):
+        pinball = mean_sd(g["pinball_loss"])
         rows.append(
             {
                 "model": model,
                 "arm": arm_label(arm, model, region, official),
                 "region": region,
                 **{f"MAE {regime} (MW)": mean_sd(g[regime]) for regime in REGIMES},
-                "pinball loss": "pending UQ",
+                "pinball loss (MW)": "pending UQ" if pinball == "n/a" else pinball,
                 "seeds": int(g["seed_key"].nunique()),
                 "_order": arm_sort_key(arm),
             }
@@ -53,7 +60,10 @@ def main() -> None:
         table,
         TABLE3_DIR / "table_t3_forecast_accuracy.png",
         title="T3 — Forecast accuracy by regime, four adaptation arms",
-        subtitle="MAE pooled within each documented-event regime; mean ± sd across seeds.",
+        subtitle=(
+            "MAE pooled within each documented-event regime; pinball loss of the 90% "
+            "fixed split conformal interval over all TEST timestamps; mean ± sd across seeds."
+        ),
     )
     print(table.to_string(index=False))
     print(f"\nwrote {out}\nwrote {image}")
