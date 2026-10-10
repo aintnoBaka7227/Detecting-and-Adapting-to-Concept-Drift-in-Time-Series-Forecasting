@@ -1,0 +1,36 @@
+model,arm,region,MAE pre-drift (MW),MAE drift (MW),MAE post-drift (MW),pinball loss,seeds
+dhr_arima,A_never_retrain,NSW1,945.7 ± n/a,931.2 ± n/a,865.3 ± n/a,pending UQ,1
+dhr_arima,B_every_30_days,NSW1,750.2 ± n/a,697.1 ± n/a,646.1 ± n/a,pending UQ,1
+dhr_arima,C_drift_full_history,NSW1,859.6 ± n/a,874.4 ± n/a,794.3 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_30d (selected),NSW1,888.6 ± n/a,811.5 ± n/a,884.0 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_60d,NSW1,960.7 ± n/a,940.7 ± n/a,922.8 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_120d,NSW1,955.4 ± n/a,877.0 ± n/a,866.5 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_180d,NSW1,894.6 ± n/a,828.0 ± n/a,819.0 ± n/a,pending UQ,1
+dhr_arima,A_never_retrain,SA1,249.1 ± n/a,259.4 ± n/a,231.3 ± n/a,pending UQ,1
+dhr_arima,B_every_30_days,SA1,186.0 ± n/a,194.1 ± n/a,185.2 ± n/a,pending UQ,1
+dhr_arima,C_drift_full_history,SA1,234.2 ± n/a,245.7 ± n/a,219.0 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_30d (selected),SA1,203.0 ± n/a,199.3 ± n/a,196.1 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_60d,SA1,232.6 ± n/a,227.6 ± n/a,213.9 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_120d,SA1,259.4 ± n/a,251.1 ± n/a,231.5 ± n/a,pending UQ,1
+dhr_arima,D_drift_recent_180d,SA1,254.0 ± n/a,252.2 ± n/a,229.7 ± n/a,pending UQ,1
+nhits,A_never_retrain,NSW1,407.3 ± 8.2,362.0 ± 2.4,352.9 ± 5.1,pending UQ,5
+nhits,B_every_30_days,NSW1,529.0 ± 4.7,528.8 ± 7.6,502.6 ± 2.2,pending UQ,5
+nhits,C_drift_full_history,NSW1,363.7 ± 3.6,323.3 ± 2.4,321.8 ± 2.4,pending UQ,5
+nhits,D_drift_recent_30d,NSW1,576.3 ± 3.2,533.0 ± 2.9,527.3 ± 2.1,pending UQ,5
+nhits,D_drift_recent_60d,NSW1,518.6 ± 4.9,495.5 ± 5.6,489.9 ± 2.7,pending UQ,5
+nhits,D_drift_recent_120d,NSW1,501.3 ± 9.8,438.3 ± 9.0,445.5 ± 2.6,pending UQ,5
+nhits,D_drift_recent_180d (selected),NSW1,495.0 ± 5.7,406.9 ± 7.9,420.4 ± 1.4,pending UQ,5
+nhits,A_never_retrain,SA1,147.0 ± 3.3,156.6 ± 5.2,140.2 ± 3.2,pending UQ,5
+nhits,B_every_30_days,SA1,180.5 ± 1.4,198.9 ± 1.8,190.3 ± 1.2,pending UQ,5
+nhits,C_drift_full_history,SA1,136.9 ± 1.5,134.3 ± 1.9,123.7 ± 0.9,pending UQ,5
+nhits,D_drift_recent_30d,SA1,192.5 ± 2.1,220.8 ± 1.5,184.4 ± 0.8,pending UQ,5
+nhits,D_drift_recent_60d,SA1,188.7 ± 3.7,194.5 ± 1.9,169.1 ± 2.0,pending UQ,5
+nhits,D_drift_recent_120d (selected),SA1,175.4 ± 1.4,178.0 ± 1.4,156.1 ± 0.5,pending UQ,5
+nhits,D_drift_recent_180d,SA1,173.8 ± 1.8,180.4 ± 3.4,154.0 ± 1.1,pending UQ,5
+xgboost,A_never_retrain,SA1,247.0 ± n/a,266.4 ± n/a,232.1 ± n/a,pending UQ,1
+xgboost,B_every_30_days,SA1,197.4 ± n/a,229.5 ± n/a,226.1 ± n/a,pending UQ,1
+xgboost,C_drift_full_history,SA1,210.6 ± n/a,221.4 ± n/a,191.9 ± n/a,pending UQ,1
+xgboost,D_drift_recent_30d,SA1,236.5 ± n/a,234.3 ± n/a,251.5 ± n/a,pending UQ,1
+xgboost,D_drift_recent_60d,SA1,243.0 ± n/a,250.9 ± n/a,245.2 ± n/a,pending UQ,1
+xgboost,D_drift_recent_120d (selected),SA1,233.1 ± n/a,225.5 ± n/a,300.4 ± n/a,pending UQ,1
+xgboost,D_drift_recent_180d,SA1,219.4 ± n/a,238.3 ± n/a,274.1 ± n/a,pending UQ,1
