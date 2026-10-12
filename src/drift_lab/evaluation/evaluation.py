@@ -267,6 +267,9 @@ Uncertainty evaluation:
     - worst 24-hour coverage
 """
 
+import math
+
+import numpy as np
 import pandas as pd
 
 # Forecast evaluation metrics
@@ -1363,3 +1366,154 @@ def calculate_regime_metrics(match_results, regime_results):
 # - mean interval width
 # - normalised interval width
 # - worst 24-hour coverage
+
+
+# Adaptation (Step 5) and interval (Step 6) metrics
+
+
+def calculate_absolute_error(y_true, y_pred):
+    """Point-wise |y_true - y_pred| for per-timestamp curve files."""
+
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    y_pred = pd.Series(y_pred, dtype=float).reset_index(drop=True)
+
+    if len(y_true) != len(y_pred):
+        raise ValueError("y_true and y_pred must have the same length.")
+
+    if y_true.isna().any() or y_pred.isna().any():
+        raise ValueError("y_true and y_pred must not contain missing values.")
+
+    return (y_true - y_pred).abs()
+
+
+FORECAST_REGIMES = ("pre_drift", "drift", "post_drift")
+
+
+def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
+    """
+    MAE and observation count per regime (T3), pooled over every timestamp
+    in the regime.
+
+    `regime_labels` must be aligned to the forecast timestamps; "pre_drift"
+    and "pre-drift" are both accepted. Returns {regime: {"mae",
+    "n_observations"}} keyed pre_drift / drift / post_drift; empty regimes
+    are omitted.
+    """
+
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    y_pred = pd.Series(y_pred, dtype=float).reset_index(drop=True)
+    labels = pd.Series(regime_labels).reset_index(drop=True)
+
+    if not (len(y_true) == len(y_pred) == len(labels)):
+        raise ValueError("y_true, y_pred and regime_labels must have the same length.")
+
+    if labels.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    labels = labels.astype(str).str.replace("-", "_", regex=False)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
+    if unexpected:
+        raise ValueError(
+            f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
+        )
+
+    metrics = {}
+    for regime in FORECAST_REGIMES:
+        mask = (labels == regime).to_numpy()
+        if not mask.any():
+            continue
+        metrics[regime] = {
+            "mae": calculate_mae(y_true[mask], y_pred[mask]),
+            "n_observations": int(mask.sum()),
+        }
+    return metrics
+
+
+def calculate_adaptation_gain(arm_drift_mae, arm_a_drift_mae, n_retrains):
+    """
+    Drift-MAE difference vs Arm A (T4): arm - arm A, negative = better,
+    plus the difference per retrain (NaN with no retrains). Pair arm and
+    Arm A on region and seed first.
+    """
+
+    try:
+        arm_drift_mae = float(arm_drift_mae)
+        arm_a_drift_mae = float(arm_a_drift_mae)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("MAE values must be finite, non-negative numbers.") from exc
+
+    if (
+        not math.isfinite(arm_drift_mae)
+        or not math.isfinite(arm_a_drift_mae)
+        or arm_drift_mae < 0
+        or arm_a_drift_mae < 0
+    ):
+        raise ValueError("MAE values must be finite, non-negative numbers.")
+
+    if isinstance(n_retrains, bool):
+        raise TypeError("n_retrains must be a non-negative integer.")
+
+    try:
+        retrain_count = int(n_retrains)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("n_retrains must be a non-negative integer.") from exc
+
+    if retrain_count != n_retrains or retrain_count < 0:
+        raise ValueError("n_retrains must be a non-negative integer.")
+
+    difference = arm_drift_mae - arm_a_drift_mae
+    difference_per_retrain = (
+        difference / retrain_count if retrain_count > 0 else float("nan")
+    )
+
+    return {
+        "drift_mae_difference_vs_arm_a": float(difference),
+        "drift_mae_difference_per_retrain": float(difference_per_retrain),
+    }
+
+
+def calculate_pinball_loss(y_true, y_quantile, quantile):
+    """Mean pinball loss of one quantile forecast."""
+
+    y_true = pd.Series(y_true, dtype=float)
+    y_quantile = pd.Series(y_quantile, dtype=float)
+
+    if len(y_true) != len(y_quantile):
+        raise ValueError("y_true and y_quantile must have the same length.")
+
+    if y_true.isna().any() or y_quantile.isna().any():
+        raise ValueError("y_true and y_quantile must not contain missing values.")
+
+    if not 0 < quantile < 1:
+        raise ValueError("quantile must be strictly between 0 and 1.")
+
+    error = y_true.to_numpy() - y_quantile.to_numpy()
+    losses = quantile * error * (error >= 0) + (quantile - 1) * error * (error < 0)
+    return float(np.mean(losses))
+
+
+def calculate_interval_pinball_loss(y_true, lower, upper, alpha=0.10):
+    """
+    Pinball loss of a (1 - alpha) interval: mean of the q = alpha/2 and
+    q = 1 - alpha/2 losses (0.05 / 0.95 for a 90% interval).
+    """
+
+    y_true = pd.Series(y_true, dtype=float)
+    lower = pd.Series(lower, dtype=float)
+    upper = pd.Series(upper, dtype=float)
+
+    if len(y_true) != len(lower) or len(y_true) != len(upper):
+        raise ValueError("y_true, lower, and upper must have the same length.")
+
+    if y_true.isna().any() or lower.isna().any() or upper.isna().any():
+        raise ValueError("y_true, lower, and upper must not contain missing values.")
+
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be strictly between 0 and 1.")
+
+    if (lower.to_numpy() > upper.to_numpy()).any():
+        raise ValueError("lower bounds must not exceed upper bounds.")
+
+    lower_loss = calculate_pinball_loss(y_true, lower, alpha / 2)
+    upper_loss = calculate_pinball_loss(y_true, upper, 1 - alpha / 2)
+    return float((lower_loss + upper_loss) / 2)

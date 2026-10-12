@@ -27,8 +27,14 @@ nhits,D_drift_recent_30d,SA1,192.5 ± 2.1,220.8 ± 1.5,184.4 ± 0.8,pending UQ,5
 nhits,D_drift_recent_60d,SA1,188.7 ± 3.7,194.5 ± 1.9,169.1 ± 2.0,pending UQ,5
 nhits,D_drift_recent_120d (selected),SA1,175.4 ± 1.4,178.0 ± 1.4,156.1 ± 0.5,pending UQ,5
 nhits,D_drift_recent_180d,SA1,173.8 ± 1.8,180.4 ± 3.4,154.0 ± 1.1,pending UQ,5
+xgboost,A_never_retrain,NSW1,827.6 ± n/a,735.3 ± n/a,749.9 ± n/a,pending UQ,1
+xgboost,B_every_30_days,NSW1,823.1 ± n/a,715.1 ± n/a,827.9 ± n/a,pending UQ,1
+xgboost,C_drift_full_history,NSW1,619.8 ± n/a,494.7 ± n/a,653.3 ± n/a,pending UQ,1
+xgboost,D_drift_recent_30d,NSW1,970.4 ± n/a,898.3 ± n/a,979.0 ± n/a,pending UQ,1
+xgboost,D_drift_recent_60d,NSW1,1001.2 ± n/a,958.8 ± n/a,962.1 ± n/a,pending UQ,1
+xgboost,D_drift_recent_120d,NSW1,1216.3 ± n/a,1028.8 ± n/a,1201.8 ± n/a,pending UQ,1
+xgboost,D_drift_recent_180d (selected),NSW1,1124.9 ± n/a,781.7 ± n/a,1032.6 ± n/a,pending UQ,1
 xgboost,A_never_retrain,SA1,247.0 ± n/a,266.4 ± n/a,232.1 ± n/a,pending UQ,1
-xgboost,B_every_30_days,SA1,197.4 ± n/a,229.5 ± n/a,226.1 ± n/a,pending UQ,1
 xgboost,C_drift_full_history,SA1,210.6 ± n/a,221.4 ± n/a,191.9 ± n/a,pending UQ,1
 xgboost,D_drift_recent_30d,SA1,236.5 ± n/a,234.3 ± n/a,251.5 ± n/a,pending UQ,1
 xgboost,D_drift_recent_60d,SA1,243.0 ± n/a,250.9 ± n/a,245.2 ± n/a,pending UQ,1
