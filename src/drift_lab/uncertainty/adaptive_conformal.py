@@ -39,13 +39,18 @@ really have been known, and before the next issuance. `observe` judges
 each outcome against the bounds that were actually issued for it, never
 against recomputed ones.
 
-`gamma` and `window_size` have no defaults: choose them on historical
-validation data, freeze them, and log them. Use one instance per
+`gamma` has no default: choose it on historical validation data, freeze
+it, and log it. `window_size` defaults to 7 days (PROVISIONAL_WINDOW_SIZE),
+a placeholder until it is selected the same way. Use one instance per
 forecaster x region x arm x seed x configuration (and per horizon when
 horizons are evaluated separately); a forecaster retrain does not reset
 this state. This is ACI around a rolling split-conformal score buffer,
 not EnbPI.
 """
+
+# source paper 1: Gibbs & Candes, "Adaptive Conformal Inference" - suggest the use of ACI as an adaptive version of split conformal where radius is frequently updated based on most recent residual change. 
+# source paper 2: Adaptive conformal predictions for time series - Suggest using adapting learning rate instead of a fixed value
+# extra paper for learning (do not apply): "Conformal Inference for Online Prediction with Arbitrary Distribution Shifts" - adjusting learning rate
 
 from __future__ import annotations
 
@@ -65,6 +70,10 @@ from drift_lab.uncertainty.conformal_common import (
 )
 
 
+# 7 days of half-hourly scores. Provisional: not yet selected on validation data.
+PROVISIONAL_WINDOW_SIZE = 48 * 7
+
+
 class AdaptiveConformalInference(UncertaintyQuantifier):
     """ACI with a rolling buffer of absolute issued-forecast errors.
 
@@ -72,9 +81,9 @@ class AdaptiveConformalInference(UncertaintyQuantifier):
     ----------
     gamma : float
         ACI learning rate; finite and positive.
-    window_size : int
+    window_size : int, default 336 (7 days)
         Buffer length W in scores. On a complete half-hourly single-horizon
-        stream W = 48 * days.
+        stream W = 48 * days. The default is provisional.
     target_alpha : float, default 0.10
         Nominal miscoverage the feedback rule steers towards.
     escalate_threshold : float | None, default None
@@ -87,7 +96,7 @@ class AdaptiveConformalInference(UncertaintyQuantifier):
     def __init__(
         self,
         gamma: float,
-        window_size: int,
+        window_size: int = PROVISIONAL_WINDOW_SIZE,
         target_alpha: float = 0.10,
         escalate_threshold: float | None = None,
     ) -> None:

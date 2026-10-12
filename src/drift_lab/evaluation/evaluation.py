@@ -1534,3 +1534,250 @@ def calculate_interval_pinball_loss(y_true, lower, upper, alpha=0.10):
     lower_loss = calculate_pinball_loss(y_true, lower, alpha / 2)
     upper_loss = calculate_pinball_loss(y_true, upper, 1 - alpha / 2)
     return float((lower_loss + upper_loss) / 2)
+
+# Step 6: uncertainty evaluation metrics
+# emperical coverage, mean interval width, normalised interval width, worst 24-hour coverage
+
+def _validate_interval_inputs(
+    lower_bound,
+    upper_bound,
+):
+    """
+    Validate prediction-interval bounds and return float Series.
+
+    Infinite bounds are valid (a conformal interval with an infinite
+    radius); missing values are not. Both Series are re-indexed 0..n-1 so
+    the metrics compare by position, not by index label.
+    """
+    lower_bound = pd.Series(lower_bound, dtype=float).reset_index(drop=True)
+    upper_bound = pd.Series(upper_bound, dtype=float).reset_index(drop=True)
+
+    if len(lower_bound) != len(upper_bound):
+        raise ValueError(
+            "lower_bound and upper_bound must have the same length."
+        )
+
+    if len(lower_bound) == 0:
+        raise ValueError(
+            "Uncertainty evaluation inputs must not be empty."
+        )
+
+    if lower_bound.isna().any() or upper_bound.isna().any():
+        raise ValueError(
+            "Uncertainty evaluation inputs must not contain missing values."
+        )
+
+    if (lower_bound > upper_bound).any():
+        raise ValueError(
+            "lower_bound must not exceed upper_bound."
+        )
+
+    return lower_bound, upper_bound
+
+
+def _interval_covered(
+    y_true,
+    lower_bound,
+    upper_bound,
+):
+    """
+    Per-observation coverage flags (bool Series), both boundaries included.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    if len(y_true) != len(lower_bound):
+        raise ValueError(
+            "y_true, lower_bound, and upper_bound "
+            "must have the same length."
+        )
+
+    if not np.isfinite(y_true.to_numpy()).all():
+        raise ValueError(
+            "y_true must contain only finite values."
+        )
+
+    return (y_true >= lower_bound) & (y_true <= upper_bound)
+
+
+def calculate_empirical_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+):
+    """
+    Calculate empirical prediction-interval coverage.
+
+    Coverage is the proportion of observed values lying inside the
+    supplied prediction interval, including both interval boundaries.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    Returns
+    -------
+    float
+        Fraction of observations covered by the interval.
+    """
+    covered = _interval_covered(y_true, lower_bound, upper_bound)
+
+    return float(covered.mean())
+
+
+def calculate_mean_interval_width(
+    lower_bound,
+    upper_bound,
+):
+    """
+    Calculate mean prediction-interval width.
+
+    Parameters
+    ----------
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    Returns
+    -------
+    float
+        Mean interval width.
+    """
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    return float(
+        (upper_bound - lower_bound).mean()
+    )
+
+
+def calculate_rolling_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    window=48,
+):
+    """
+    Calculate rolling empirical coverage.
+
+    Default:
+        48 half-hour intervals = 24 hours (window=8 gives 4 hours).
+
+    Pass the full chronological stream, not one regime's rows, so every
+    window covers consecutive timestamps.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    window : int
+        Number of observations in the rolling window.
+
+    Returns
+    -------
+    pd.Series
+        Coverage of the window ending at each observation; NaN until the
+        first full window.
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, np.integer)) or window < 1:
+        raise ValueError("window must be a positive integer.")
+
+    covered = _interval_covered(y_true, lower_bound, upper_bound)
+
+    return covered.astype(float).rolling(window=window).mean()
+
+
+def calculate_worst_rolling_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    window=48,
+    regime_labels=None,
+    regime=None,
+):
+    """
+    Calculate the worst (lowest) rolling coverage (T5 "worst 24h coverage").
+
+    With `regime_labels` and `regime`, only windows lying entirely inside
+    that regime count, so the by-regime value never mixes regimes or joins
+    two separate events. Rolling is still done on the full stream.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values, full chronological stream.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    window : int
+        Number of observations in the rolling window (48 = 24 hours).
+
+    regime_labels : array-like, optional
+        Regime label per observation; "pre_drift" and "pre-drift" are both
+        accepted.
+
+    regime : str, optional
+        Regime to report. Required together with `regime_labels`.
+
+    Returns
+    -------
+    float
+        Lowest window coverage; NaN when no full window qualifies.
+    """
+    rolling = calculate_rolling_coverage(
+        y_true,
+        lower_bound,
+        upper_bound,
+        window=window,
+    )
+
+    if (regime_labels is None) != (regime is None):
+        raise ValueError("regime_labels and regime must be given together.")
+
+    if regime_labels is not None:
+        labels = pd.Series(regime_labels).reset_index(drop=True)
+
+        if len(labels) != len(rolling):
+            raise ValueError(
+                "regime_labels must have the same length as y_true."
+            )
+
+        if labels.isna().any():
+            raise ValueError("regime_labels must not contain missing values.")
+
+        labels = labels.astype(str).str.replace("-", "_", regex=False)
+        in_regime = labels == str(regime).replace("-", "_")
+        window_in_regime = in_regime.astype(float).rolling(window=window).sum() == window
+        rolling = rolling[window_in_regime]
+
+    rolling = rolling.dropna()
+
+    if rolling.empty:
+        return float("nan")
+
+    return float(rolling.min())
