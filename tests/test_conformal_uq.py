@@ -5,9 +5,17 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from drift_lab.evaluation import calculate_interval_pinball_loss, calculate_pinball_loss
+from drift_lab.evaluation import (
+    calculate_empirical_coverage,
+    calculate_interval_pinball_loss,
+    calculate_mean_interval_width,
+    calculate_pinball_loss,
+    calculate_rolling_coverage,
+    calculate_worst_rolling_coverage,
+)
 from drift_lab.uncertainty import (
     AdaptiveConformalInference,
     FixedSplitConformal,
@@ -282,3 +290,38 @@ def test_pinball_loss_is_infinite_not_nan_for_infinite_bounds():
 def test_pinball_loss_finite_values_are_unchanged():
     # q=0.05, errors +2 and -1: (0.05 * 2 + 0.95 * 1) / 2
     assert calculate_pinball_loss([3.0, 1.0], [1.0, 2.0], 0.05) == pytest.approx(0.525)
+
+
+# --- coverage and width (T5) ------------------------------------------------
+
+
+def test_coverage_and_width_accept_infinite_bounds_and_reject_missing():
+    assert calculate_empirical_coverage([1e9, 5.0], [-math.inf, 0.0], [math.inf, 1.0]) == 0.5
+    assert calculate_mean_interval_width([-math.inf, 0.0], [math.inf, 1.0]) == math.inf
+    with pytest.raises(ValueError):
+        calculate_empirical_coverage([1.0], [np.nan], [2.0])
+
+
+def test_coverage_compares_by_position_not_index_label():
+    frame = pd.DataFrame({"y": [0.0, 5.0, 0.0, 5.0], "lo": [-1.0] * 4, "hi": [1.0] * 4})
+    kept = frame[frame["y"] > 1]  # index labels 1 and 3
+    assert calculate_empirical_coverage(kept["y"].to_numpy(), kept["lo"], kept["hi"]) == 0.0
+
+
+def test_rolling_coverage_matches_hand_computed_windows():
+    y = [0.0, 0.0, 5.0, 5.0, 0.0]  # covered: T T F F T
+    rolling = calculate_rolling_coverage(y, [-1.0] * 5, [1.0] * 5, window=2)
+    assert np.isnan(rolling.iloc[0])
+    assert rolling.iloc[1:].tolist() == [1.0, 0.5, 0.0, 0.5]
+    assert calculate_worst_rolling_coverage(y, [-1.0] * 5, [1.0] * 5, window=2) == 0.0
+
+
+def test_worst_rolling_coverage_only_counts_windows_inside_the_regime():
+    y = [0.0, 0.0, 5.0, 5.0, 0.0, 0.0]  # covered: T T F F T T
+    labels = ["pre-drift", "pre-drift", "drift", "drift", "drift", "post-drift"]
+    args = (y, [-1.0] * 6, [1.0] * 6)
+    assert calculate_worst_rolling_coverage(*args, 2, labels, "drift") == 0.0
+    assert calculate_worst_rolling_coverage(*args, 2, labels, "pre_drift") == 1.0
+    # one post-drift row cannot hold a 2-observation window
+    assert math.isnan(calculate_worst_rolling_coverage(*args, 2, labels, "post_drift"))
+    assert math.isnan(calculate_worst_rolling_coverage(*args, window=48))
