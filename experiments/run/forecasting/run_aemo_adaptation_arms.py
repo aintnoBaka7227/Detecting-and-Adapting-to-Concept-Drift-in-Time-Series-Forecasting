@@ -47,11 +47,8 @@ import pandas as pd
 from drift_lab.adaptation.never_retrain import NeverRetrain
 from drift_lab.adaptation.retrain_accounting import RetrainAccounting
 from drift_lab.adaptation.retrain_every_30_days import RetrainEvery30Days
-from drift_lab.adaptation.retrain_using_full_history import RetrainUsingFullHistory
-from drift_lab.adaptation.retrain_using_recent_window import (
-    SWEEP_WINDOW_DAYS,
-    RetrainUsingRecentWindow,
-)
+from drift_lab.adaptation.bingqi.arm_c_full_history import ArmCFullHistory
+from drift_lab.adaptation.bingqi.arm_d_recent_window import ArmDRecentWindow
 from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
 from drift_lab.evaluation import assign_regime, build_event_windows
@@ -75,7 +72,7 @@ NHITS_SHARED_SETTINGS = {"horizon": 48, "input_size": 336, "max_steps": 500}
 ARM_A = "A_never_retrain"
 ARM_B = "B_every_30_days"
 ARM_C = "C_drift_full_history"
-
+SWEEP_WINDOW_DAYS = (30, 60, 120, 180)
 
 def arm_d(window_days: int) -> str:
     return f"D_drift_recent_{window_days}d"
@@ -90,11 +87,13 @@ def make_adapter(arm: str) -> RetrainAccounting:
     if arm == ARM_B:
         return RetrainEvery30Days(target_column=TARGET_COLUMN)
     if arm == ARM_C:
-        return RetrainUsingFullHistory(target_column=TARGET_COLUMN)
+        return ArmCFullHistory(target_column=TARGET_COLUMN)
     for window_days in SWEEP_WINDOW_DAYS:
         if arm == arm_d(window_days):
-            return RetrainUsingRecentWindow(window_days, target_column=TARGET_COLUMN)
-    raise ValueError(f"unknown arm {arm!r}")
+            return ArmDRecentWindow(
+                window_days=window_days,
+                target_column=TARGET_COLUMN,
+            )
 
 
 def make_model(model_name: str, seed: int | None) -> Forecaster:
