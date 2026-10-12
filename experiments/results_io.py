@@ -22,6 +22,8 @@ TABLES_DIR = RESULTS_DIR / "tables"
 # plots) stays directly under TABLES_DIR/FIGURES_DIR.
 TABLE1_DIR = TABLES_DIR / "table1"
 TABLE2_DIR = TABLES_DIR / "table2"
+TABLE3_DIR = TABLES_DIR / "table3"
+TABLE4_DIR = TABLES_DIR / "table4"
 FIGURE1_DIR = FIGURES_DIR / "figure1"
 FIGURE2_DIR = FIGURES_DIR / "figure2"
 
@@ -93,6 +95,45 @@ def dump_curve(
     path = curve_path(config_hash_, dataset, region, seed)
     path.parent.mkdir(parents=True, exist_ok=True)
     curve.rename("rolling_mae_7d").to_csv(path, header=True)
+    return path
+
+
+def dump_forecast_curve(
+    config_hash_: str,
+    dataset: str,
+    region: str | None,
+    seed: int | None,
+    frame: pd.DataFrame,
+) -> Path:
+    """Write an adaptation run's full per-timestamp curve (timestamp,
+    actual, forecast, absolute_error, rolling_mae_7d, regime, arm, seed)
+    to curve_path() -- a superset of dump_curve()'s columns."""
+    path = curve_path(config_hash_, dataset, region, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(path, index=False)
+    return path
+
+
+def retrains_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
+    """Where dump_retrains() writes one run's retrain times (F3 rug)."""
+    seed_token = "none" if seed is None else str(seed)
+    return RUNS_DIR / config_hash_ / f"retrains_{dataset}_{region or '-'}_{seed_token}.csv"
+
+
+def dump_retrains(
+    config_hash_: str,
+    dataset: str,
+    region: str | None,
+    seed: int | None,
+    retrain_timestamps,
+) -> Path:
+    """Persist the exact retraining boundaries of one adaptation run."""
+    path = retrains_path(config_hash_, dataset, region, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stamps = pd.DatetimeIndex(pd.to_datetime(list(retrain_timestamps)))
+    stamps.to_frame(index=False, name="timestamp").to_csv(path, index=False)
     return path
 
 

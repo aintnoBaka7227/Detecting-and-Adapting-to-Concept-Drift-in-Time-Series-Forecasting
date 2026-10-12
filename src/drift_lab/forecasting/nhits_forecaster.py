@@ -146,7 +146,9 @@ class NHITSForecaster(Forecaster):
             # Force CPU rather than PyTorch Lightning's auto-detected MPS:
             # sharing a process with XGBoost's joblib/OpenMP thread pool
             # (e.g. the full test suite) deadlocks Lightning's MPS setup.
-            accelerator="cpu",
+            # Use one CUDA GPU for NHITS training.
+            accelerator="gpu",
+            devices=1,
         )
         self._nf = NeuralForecast(models=[model], freq=self.freq)
         self._nf.fit(df=to_nixtla_frame(self._history), val_size=self.val_size)
