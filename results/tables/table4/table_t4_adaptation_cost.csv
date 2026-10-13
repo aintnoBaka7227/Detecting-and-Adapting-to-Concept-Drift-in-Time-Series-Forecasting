@@ -1,0 +1,25 @@
+model,arm,region,retrains,cumulative train samples,wall clock (s),drift MAE gain vs arm A (MW),gain per retrain (MW),seeds
+dhr_arima,A_never_retrain,NSW1,0,0,0 ± n/a,0.0 ± n/a,n/a,1
+dhr_arima,B_every_30_days,NSW1,46,66240,162 ± n/a,-234.1 ± n/a,-5.09 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,34,2419502,1601 ± n/a,-56.8 ± n/a,-1.67 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,34,293760,180 ± n/a,-103.2 ± n/a,-3.04 ± n/a,1
+dhr_arima,A_never_retrain,SA1,0,0,0 ± n/a,0.0 ± n/a,n/a,1
+dhr_arima,B_every_30_days,SA1,46,66240,141 ± n/a,-65.2 ± n/a,-1.42 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,32,2226208,1147 ± n/a,-13.6 ± n/a,-0.43 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,32,276480,189 ± n/a,-7.2 ± n/a,-0.22 ± n/a,1
+nhits,A_never_retrain,NSW1,0,0,0 ± 0,0.0 ± 0.0,n/a,5
+nhits,B_every_30_days,NSW1,46,66240,1626 ± 610,158.9 ± 14.5,3.45 ± 0.32,5
+nhits,C_drift_full_history,NSW1,34,2419502,1420 ± 310,-44.6 ± 11.1,-1.31 ± 0.33,5
+nhits,D_drift_recent_180d,NSW1,34,293760,908 ± 313,42.3 ± 12.3,1.24 ± 0.36,5
+nhits,A_never_retrain,SA1,0,0,0 ± 0,0.0 ± 0.0,n/a,5
+nhits,B_every_30_days,SA1,46,66240,1647 ± 628,37.0 ± 6.8,0.80 ± 0.15,5
+nhits,C_drift_full_history,SA1,32,2226208,1295 ± 295,-24.1 ± 6.6,-0.75 ± 0.21,5
+nhits,D_drift_recent_180d,SA1,32,276480,889 ± 282,18.2 ± 10.5,0.57 ± 0.33,5
+xgboost,A_never_retrain,NSW1,0,0,0 ± 0,0.0 ± 0.0,n/a,5
+xgboost,B_every_30_days,NSW1,46,66240,26 ± 12,59.4 ± 103.1,1.29 ± 2.24,5
+xgboost,C_drift_full_history,NSW1,34,2419502,105 ± 40,-231.6 ± 37.0,-6.81 ± 1.09,5
+xgboost,D_drift_recent_180d,NSW1,34,293760,36 ± 19,76.3 ± 50.4,2.24 ± 1.48,5
+xgboost,A_never_retrain,SA1,0,0,0 ± 0,0.0 ± 0.0,n/a,5
+xgboost,B_every_30_days,SA1,46,66240,24 ± 11,-2.9 ± 12.1,-0.06 ± 0.26,5
+xgboost,C_drift_full_history,SA1,32,2226208,83 ± 43,-16.1 ± 6.1,-0.50 ± 0.19,5
+xgboost,D_drift_recent_180d,SA1,32,276480,27 ± 16,-7.3 ± 5.0,-0.23 ± 0.16,5

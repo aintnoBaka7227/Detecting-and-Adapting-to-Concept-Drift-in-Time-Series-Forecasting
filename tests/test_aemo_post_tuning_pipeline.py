@@ -1,7 +1,7 @@
 """Focused tests for the AEMO post-tuning detection pipeline:
 standard_stream_common.py, detection_artifacts.py, chance_baseline.py
 (closed-form only), post_tune_detector_configs.py, and the
-bounded/unassigned post-drift regime rules in drift_lab.evaluation.
+bounded post-drift / unassigned regime rules in drift_lab.evaluation.
 """
 
 from __future__ import annotations
@@ -159,14 +159,13 @@ def test_assign_regime_bounded_post_drift_gets_the_event_id():
     assert labels.iloc[0]["event_id"] == "E1"
 
 
-def test_assign_regime_unassigned_post_drift_fallback_beyond_the_bound():
+def test_assign_regime_is_unassigned_beyond_the_post_drift_bound():
     events = _aemo_events([("E1", "2020-03-01", "2020-03-01", "day", "SA1")])
     windows = build_event_windows(events, "SA1")
-    # Well past post_drift_end (2020-03-09): general, unassigned fallback,
-    # not a reversion to pre_drift.
+    # Well past post_drift_end (2020-03-09): outside every event window.
     labels = assign_regime(["2020-06-01"], windows)
 
-    assert labels.iloc[0]["regime"] == "post_drift"
+    assert labels.iloc[0]["regime"] == "unassigned"
     assert labels.iloc[0]["event_id"] == "unassigned"
 
 

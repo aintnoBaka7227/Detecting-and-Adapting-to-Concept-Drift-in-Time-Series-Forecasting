@@ -1,27 +1,23 @@
 """Shared build logic for the AEMO Figure F2 companions.
 
-Six sibling producers read this module, one per (input stream, tuning
-stage) combination -- the same matrix Table T2 covers:
+Read by produce_figure_f2_aemo_standard_half_hourly_post_tune.py -- the
+post-tuning, standard-half-hourly input stream. (The raw, standard-daily
+and pre-tuning F2 figures were retired; their detector runs still feed
+Tables T1/T2.)
 
-- produce_figure_f2_aemo_raw_pre_tune.py
-- produce_figure_f2_aemo_raw_post_tune.py
-- produce_figure_f2_aemo_standard_daily_pre_tune.py
-- produce_figure_f2_aemo_standard_daily_post_tune.py
-- produce_figure_f2_aemo_standard_half_hourly_pre_tune.py
-- produce_figure_f2_aemo_standard_half_hourly_post_tune.py
-
-Each draws one figure per (detector, region) -- test-period demand with
+It draws one figure per (detector, region) -- test-period demand with
 Tier 1 documented events marked and stored matched/unmatched detections
-from that combination's detector run. Detections are read from their
-dumps and are never recomputed here. What differs between the six is only
-which split_id they pin, what series they display for visual context (the
-detector's own standard-daily input verbatim, or a daily-mean overlay of
-a half-hourly stream too dense to plot directly), and the output filename.
+from the detector run, plus an optional test-statistic panel. Detections
+are read from their dumps and are never recomputed here. Demand is shown
+as a daily-mean overlay, since the half-hourly stream is too dense to
+plot directly.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -30,14 +26,33 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.transforms import blended_transform_factory
 
-from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
+from drift_lab.detection.kswin import KSWINDetector
+from drift_lab.detection.page_hinkley import PageHinkleyDetector
 from experiments.results_io import FIGURE2_DIR, RUNS_CSV
 from experiments.run.detection.detection_artifacts import event_assignments_path
-from experiments.run.detection.standard_stream_common import build_standard_stream
+from experiments.run.detection.post_tune_detector_configs import load_winner_row
+from experiments.run.detection.standard_stream_common import (
+    TEST_START,
+    Cadence,
+    build_standard_stream,
+)
 
 DETECTORS = ("adwin", "kswin", "page_hinkley")
 DISPLAY_SMOOTH_WINDOW = 15
+STATISTIC_COLOR = "#2B7A99"
+
+
+@dataclass(frozen=True)
+class StatisticTrace:
+    """A detector's per-step test statistic over TEST, drawn as a panel
+    under the demand plot. `values` is NaN wherever no test ran; the
+    detector fires when a value crosses `threshold`."""
+
+    values: pd.Series
+    threshold: float
+    y_label: str
+    threshold_label: str
 
 RAW_COLOR = "#A9D6E5"
 SMOOTH_COLOR = "#1464A5"
@@ -57,35 +72,52 @@ def tier1_events(region: str) -> pd.DataFrame:
     return events.sort_values("start_date").reset_index(drop=True)
 
 
-def demand_series(frame: pd.DataFrame) -> pd.Series:
-    return pd.Series(
-        frame["TOTALDEMAND"].to_numpy(dtype=float),
-        index=pd.DatetimeIndex(frame["SETTLEMENTDATE"]),
-        name="TOTALDEMAND",
-    ).sort_index()
-
-
-def daily_mean_of_raw_demand(region: str) -> pd.Series:
-    """Generic daily-mean resample of raw demand -- for display only, when
-    the detector's own input is half-hourly and too dense to plot
-    directly (raw)."""
-    test = loader.load(region)[2]
-    return demand_series(test).resample("1D").mean().dropna()
-
-
-def standard_daily_demand_for_display(region: str) -> pd.Series:
-    """The exact standard-daily (deseasonalised + standardised, TEST-period)
-    series the standard-daily-input detector runs saw."""
-    full, warmup = build_standard_stream(region, "daily")
-    return full.iloc[warmup:]
-
-
 def standard_half_hourly_demand_for_display(region: str) -> pd.Series:
     """Daily-mean resample of the standard-half-hourly (deseasonalised +
     standardised) series, TEST period only -- for display only, when the
     detector's own input is half-hourly and too dense to plot directly."""
     full, warmup = build_standard_stream(region, "half_hourly")
     return full.iloc[warmup:].resample("1D").mean().dropna()
+
+
+def kswin_p_value_trace(region: str, cadence: Cadence) -> StatisticTrace:
+    """Replay the frozen post-tune KSWIN over the same TRAIN -> Calibration
+    -> TEST standard stream its detector run used, and return -log10(p)
+    for the TEST period. Display only -- detections still come from the
+    persisted dumps; this just exposes the p-value behind them."""
+    kwargs = json.loads(load_winner_row("kswin")["detector_parameters"])
+    detector = KSWINDetector(**kwargs)
+    series, _ = build_standard_stream(region, cadence)
+    _, p_values = detector.p_value_trace(series.to_numpy())
+
+    # ks_2samp can underflow to 0 for extreme splits; clip before the log.
+    neg_log_p = -np.log10(np.clip(p_values, 1e-300, None))
+    trace = pd.Series(neg_log_p, index=series.index)
+    return StatisticTrace(
+        values=trace[trace.index >= TEST_START],
+        threshold=-np.log10(detector.alpha),
+        y_label=r"KS test $-\log_{10}(p)$",
+        threshold_label=rf"Threshold $\alpha$ = {detector.alpha:g}",
+    )
+
+
+def page_hinkley_statistic_trace(region: str, cadence: Cadence) -> StatisticTrace:
+    """Replay the frozen post-tune Page-Hinkley over the same standard
+    stream its detector run used, and return its test value (cumulative
+    deviation from the running mean, in z units) for the TEST period.
+    Display only, like kswin_p_value_trace."""
+    kwargs = json.loads(load_winner_row("page_hinkley")["detector_parameters"])
+    detector = PageHinkleyDetector(**kwargs)
+    series, _ = build_standard_stream(region, cadence)
+    _, statistic = detector.statistic_trace(series.to_numpy())
+
+    trace = pd.Series(statistic, index=series.index)
+    return StatisticTrace(
+        values=trace[trace.index >= TEST_START],
+        threshold=detector.threshold,
+        y_label="Page-Hinkley test value",
+        threshold_label=rf"Threshold $\lambda$ = {detector.threshold:g}",
+    )
 
 
 def smoothed(values: np.ndarray, window: int) -> np.ndarray:
@@ -183,6 +215,7 @@ def plot_one(
     y_label: str,
     title_note: str,
     output_prefix: str,
+    trace: StatisticTrace | None = None,
 ) -> None:
     detections, suppressed, delays, recorded_unmatched = detector_slice(metrics, method, region, split_id)
     matched_times = matched_detection_times(detections, delays, events)
@@ -199,7 +232,17 @@ def plot_one(
 
     label_by_id = dict(zip(events["event_id"], events["label"]))
 
-    fig, ax = plt.subplots(figsize=(15.5, 6.8))
+    if trace is None:
+        fig, ax = plt.subplots(figsize=(15.5, 6.8))
+        stat_ax = None
+    else:
+        fig, (ax, stat_ax) = plt.subplots(
+            2,
+            1,
+            figsize=(15.5, 9.4),
+            sharex=True,
+            gridspec_kw={"height_ratios": [3, 1.25], "hspace": 0.06},
+        )
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFBFC")
 
@@ -292,7 +335,8 @@ def plot_one(
         va="bottom",
     )
     ax.set_ylabel(y_label)
-    ax.set_xlabel("Date")
+    bottom_ax = ax if stat_ax is None else stat_ax
+    bottom_ax.set_xlabel("Date")
     ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=[1, 7]))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
     ax.tick_params(axis="x", labelrotation=0)
@@ -319,23 +363,83 @@ def plot_one(
         edgecolor="#C7CDD4",
     )
 
-    ax.text(
+    if stat_ax is not None:
+        plot_statistic_panel(stat_ax, trace, events, matched_times.values(), unmatched)
+        stat_ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=[1, 7]))
+        stat_ax.xaxis.set_major_formatter(mdates.DateFormatter("%b\n%Y"))
+
+    bottom_ax.text(
         1.0,
-        -0.16,
+        -0.16 if stat_ax is None else -0.38,
         f"Accepted: {len(detections)}  |  Matched: {len(matched_days)}  |  No match: {len(unmatched)}"
         f"  |  Suppressed (refractory): {len(suppressed)}",
-        transform=ax.transAxes,
+        transform=bottom_ax.transAxes,
         ha="right",
         va="top",
         fontsize=8,
         color="#555555",
     )
 
-    fig.tight_layout()
+    if stat_ax is None:
+        fig.tight_layout()
     out = FIGURE2_DIR / f"{output_prefix}_{method}_{region}.png"
     fig.savefig(out, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"wrote {out}")
+
+
+def plot_statistic_panel(
+    ax,
+    trace: StatisticTrace,
+    events: pd.DataFrame,
+    matched: Iterable[pd.Timestamp],
+    unmatched: pd.DatetimeIndex,
+) -> None:
+    """The detector's test statistic under the demand plot: gaps where no
+    test ran, the firing threshold dashed, and a marker on each accepted
+    detection (green matched, red unmatched)."""
+    ax.set_facecolor("#FAFBFC")
+    for event in events.itertuples(index=False):
+        if event.end_date != event.start_date:
+            ax.axvspan(
+                event.start_date,
+                event.end_date + pd.Timedelta(days=1),
+                color=PERIOD_SHADE_COLOR,
+                alpha=0.14,
+                lw=0,
+                zorder=0,
+            )
+
+    values = trace.values
+    ax.plot(values.index, values.to_numpy(), color=STATISTIC_COLOR, lw=0.9, zorder=2)
+    ax.axhline(trace.threshold, color=FALSE_ALARM_COLOR, ls="--", lw=1.1, zorder=3)
+
+    top = max(float(np.nanmax(values.to_numpy())), trace.threshold) * 1.2
+    for timestamps, color in ((pd.DatetimeIndex(list(matched)), MATCH_COLOR), (unmatched, FALSE_ALARM_COLOR)):
+        if len(timestamps) == 0:
+            continue
+        # The stored timestamp is the exact step the test fired on.
+        heights = values.reindex(timestamps).fillna(trace.threshold).to_numpy()
+        ax.scatter(timestamps, heights, marker="v", s=34, color=color, edgecolor="white", lw=0.5, zorder=4)
+
+    ax.set_ylim(0, top)
+    ax.set_ylabel(trace.y_label)
+    ax.grid(axis="y", color=GRID_COLOR, lw=0.7, alpha=0.8)
+    ax.grid(axis="x", color=GRID_COLOR, lw=0.5, alpha=0.45)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["left", "bottom"]].set_color("#AAB2BD")
+    ax.legend(
+        handles=[
+            Line2D([], [], color=STATISTIC_COLOR, lw=1.0, label="Test statistic (gaps: no test run)"),
+            Line2D([], [], color=FALSE_ALARM_COLOR, lw=1.1, ls="--", label=trace.threshold_label),
+        ],
+        loc="upper left",
+        ncol=2,
+        fontsize=8,
+        framealpha=0.92,
+        facecolor="white",
+        edgecolor="#C7CDD4",
+    )
 
 
 def build_all_figures(
@@ -346,7 +450,11 @@ def build_all_figures(
     y_label: str,
     title_note: str,
     output_prefix: str,
+    statistic_trace: Callable[[str, str], StatisticTrace | None] | None = None,
 ) -> None:
+    """`statistic_trace(method, region)` optionally supplies a detector's
+    test statistic for a bottom panel; None (or a None return) keeps the
+    single-panel figure."""
     metrics = latest_metrics(split_id, run_script_hint)
     FIGURE2_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -364,4 +472,5 @@ def build_all_figures(
                 y_label=y_label,
                 title_note=title_note,
                 output_prefix=output_prefix,
+                trace=statistic_trace(method, region) if statistic_trace else None,
             )

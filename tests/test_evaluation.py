@@ -223,23 +223,19 @@ def test_assign_regime_detection_in_post_drift():
     assert labels.iloc[0]["regime"] == "post_drift"
 
 
-@pytest.mark.xfail(
-    reason="assign_regime's post_drift window is unbounded (accepted gap, "
-    "team decision) -- a detection this far past the only event still gets "
-    "labelled post_drift/unassigned instead of falling back to pre_drift",
-)
-def test_assign_regime_detection_outside_all_windows_is_pre_drift():
+def test_assign_regime_detection_outside_all_windows_is_unassigned():
     events = _aemo_events(
         [
             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
         ]
     )
     windows = build_event_windows(events, "SA1")
-    labels = assign_regime(["2020-06-01"], windows)
+    # One timestamp before E1's pre-drift window, one past its post-drift window.
+    labels = assign_regime(["2020-01-01", "2020-06-01"], windows)
 
-    assert len(labels) == 1
-    assert labels.iloc[0]["regime"] == "pre_drift"
-    assert labels.iloc[0]["event_id"] == "unassigned"
+    assert len(labels) == 2
+    assert labels["regime"].tolist() == ["unassigned", "unassigned"]
+    assert labels["event_id"].tolist() == ["unassigned", "unassigned"]
 
 
 def test_assign_regime_no_detections():
@@ -819,6 +815,23 @@ def test_calculate_regime_metrics_reports_overall_and_tier_precision():
     # No detections landed in pre_drift, so precision is undefined there.
     assert metrics["pre_drift"]["detections"] == 0
     assert np.isnan(metrics["pre_drift"]["precision"])
+    assert metrics["unassigned"] == {"detections": 0, "ignored_detections": 0}
+
+
+def test_calculate_regime_metrics_counts_but_does_not_score_unassigned():
+    events = _aemo_events(
+        [
+            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ]
+    )
+    detections = ["2020-03-01", "2020-06-01"]
+    match_results = match_unmatch(detections, events, "SA1")
+    regime_results = assign_regime(detections, build_event_windows(events, "SA1"))
+
+    metrics = calculate_regime_metrics(match_results, regime_results)
+
+    assert metrics["unassigned"] == {"detections": 1, "ignored_detections": 0}
+    assert sum(metrics[r]["detections"] for r in ("pre_drift", "drift", "post_drift")) == 1
 
 
 # --- guard ----------------------------------------------------------------

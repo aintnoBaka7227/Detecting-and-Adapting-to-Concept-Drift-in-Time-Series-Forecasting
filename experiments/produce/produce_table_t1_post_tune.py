@@ -2,11 +2,10 @@
 across seeds, using the frozen detector configs chosen by
 run_fine_tune_on_synthetic.py's synthetic-only sweep.
 
-Sibling of produce_table_t1_pre_tune.py: same columns and aggregation
-rules (see table_t1_common.py), pinned to run_post_tune_on_synthetic.py's
-own split_id, so a pre-tuning re-run can never leak into this table
-through an un-filtered groupby. Completes the pre/post-tuning x
-table-1/figure-2 matrix for the synthetic benchmark alongside
+Columns and aggregation rules live in table_t1_common.py. Pinned to
+run_post_tune_on_synthetic.py's own split_id, so a pre-tuning re-run can
+never leak into this table through an un-filtered groupby. The
+pre-tuning T1 was retired. Companion figure:
 produce_figure_f2_synthetic_post_tune.py.
 """
 

@@ -1,0 +1,4 @@
+detector,config_hash,detector_parameters,mean_false_alarms_per_year,mean_detection_delay,mean_none_false_alarms_per_year,max_none_false_alarms_per_year,status
+adwin,8f0c2805a189,"{""clock"": 48, ""delta"": 1e-08, ""min_window_length"": 336}",0.0,268.5,0.0,0.0,selected
+kswin,a2e66f17fe84,"{""alpha"": 5e-05, ""seed"": 42, ""stat_size"": 96, ""window_size"": 1344}",0.0,120.9,0.0,0.0,selected
+page_hinkley,8b913bd60b96,"{""alpha"": 0.9995, ""delta"": 0.0001, ""min_instances"": 20, ""mode"": ""both"", ""threshold"": 600.0}",0.219,152.1,0.0,0.0,selected

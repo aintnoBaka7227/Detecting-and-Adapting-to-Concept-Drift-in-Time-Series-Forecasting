@@ -5,8 +5,7 @@ reads back persisted detector alarm indices from
 run_post_tune_on_synthetic.py's rows (post-tuning, frozen detector
 configs) -- it never reruns a detector. One figure per drift type with an
 actual changepoint, one panel per seed. See figure_f2_synthetic_common.py
-for the shared panel/figure logic and produce_figure_f2_synthetic_pre_tune.py
-for the pre-tuning sibling.
+for the shared panel/figure logic.
 """
 
 from __future__ import annotations

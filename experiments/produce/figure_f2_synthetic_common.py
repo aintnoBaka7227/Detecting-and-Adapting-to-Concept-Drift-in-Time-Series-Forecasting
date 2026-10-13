@@ -1,11 +1,8 @@
 """Shared build logic for the synthetic Figure F2 companions.
 
-Two sibling producers read this module:
-
-- produce_figure_f2_synthetic_pre_tune.py   class-default detector configs
-                                             (run_pre_tune_on_synthetic.py's rows)
-- produce_figure_f2_synthetic_post_tune.py  post-tuning (frozen) configs
-                                             (run_post_tune_on_synthetic.py's rows)
+Read by produce_figure_f2_synthetic_post_tune.py -- post-tuning (frozen)
+configs, run_post_tune_on_synthetic.py's rows. (The pre-tuning sibling
+figure was retired; its runs still feed Table T1 pre-tuning.)
 
 Each drift type with an actual changepoint (sudden, gradual, recurring --
 "none" has nothing to mark) gets one figure: one panel per seed, the raw
