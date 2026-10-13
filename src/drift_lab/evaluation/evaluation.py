@@ -47,6 +47,20 @@ Synthetic drift-detection evaluation:
         information.
 
 
+Adaptation evaluation (Table T3, T4):
+
+    calculate_forecast_metrics_by_regime()
+        Calculates MAE and observation count separately for pre-drift,
+        drift and post-drift (or any other regime scheme supplied) --
+        Table T3's per-regime forecast-accuracy columns.
+
+    calculate_adaptation_gain()
+        Compares one arm's drift-regime MAE against Arm A's (paired by
+        region + seed by the caller) and divides by retrain count --
+        Table T4's "MAE difference vs Arm A" / "difference per retrain"
+        columns. NaN per-retrain value when n_retrains == 0.
+
+
 SYNTHETIC DETECTION EVALUATION
 ------------------------------
 Synthetic data provide known ground-truth changepoints and therefore
@@ -232,12 +246,20 @@ Different stages use different subsets of these metrics:
       documented-event matching because real data do not provide
       ground-truth changepoints.
 
-    - Adaptation evaluation will reuse calculate_mae() and
-      calculate_rolling_mae() from this module to compare forecasting
-      performance across the four adaptation arms. Retraining count,
-      training samples, and wall-clock cost are recorded by the
-      experiment workflow rather than calculated as forecast-error
-      metrics here.
+    - Adaptation evaluation reuses calculate_mae() and
+      calculate_rolling_mae() from this module, plus
+      calculate_forecast_metrics_by_regime() (MAE by regime, Table T3)
+      and calculate_adaptation_gain() (MAE difference vs Arm A per
+      retrain, Table T4) to compare forecasting performance across the
+      four adaptation arms. Retraining count, training samples, and
+      wall-clock cost are recorded by the experiment workflow rather
+      than calculated as forecast-error metrics here -- this module
+      only compares the MAE numbers those counters are paired with.
+      Pinball loss (T3's UQ-dependent column) is not implemented yet --
+      it is scored against quantile/interval forecasts the uncertainty
+      layer doesn't produce yet (see PLANNED METRICS below); adding it
+      before that exists would mean guessing at an interval semantics
+      the team hasn't frozen.
 
     - Uncertainty evaluation will use the planned coverage and
       interval-width metrics implemented in this module.
@@ -257,6 +279,13 @@ Real-data detection evaluation:
     - delay from documented event to matched detection
     - unmatched detections
     - documented events with no matched detection
+
+
+Adaptation evaluation (Table T3):
+
+    - calculate_pinball_loss() / calculate_interval_pinball_loss() --
+      deferred until the uncertainty layer's interval/quantile output
+      format is frozen (see TEAM_DECISIONS.md 5.5, 5.6).
 
 
 Uncertainty evaluation:
@@ -339,6 +368,117 @@ def calculate_rolling_mae(y_true, y_pred, window=48 * 7):
     absolute_error = (y_true - y_pred).abs()
 
     return absolute_error.rolling(window=window).mean()
+
+
+# Adaptation evaluation metrics (Step 5 / Table T3, T4)
+
+
+def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
+    """
+    Calculate MAE and observation count separately for each forecast
+    regime (Table T3's "MAE pre-drift / MAE drift / MAE post-drift").
+
+    Unlike calculate_regime_metrics() (detection-only: precision by
+    regime), this scores forecast accuracy -- the adaptation arms are
+    compared on how well they predict demand in each regime, not on
+    detector precision.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    y_pred : array-like
+        Forecast values. Same length as y_true.
+
+    regime_labels : array-like
+        One regime label per observation, aligned by position with
+        y_true / y_pred (e.g. the "regime" column from assign_regime(),
+        or any equivalent per-timestamp regime assignment). Expected
+        values are "pre_drift", "drift", "post_drift" -- any other
+        label present in the data is still scored and returned, so a
+        caller using a differently-named regime scheme is not silently
+        dropped.
+
+    Returns
+    -------
+    dict
+        One entry per regime that appears in `regime_labels`, keyed by
+        regime name, each ``{"mae": float, "n_observations": int}``.
+        A regime with zero observations is not included -- T3's
+        producer decides how to render a missing regime (e.g. a region
+        with no drift-regime rows yet), rather than this function
+        inventing a NaN placeholder for a regime that was never asked
+        about.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    y_pred = pd.Series(y_pred, dtype=float).reset_index(drop=True)
+    regime_labels = pd.Series(list(regime_labels)).reset_index(drop=True)
+
+    if not (len(y_true) == len(y_pred) == len(regime_labels)):
+        raise ValueError(
+            "y_true, y_pred and regime_labels must all have the same length."
+        )
+
+    if y_true.isna().any() or y_pred.isna().any():
+        raise ValueError("y_true and y_pred must not contain missing values.")
+
+    metrics = {}
+    for regime in regime_labels.unique():
+        mask = (regime_labels == regime).to_numpy()
+        metrics[regime] = {
+            "mae": calculate_mae(y_true[mask], y_pred[mask]),
+            "n_observations": int(mask.sum()),
+        }
+
+    return metrics
+
+
+def calculate_adaptation_gain(arm_drift_mae, arm_a_drift_mae, n_retrains):
+    """
+    Compare one adaptation arm's drift-regime MAE against Arm A's
+    (never-retrain) drift-regime MAE, for Table T4.
+
+    Parameters
+    ----------
+    arm_drift_mae : float
+        The arm's own drift-regime MAE (calculate_forecast_metrics_by_regime()'s
+        "drift" entry), for one region + seed.
+
+    arm_a_drift_mae : float
+        Arm A's drift-regime MAE for the *same* region + seed -- the
+        caller is responsible for pairing by region and seed before
+        calling this; this function does not know which run any of
+        these numbers came from.
+
+    n_retrains : int
+        The arm's retrain count for this run (Arm A's own row is
+        excluded by the caller, not filtered here -- comparing Arm A to
+        itself is meaningless and gives a difference of 0 with a
+        per-retrain value of NaN, which isn't wrong, just not useful).
+
+    Returns
+    -------
+    dict
+        ``{"drift_mae_difference_vs_arm_a": float,
+        "drift_mae_difference_per_retrain": float}``.
+
+        Sign convention (TEAM_DECISIONS.md 5.4): ``arm - arm_a``, so a
+        *negative* difference means the arm improved on never
+        retraining. ``drift_mae_difference_per_retrain`` is
+        ``NaN`` when ``n_retrains == 0`` (dividing by zero retrains is
+        undefined, not zero benefit).
+    """
+    if n_retrains < 0:
+        raise ValueError("n_retrains must be >= 0.")
+
+    difference = float(arm_drift_mae) - float(arm_a_drift_mae)
+    per_retrain = difference / n_retrains if n_retrains > 0 else float("nan")
+
+    return {
+        "drift_mae_difference_vs_arm_a": difference,
+        "drift_mae_difference_per_retrain": per_retrain,
+    }
 
 
 # Detection evaluation metrics
