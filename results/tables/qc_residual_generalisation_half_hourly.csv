@@ -1,0 +1,7 @@
+region,split,monthly_amplitude_before,monthly_amplitude_after,weekday_spread_before,weekday_spread_after,half_hour_spread_before,half_hour_spread_after,autocorr_lag48_before,autocorr_lag48_after,autocorr_lag336_before,autocorr_lag336_after,autocorr_lag17520_before,autocorr_lag17520_after
+SA1,train,320.751,34.315,191.018,2.491,575.619,12.49,0.758,0.608,0.523,0.053,0.482,0.092
+SA1,calibration,60.594,10.265,264.54,134.656,607.934,226.258,0.609,0.536,0.21,-0.101,,
+SA1,test,455.819,323.685,161.487,29.098,879.507,364.0,0.812,0.683,0.734,0.501,0.679,0.419
+NSW1,train,1382.475,262.752,815.9,4.612,3006.332,22.099,0.859,0.712,0.793,0.276,0.753,0.312
+NSW1,calibration,315.745,84.907,786.869,385.277,3228.821,1173.653,0.766,0.581,0.537,0.065,,
+NSW1,test,1837.382,1017.048,722.45,85.319,2955.926,1118.165,0.872,0.8,0.803,0.556,0.738,0.485

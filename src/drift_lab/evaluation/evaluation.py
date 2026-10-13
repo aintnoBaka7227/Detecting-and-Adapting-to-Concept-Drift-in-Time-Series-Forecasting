@@ -267,6 +267,9 @@ Uncertainty evaluation:
     - worst 24-hour coverage
 """
 
+import math
+
+import numpy as np
 import pandas as pd
 
 # Forecast evaluation metrics
@@ -699,6 +702,12 @@ def evaluate_detections(
 
 REGIME_PRE_DRIFT_DAYS = 7
 REGIME_POST_DRIFT_DAYS = 7
+
+# Regime (and event ID) of a timestamp that falls outside every documented
+# event's pre-drift, drift and post-drift window. Such timestamps stay
+# valid -- they are kept in the labelled output and in whole-run metrics --
+# but they belong to no regime, so per-regime metrics leave them out.
+UNASSIGNED_REGIME = "unassigned"
 POINT_WINDOW = pd.Timedelta(days=7)
 INTERVAL_GRACE = pd.Timedelta(days=7)
 
@@ -771,22 +780,21 @@ def assign_regime(detected_timestamps, event_windows):
     Assign one regime and event ID to every detection timestamp.
 
     Priority:
-        drift > pre_drift > event-linked post_drift
-        > general post_drift > pre_drift fallback
+        drift > pre_drift > post_drift > unassigned
 
     Attribution:
         - drift:
           Use the matching event ID.
         - pre_drift:
           Use the upcoming event ID.
-        - event-linked post_drift:
+        - post_drift:
           Use the event ID when the timestamp falls between that
           event's drift_end and post_drift_end.
-        - general post_drift:
-          If an earlier event exists but the timestamp falls outside
-          every event window, use event_id="unassigned".
-        - before all events:
-          Use regime="pre_drift" and event_id="unassigned".
+        - unassigned:
+          The timestamp falls outside every event's pre-drift, drift
+          and post-drift window. Use regime="unassigned" and
+          event_id="unassigned". The timestamp is still returned, but
+          per-regime metrics leave it out.
 
     When multiple windows overlap:
         - drift and pre_drift use the earliest event by drift_start;
@@ -881,17 +889,10 @@ def assign_regime(detected_timestamps, event_windows):
                     regime = "post_drift"
                     event_id = selected_event["event_id"]
 
-                # Priority 4: outside all event windows, but at least
-                # one event has already occurred.
-                elif (windows["drift_start"] <= timestamp).any():
-                    regime = "post_drift"
-                    event_id = "unassigned"
-
-                # Priority 5: before every event and outside an
-                # explicit pre-drift window.
+                # Priority 4: outside every event window.
                 else:
-                    regime = "pre_drift"
-                    event_id = "unassigned"
+                    regime = UNASSIGNED_REGIME
+                    event_id = UNASSIGNED_REGIME
 
         records.append(
             {
@@ -1280,7 +1281,9 @@ def calculate_regime_metrics(match_results, regime_results):
     Returns
     -------
     dict
-        Detection metrics for pre-drift, drift and post-drift.
+        Detection metrics for pre-drift, drift and post-drift, plus an
+        "unassigned" entry holding only the count of detections outside
+        every event window (they are valid but not scored by regime).
     """
     required_match_columns = {"timestamp", "label", "tier"}
     required_regime_columns = {"timestamp", "regime"}
@@ -1355,6 +1358,12 @@ def calculate_regime_metrics(match_results, regime_results):
             ),
         }
 
+    unassigned_rows = audit[audit["regime"] == UNASSIGNED_REGIME]
+    regime_metrics[UNASSIGNED_REGIME] = {
+        "detections": len(unassigned_rows),
+        "ignored_detections": int((unassigned_rows["label"] == "Ignored").sum()),
+    }
+
     return regime_metrics
 # Planned evaluation metrics
 #
@@ -1363,3 +1372,412 @@ def calculate_regime_metrics(match_results, regime_results):
 # - mean interval width
 # - normalised interval width
 # - worst 24-hour coverage
+
+
+# Adaptation (Step 5) and interval (Step 6) metrics
+
+
+def calculate_absolute_error(y_true, y_pred):
+    """Point-wise |y_true - y_pred| for per-timestamp curve files."""
+
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    y_pred = pd.Series(y_pred, dtype=float).reset_index(drop=True)
+
+    if len(y_true) != len(y_pred):
+        raise ValueError("y_true and y_pred must have the same length.")
+
+    if y_true.isna().any() or y_pred.isna().any():
+        raise ValueError("y_true and y_pred must not contain missing values.")
+
+    return (y_true - y_pred).abs()
+
+
+FORECAST_REGIMES = ("pre_drift", "drift", "post_drift")
+
+
+def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
+    """
+    MAE and observation count per regime (T3), pooled over every timestamp
+    in the regime.
+
+    `regime_labels` must be aligned to the forecast timestamps; "pre_drift"
+    and "pre-drift" are both accepted. Returns {regime: {"mae",
+    "n_observations"}} keyed pre_drift / drift / post_drift; empty regimes
+    are omitted. Timestamps labelled "unassigned" get no MAE: they are
+    reported as {"unassigned": {"n_observations"}} only.
+    """
+
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    y_pred = pd.Series(y_pred, dtype=float).reset_index(drop=True)
+    labels = pd.Series(regime_labels).reset_index(drop=True)
+
+    if not (len(y_true) == len(y_pred) == len(labels)):
+        raise ValueError("y_true, y_pred and regime_labels must have the same length.")
+
+    if labels.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    labels = labels.astype(str).str.replace("-", "_", regex=False)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES) - {UNASSIGNED_REGIME}
+    if unexpected:
+        raise ValueError(
+            f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
+        )
+
+    metrics = {}
+    for regime in FORECAST_REGIMES:
+        mask = (labels == regime).to_numpy()
+        if not mask.any():
+            continue
+        metrics[regime] = {
+            "mae": calculate_mae(y_true[mask], y_pred[mask]),
+            "n_observations": int(mask.sum()),
+        }
+
+    n_unassigned = int((labels == UNASSIGNED_REGIME).sum())
+    if n_unassigned:
+        metrics[UNASSIGNED_REGIME] = {"n_observations": n_unassigned}
+    return metrics
+
+
+def calculate_adaptation_gain(arm_drift_mae, arm_a_drift_mae, n_retrains):
+    """
+    Drift-MAE difference vs Arm A (T4): arm - arm A, negative = better,
+    plus the difference per retrain (NaN with no retrains). Pair arm and
+    Arm A on region and seed first.
+    """
+
+    try:
+        arm_drift_mae = float(arm_drift_mae)
+        arm_a_drift_mae = float(arm_a_drift_mae)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("MAE values must be finite, non-negative numbers.") from exc
+
+    if (
+        not math.isfinite(arm_drift_mae)
+        or not math.isfinite(arm_a_drift_mae)
+        or arm_drift_mae < 0
+        or arm_a_drift_mae < 0
+    ):
+        raise ValueError("MAE values must be finite, non-negative numbers.")
+
+    if isinstance(n_retrains, bool):
+        raise TypeError("n_retrains must be a non-negative integer.")
+
+    try:
+        retrain_count = int(n_retrains)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("n_retrains must be a non-negative integer.") from exc
+
+    if retrain_count != n_retrains or retrain_count < 0:
+        raise ValueError("n_retrains must be a non-negative integer.")
+
+    difference = arm_drift_mae - arm_a_drift_mae
+    difference_per_retrain = (
+        difference / retrain_count if retrain_count > 0 else float("nan")
+    )
+
+    return {
+        "drift_mae_difference_vs_arm_a": float(difference),
+        "drift_mae_difference_per_retrain": float(difference_per_retrain),
+    }
+
+
+def calculate_pinball_loss(y_true, y_quantile, quantile):
+    """
+    Mean pinball loss of one quantile forecast.
+
+    An infinite quantile forecast (a conformal interval with an infinite
+    radius) is valid input and makes the loss infinite; it is never
+    capped or turned into NaN.
+    """
+
+    y_true = pd.Series(y_true, dtype=float)
+    y_quantile = pd.Series(y_quantile, dtype=float)
+
+    if len(y_true) != len(y_quantile):
+        raise ValueError("y_true and y_quantile must have the same length.")
+
+    if y_true.isna().any() or y_quantile.isna().any():
+        raise ValueError("y_true and y_quantile must not contain missing values.")
+
+    if not 0 < quantile < 1:
+        raise ValueError("quantile must be strictly between 0 and 1.")
+
+    error = y_true.to_numpy() - y_quantile.to_numpy()
+    losses = np.where(error >= 0, quantile * error, (quantile - 1) * error)
+    return float(np.mean(losses))
+
+
+def calculate_interval_pinball_loss(y_true, lower, upper, alpha=0.10):
+    """
+    Pinball loss of a (1 - alpha) interval: mean of the q = alpha/2 and
+    q = 1 - alpha/2 losses (0.05 / 0.95 for a 90% interval).
+    """
+
+    y_true = pd.Series(y_true, dtype=float)
+    lower = pd.Series(lower, dtype=float)
+    upper = pd.Series(upper, dtype=float)
+
+    if len(y_true) != len(lower) or len(y_true) != len(upper):
+        raise ValueError("y_true, lower, and upper must have the same length.")
+
+    if y_true.isna().any() or lower.isna().any() or upper.isna().any():
+        raise ValueError("y_true, lower, and upper must not contain missing values.")
+
+    if not 0 < alpha < 1:
+        raise ValueError("alpha must be strictly between 0 and 1.")
+
+    if (lower.to_numpy() > upper.to_numpy()).any():
+        raise ValueError("lower bounds must not exceed upper bounds.")
+
+    lower_loss = calculate_pinball_loss(y_true, lower, alpha / 2)
+    upper_loss = calculate_pinball_loss(y_true, upper, 1 - alpha / 2)
+    return float((lower_loss + upper_loss) / 2)
+
+# Step 6: uncertainty evaluation metrics
+# emperical coverage, mean interval width, normalised interval width, worst 24-hour coverage
+
+def _validate_interval_inputs(
+    lower_bound,
+    upper_bound,
+):
+    """
+    Validate prediction-interval bounds and return float Series.
+
+    Infinite bounds are valid (a conformal interval with an infinite
+    radius); missing values are not. Both Series are re-indexed 0..n-1 so
+    the metrics compare by position, not by index label.
+    """
+    lower_bound = pd.Series(lower_bound, dtype=float).reset_index(drop=True)
+    upper_bound = pd.Series(upper_bound, dtype=float).reset_index(drop=True)
+
+    if len(lower_bound) != len(upper_bound):
+        raise ValueError(
+            "lower_bound and upper_bound must have the same length."
+        )
+
+    if len(lower_bound) == 0:
+        raise ValueError(
+            "Uncertainty evaluation inputs must not be empty."
+        )
+
+    if lower_bound.isna().any() or upper_bound.isna().any():
+        raise ValueError(
+            "Uncertainty evaluation inputs must not contain missing values."
+        )
+
+    if (lower_bound > upper_bound).any():
+        raise ValueError(
+            "lower_bound must not exceed upper_bound."
+        )
+
+    return lower_bound, upper_bound
+
+
+def _interval_covered(
+    y_true,
+    lower_bound,
+    upper_bound,
+):
+    """
+    Per-observation coverage flags (bool Series), both boundaries included.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    if len(y_true) != len(lower_bound):
+        raise ValueError(
+            "y_true, lower_bound, and upper_bound "
+            "must have the same length."
+        )
+
+    if not np.isfinite(y_true.to_numpy()).all():
+        raise ValueError(
+            "y_true must contain only finite values."
+        )
+
+    return (y_true >= lower_bound) & (y_true <= upper_bound)
+
+
+def calculate_empirical_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+):
+    """
+    Calculate empirical prediction-interval coverage.
+
+    Coverage is the proportion of observed values lying inside the
+    supplied prediction interval, including both interval boundaries.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    Returns
+    -------
+    float
+        Fraction of observations covered by the interval.
+    """
+    covered = _interval_covered(y_true, lower_bound, upper_bound)
+
+    return float(covered.mean())
+
+
+def calculate_mean_interval_width(
+    lower_bound,
+    upper_bound,
+):
+    """
+    Calculate mean prediction-interval width.
+
+    Parameters
+    ----------
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    Returns
+    -------
+    float
+        Mean interval width.
+    """
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    return float(
+        (upper_bound - lower_bound).mean()
+    )
+
+
+def calculate_rolling_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    window=48,
+):
+    """
+    Calculate rolling empirical coverage.
+
+    Default:
+        48 half-hour intervals = 24 hours (window=8 gives 4 hours).
+
+    Pass the full chronological stream, not one regime's rows, so every
+    window covers consecutive timestamps.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    window : int
+        Number of observations in the rolling window.
+
+    Returns
+    -------
+    pd.Series
+        Coverage of the window ending at each observation; NaN until the
+        first full window.
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, np.integer)) or window < 1:
+        raise ValueError("window must be a positive integer.")
+
+    covered = _interval_covered(y_true, lower_bound, upper_bound)
+
+    return covered.astype(float).rolling(window=window).mean()
+
+
+def calculate_worst_rolling_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    window=48,
+    regime_labels=None,
+    regime=None,
+):
+    """
+    Calculate the worst (lowest) rolling coverage (T5 "worst 24h coverage").
+
+    With `regime_labels` and `regime`, only windows lying entirely inside
+    that regime count, so the by-regime value never mixes regimes or joins
+    two separate events. Rolling is still done on the full stream.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values, full chronological stream.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    window : int
+        Number of observations in the rolling window (48 = 24 hours).
+
+    regime_labels : array-like, optional
+        Regime label per observation; "pre_drift" and "pre-drift" are both
+        accepted.
+
+    regime : str, optional
+        Regime to report. Required together with `regime_labels`.
+
+    Returns
+    -------
+    float
+        Lowest window coverage; NaN when no full window qualifies.
+    """
+    rolling = calculate_rolling_coverage(
+        y_true,
+        lower_bound,
+        upper_bound,
+        window=window,
+    )
+
+    if (regime_labels is None) != (regime is None):
+        raise ValueError("regime_labels and regime must be given together.")
+
+    if regime_labels is not None:
+        labels = pd.Series(regime_labels).reset_index(drop=True)
+
+        if len(labels) != len(rolling):
+            raise ValueError(
+                "regime_labels must have the same length as y_true."
+            )
+
+        if labels.isna().any():
+            raise ValueError("regime_labels must not contain missing values.")
+
+        labels = labels.astype(str).str.replace("-", "_", regex=False)
+        in_regime = labels == str(regime).replace("-", "_")
+        window_in_regime = in_regime.astype(float).rolling(window=window).sum() == window
+        rolling = rolling[window_in_regime]
+
+    rolling = rolling.dropna()
+
+    if rolling.empty:
+        return float("nan")
+
+    return float(rolling.min())
