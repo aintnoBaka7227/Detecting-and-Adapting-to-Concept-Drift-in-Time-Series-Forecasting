@@ -9,7 +9,9 @@ import pytest
 from drift_lab.evaluation import (
     assign_regime,
     build_event_windows,
+    calculate_adaptation_gain,
     calculate_event_metrics,
+    calculate_forecast_metrics_by_regime,
     calculate_mae,
     calculate_regime_metrics,
     calculate_rolling_mae,
@@ -49,6 +51,73 @@ def test_rolling_mae_matches_manual_rolling():
     np.testing.assert_allclose(
         calculate_rolling_mae(y_true, y_pred).to_numpy(), manual.to_numpy()
     )
+
+
+# --- adaptation metrics (Table T3, T4) --------------------------------------
+
+
+def test_forecast_metrics_by_regime_splits_mae_correctly():
+    y_true = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    y_pred = [1.0, 1.0, 3.0, 3.0, 5.0, 5.0]  # errors: 0,0, 2,2, 4,4
+    regimes = ["pre_drift", "pre_drift", "drift", "drift", "post_drift", "post_drift"]
+
+    result = calculate_forecast_metrics_by_regime(y_true, y_pred, regimes)
+
+    assert result["pre_drift"] == {"mae": pytest.approx(0.0), "n_observations": 2}
+    assert result["drift"] == {"mae": pytest.approx(2.0), "n_observations": 2}
+    assert result["post_drift"] == {"mae": pytest.approx(4.0), "n_observations": 2}
+
+
+def test_forecast_metrics_by_regime_omits_regimes_with_no_observations():
+    result = calculate_forecast_metrics_by_regime(
+        [1.0, 2.0], [1.0, 2.0], ["pre_drift", "pre_drift"]
+    )
+
+    assert set(result) == {"pre_drift"}
+
+
+def test_forecast_metrics_by_regime_rejects_length_mismatch():
+    with pytest.raises(ValueError):
+        calculate_forecast_metrics_by_regime([1.0, 2.0], [1.0], ["pre_drift", "drift"])
+    with pytest.raises(ValueError):
+        calculate_forecast_metrics_by_regime([1.0, 2.0], [1.0, 2.0], ["pre_drift"])
+
+
+def test_forecast_metrics_by_regime_rejects_nan():
+    with pytest.raises(ValueError):
+        calculate_forecast_metrics_by_regime(
+            [1.0, np.nan], [1.0, 2.0], ["pre_drift", "drift"]
+        )
+
+
+def test_adaptation_gain_sign_negative_means_improvement():
+    # Arm's drift MAE is lower than Arm A's -> improvement -> negative.
+    result = calculate_adaptation_gain(
+        arm_drift_mae=8.0, arm_a_drift_mae=10.0, n_retrains=4
+    )
+    assert result["drift_mae_difference_vs_arm_a"] == pytest.approx(-2.0)
+    assert result["drift_mae_difference_per_retrain"] == pytest.approx(-0.5)
+
+
+def test_adaptation_gain_sign_positive_means_worse():
+    result = calculate_adaptation_gain(
+        arm_drift_mae=12.0, arm_a_drift_mae=10.0, n_retrains=2
+    )
+    assert result["drift_mae_difference_vs_arm_a"] == pytest.approx(2.0)
+    assert result["drift_mae_difference_per_retrain"] == pytest.approx(1.0)
+
+
+def test_adaptation_gain_zero_retrains_gives_nan_per_retrain():
+    result = calculate_adaptation_gain(
+        arm_drift_mae=10.0, arm_a_drift_mae=10.0, n_retrains=0
+    )
+    assert result["drift_mae_difference_vs_arm_a"] == pytest.approx(0.0)
+    assert np.isnan(result["drift_mae_difference_per_retrain"])
+
+
+def test_adaptation_gain_rejects_negative_retrains():
+    with pytest.raises(ValueError):
+        calculate_adaptation_gain(arm_drift_mae=10.0, arm_a_drift_mae=10.0, n_retrains=-1)
 
 
 # --- detection metrics ----------------------------------------------------
