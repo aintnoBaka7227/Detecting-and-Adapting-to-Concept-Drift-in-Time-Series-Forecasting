@@ -1,4 +1,32 @@
 model,arm,region,MAE pre-drift (MW),MAE drift (MW),MAE post-drift (MW),pinball loss,seeds
+bingqi_dhr_arima,A_never_retrain,NSW1,945.7 ± n/a,931.2 ± n/a,865.3 ± n/a,pending UQ,1
+bingqi_dhr_arima,B_every_30_days,NSW1,750.2 ± n/a,697.1 ± n/a,646.1 ± n/a,pending UQ,1
+bingqi_dhr_arima,C_drift_full_history,NSW1,859.6 ± n/a,874.4 ± n/a,794.3 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_30d (selected),NSW1,888.6 ± n/a,811.5 ± n/a,884.0 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_60d,NSW1,960.7 ± n/a,940.7 ± n/a,922.8 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_120d,NSW1,955.4 ± n/a,877.0 ± n/a,866.5 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_180d,NSW1,894.6 ± n/a,828.0 ± n/a,819.0 ± n/a,pending UQ,1
+bingqi_dhr_arima,A_never_retrain,SA1,249.1 ± n/a,259.4 ± n/a,231.3 ± n/a,pending UQ,1
+bingqi_dhr_arima,B_every_30_days,SA1,186.0 ± n/a,194.1 ± n/a,185.2 ± n/a,pending UQ,1
+bingqi_dhr_arima,C_drift_full_history,SA1,234.2 ± n/a,245.7 ± n/a,219.0 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_30d (selected),SA1,203.0 ± n/a,199.3 ± n/a,196.1 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_60d,SA1,232.6 ± n/a,227.6 ± n/a,213.9 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_120d,SA1,259.4 ± n/a,251.1 ± n/a,231.5 ± n/a,pending UQ,1
+bingqi_dhr_arima,D_drift_recent_180d,SA1,254.0 ± n/a,252.2 ± n/a,229.7 ± n/a,pending UQ,1
+bingqi_nhits,A_never_retrain,NSW1,408.6 ± 3.9,364.7 ± 3.2,355.5 ± 3.8,pending UQ,5
+bingqi_nhits,B_every_30_days,NSW1,529.5 ± 4.1,526.3 ± 6.9,502.9 ± 2.2,pending UQ,5
+bingqi_nhits,C_drift_full_history,NSW1,363.0 ± 7.0,325.1 ± 3.6,321.4 ± 1.4,pending UQ,5
+bingqi_nhits,D_drift_recent_30d,NSW1,576.2 ± 4.0,532.9 ± 2.3,527.7 ± 2.2,pending UQ,5
+bingqi_nhits,D_drift_recent_60d,NSW1,519.3 ± 3.4,495.1 ± 5.4,489.0 ± 2.1,pending UQ,5
+bingqi_nhits,D_drift_recent_120d,NSW1,501.1 ± 9.0,437.2 ± 10.9,445.6 ± 2.4,pending UQ,5
+bingqi_nhits,D_drift_recent_180d (selected),NSW1,491.6 ± 2.0,408.4 ± 7.2,419.2 ± 1.7,pending UQ,5
+bingqi_nhits,A_never_retrain,SA1,148.4 ± 4.4,160.3 ± 5.6,141.1 ± 3.4,pending UQ,5
+bingqi_nhits,B_every_30_days,SA1,180.3 ± 2.3,198.9 ± 2.1,190.2 ± 1.1,pending UQ,5
+bingqi_nhits,C_drift_full_history,SA1,137.4 ± 0.9,136.6 ± 2.5,123.6 ± 0.5,pending UQ,5
+bingqi_nhits,D_drift_recent_30d,SA1,192.4 ± 1.9,220.8 ± 1.6,184.5 ± 0.9,pending UQ,5
+bingqi_nhits,D_drift_recent_60d,SA1,188.4 ± 3.1,194.4 ± 1.5,169.2 ± 1.7,pending UQ,5
+bingqi_nhits,D_drift_recent_120d (selected),SA1,175.3 ± 2.2,179.1 ± 1.4,156.5 ± 0.5,pending UQ,5
+bingqi_nhits,D_drift_recent_180d,SA1,173.5 ± 2.0,179.6 ± 4.5,153.7 ± 1.2,pending UQ,5
 dhr_arima,A_never_retrain,NSW1,945.7 ± n/a,931.2 ± n/a,865.3 ± n/a,pending UQ,1
 dhr_arima,B_every_30_days,NSW1,750.2 ± n/a,697.1 ± n/a,646.1 ± n/a,pending UQ,1
 dhr_arima,C_drift_full_history,NSW1,859.6 ± n/a,874.4 ± n/a,794.3 ± n/a,pending UQ,1

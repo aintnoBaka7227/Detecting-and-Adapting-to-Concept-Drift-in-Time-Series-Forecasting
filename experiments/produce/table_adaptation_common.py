@@ -13,6 +13,12 @@ import pandas as pd
 
 from experiments.results_io import RUNS_CSV
 from experiments.run.forecasting.run_aemo_adaptation_arms import ARM_A, SPLIT_ID
+BINGQI_SPLIT_ID = "aemo_bingqi_adapt_adwin_std_hh_v1"
+
+VALID_SPLIT_IDS = {
+    SPLIT_ID,
+    BINGQI_SPLIT_ID,
+}
 
 REGIMES = ("pre-drift", "drift", "post-drift")
 D_PREFIX = "D_drift_recent_"
@@ -22,7 +28,10 @@ def latest_adaptation_rows() -> pd.DataFrame:
     if not RUNS_CSV.exists():
         raise SystemExit(f"{RUNS_CSV} not found -- run run_aemo_adaptation_arms.py first")
     runs = pd.read_csv(RUNS_CSV)
-    rows = runs[(runs["split_id"] == SPLIT_ID) & (runs["group"] == "adaptation")].copy()
+    rows = runs[
+        runs["split_id"].isin(VALID_SPLIT_IDS)
+        & (runs["group"] == "adaptation")
+    ].copy()
     if rows.empty:
         raise SystemExit(f"no rows for split_id={SPLIT_ID!r} -- run run_aemo_adaptation_arms.py first")
     parts = rows["method"].str.split("/", n=1, expand=True)

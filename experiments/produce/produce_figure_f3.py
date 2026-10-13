@@ -245,7 +245,7 @@ def build_region_figure(region: str, model_name: str) -> Path:
 
 
 def main() -> None:
-    model_name = "nhits"
+    model_name = "bingqi_nhits"
 
     for region in ("SA1","NSW1"):
         out = build_region_figure(region, model_name)
