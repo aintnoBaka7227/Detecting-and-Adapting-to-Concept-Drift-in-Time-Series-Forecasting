@@ -1,288 +1,192 @@
-# Fixed Split Conformal and Adaptive Conformal Inference: Implementation Guide
+# Fixed Split Conformal and AgACI: Development Guide
 
-## Purpose
+## Goal
 
-Implement two uncertainty methods in separate files. Both must inherit from the existing `UncertaintyQuantifier` interface. Apply them to every forecaster included in the final experiments, not only NHITS. Keep the existing forecasters and Arm A–D retraining policies unchanged by the uncertainty layer.
+Compare **fixed split conformal** with **AgACI using rolling calibration**, on the same existing point forecasts. Apply both to every forecaster included in the final experiments. The uncertainty layer must not change Arm A–D retraining policies or train another forecasting model for each learning rate.
 
-| Proposed file | Proposed class | Purpose |
-| --- | --- | --- |
-| `fixed_split_conformal.py` | `FixedSplitConformal` | Generate intervals using a radius calibrated once. |
-| `adaptive_conformal.py` | `AdaptiveConformalInference` | Generate intervals using a rolling error buffer and a quantile level updated from coverage feedback. |
+AgACI has two layers of adaptation: each ACI candidate changes its internal miscoverage setting, and two online aggregators change how much each candidate contributes to the final interval.
 
-These filenames and class names are proposals. The interface definition has not been inspected, so import paths, constructor arguments and method signatures must be adapted to the actual codebase.
+## Step 1 — Check the interface and divide responsibilities
 
-## 1. Responsibilities
+Inspect the existing `UncertaintyQuantifier` interface before writing classes. Preserve its required method signatures and return structure. The names below are proposed, not verified repository paths.
 
-| Component | Responsibility |
+| Component | What to develop |
 | --- | --- |
-| The two uncertainty files | Calibration, interval generation, method state and optional escalation flags. |
-| Experiment harness | Forecast issuance, delivery of observed outcomes, chronological execution and logging. |
-| `evaluation.py` | Coverage, width, pinball loss, rolling coverage and escalation metrics. |
-| Table/figure scripts | Generate T3–T6 and F3–F5 from saved results. |
+| `fixed_split_conformal.py` | The fixed-radius baseline. |
+| `adaptive_conformal.py` | A reusable ACI candidate: one learning rate and one internal level. |
+| `agaci.py` | Candidate collection, shared error buffer, endpoint aggregation and issued records. |
+| BOA backend/helper | The paper's Bernstein Online Aggregation with the gradient trick. |
+| Experiment harness | Forecast issuance, outcome delivery, chronological execution and logging. |
+| `evaluation.py` | Metrics only; no adaptive state updates. |
 
-Do not put ACI state updates inside evaluation functions. Neither uncertainty class should train or retrain the forecaster.
+The fixed and AgACI classes should inherit from the interface. Internal candidates and aggregators can be helper objects. If the interface lacks feedback support, provide a subclass observation method called by the harness; coordinate any change to a frozen base interface.
 
-## 2. Instructions for `fixed_split_conformal.py`
+## Step 2 — Prepare calibration errors
 
-1. Import `UncertaintyQuantifier` and inherit from it. Implement every required abstract method using the existing signatures.
-2. Accept `alpha=0.10` as the default for a nominal 90% prediction interval.
-3. Receive chronological calibration residuals calculated from forecasts issued without access to their target outcomes. Convert them to absolute scores:
-
-   ```text
-   score_i = abs(actual_i - issued_forecast_i)
-   ```
-
-4. Validate that residuals are nonempty, one-dimensional and finite, and that `0 < alpha < 1`.
-5. Calculate the finite-sample conformal rank:
-
-   ```python
-   rank = math.ceil((n + 1) * (1 - alpha))
-   ```
-
-6. Select the rank-th smallest absolute residual using `np.partition(scores, rank - 1)[rank - 1]`.
-7. If `rank > n`, handle insufficient calibration explicitly. An infinite radius is the strict conformal convention; alternatively, reject insufficient calibration with a clear error. Do not silently cap the rank and claim the original guarantee.
-8. Store the radius after calibration. Do not update it from test outcomes.
-9. Generate bounds for each supplied point forecast:
-
-   ```python
-   lower = forecasts - radius
-   upper = forecasts + radius
-   ```
-
-10. If the interface requires escalation flags, support an explicit width threshold, or return all-false flags when escalation is disabled. A constant radius gives constant width, so a width-only rule selects all or none of the forecasts within that instance.
-11. Expose configuration and radius for logging. Reject prediction calls before calibration.
-
-### Verification
-
-- Check the radius against a manually calculated order statistic.
-- Check symmetric bounds and constant width across repeated calls.
-- Check invalid and insufficient calibration inputs.
-- Confirm test observations do not change the radius.
-
-### Interpretation
-
-The method uses one historical error distribution throughout testing. It supplies the initial uncertainty baseline. Standard split-conformal coverage results depend on assumptions such as exchangeability; they do not automatically apply to drifting time series [1].
-
-## 3. Instructions for `adaptive_conformal.py`
-
-### Initial configuration
-
-Use ACI with a rolling buffer of absolute errors from originally issued forecasts. This replaces the earlier fixed-score ACI proposal. The fixed split-conformal baseline still retains its original calibration scores and radius.
-
-Two components adapt: the buffer represents recent forecasting errors, while ACI adjusts the selected quantile level using interval misses. ACI's published update can wrap a conformal procedure [2, 3]. A rolling issued-error buffer is the proposed calibration configuration for this project; it is not an exact reproduction of every model-fitting and calibration choice in those papers. It is not full EnbPI.
-
-Choose and log a positive integer `window_size` W and learning rate `gamma` using historical validation, then freeze them. No particular W is prescribed here. The previously discussed 14-day window was illustrative. On a complete half-hourly single-horizon stream, W = 48 × days; this conversion does not apply unchanged to sparse or horizon-specific feedback.
-
-### Implementation steps
-
-1. Import and inherit from the same `UncertaintyQuantifier` interface.
-2. Accept `target_alpha=0.10`, configurable `gamma`, a positive integer `window_size`, and calibration residuals through the appropriate interface methods.
-3. Validate residuals and parameters. Require a finite positive `gamma` for an adaptive run.
-4. Seed a bounded chronological buffer with the latest min(W, n) absolute calibration scores, for example using `deque(scores[-W:], maxlen=W)`. Preserve chronological order, not sorted order. Validate that initial calibration is sufficient for the requested quantile or handle an infinite radius explicitly.
-5. Initialise `alpha_current = target_alpha`.
-6. At forecast issuance, compute the radius using `alpha_current`, rather than `target_alpha`:
-
-   ```text
-   radius_t = corrected conformal quantile at level 1 - alpha_current
-   ```
-
-7. Return bounds centred on the supplied point forecast:
-
-   ```python
-   lower = forecasts - radius_t
-   upper = forecasts + radius_t
-   ```
-
-8. Keep prediction calls free of feedback updates. Repeated calls without new observations must not change `alpha_current`.
-9. Add an observation/update method consistent with the existing interface. It must receive actual outcomes, originally issued point forecasts and originally issued bounds, or resolve these from saved forecast identifiers.
-10. Determine whether each issued interval missed:
-
-    ```python
-    miss = int(actual < issued_lower or actual > issued_upper)
-    ```
-
-    Equality with either endpoint counts as covered.
-
-11. After checking the original interval, append `abs(actual - issued_point_forecast)` to the buffer. Discard the oldest error when full. Also apply the published ACI feedback update:
-
-    ```python
-    alpha_current += gamma * (target_alpha - miss)
-    ```
-
-    Both updates affect future interval issuances only. Never recalculate an already-issued interval before evaluating its miss.
-
-12. Handle extreme levels explicitly:
-
-    | Condition | Published convention / required handling |
-    | --- | --- |
-    | `alpha_current <= 0` | Infinite interval. |
-    | `alpha_current >= 1` | Zero-radius interval. |
-    | `0 < alpha_current < 1`, but corrected rank exceeds score count | Infinite radius under strict finite-sample handling. |
-
-    Do not silently clip levels or widths. Clipping creates a modified method and can change its error-control properties. Validate point forecasts as finite values even when bounds can be infinite.
-
-13. Record `alpha_current`, radius, buffer size, issued bounds, miss indicators and update timestamps for diagnosis.
-14. Support the same optional escalation-threshold configuration as the fixed method.
-
-### Why the update works
-
-For a 90% target and illustrative `gamma=0.01`:
-
-| Observation | Update from `alpha_current=0.10` | Next quantile level |
-| --- | --- | --- |
-| Outside the issued interval | `0.10 + 0.01 * (0.10 - 1) = 0.091` | 0.909 |
-| Inside the issued interval | `0.10 + 0.01 * (0.10 - 0) = 0.101` | 0.899 |
-
-A miss lowers the internal miscoverage level, selecting a higher quantile and potentially a wider radius. Coverage moves it in the opposite direction. Empirical quantiles are discrete, so every update need not change the radius.
-
-`gamma=0.01` is an explanatory example, not a selected project parameter. Choose the actual learning rate using historical validation.
-
-### Verification
-
-- A miss decreases `alpha_current`; coverage increases it.
-- Prediction alone does not update state.
-- Feedback evaluates original bounds, not bounds recalculated after the outcome.
-- Each outcome updates state once for the forecast being evaluated.
-- New errors enter the buffer, the oldest leave when full, and each stored error remains based on its original issued forecast.
-- Prediction calls mutate neither the buffer nor the quantile level.
-- Extreme levels and finite-sample rank overflow follow documented conventions.
-- Reinitialising a run resets all state.
-
-ACI aims to control long-run miscoverage under its formulation. Do not claim 90% coverage in every event or rolling 24-hour window, particularly when applying a different delayed-feedback or block-update schedule [2, 3].
-
-## 4. Interface compatibility
-
-Before implementation, inspect the actual base interface and existing uncertainty implementation.
-
-- Preserve required method names, signatures and return structure.
-- If the interface returns `(lower, upper, escalate)`, both classes must do so.
-- If it supplies calibration residuals on every prediction call, define an explicit lifecycle so repeated calls do not accidentally reset ACI.
-- Initialise calibration once per forecaster/region/arm/seed/configuration, and separately per horizon when using horizon-specific streams.
-- If the base interface lacks an observation method, add an explicit subclass method that the harness can call. Do not modify a frozen base interface without coordinating the change.
-- Avoid shared mutable state between instances.
-
-## 5. Harness integration instructions
-
-1. Instantiate separate fixed and ACI objects for each forecaster × region × arm × seed × experiment configuration. Include the detector configuration for Arms C/D when comparing several triggers. Never pool mutable UQ state across different runs.
-2. Supply the pair with the same appropriate calibration residual stream. Fixed conformal uses the full chosen calibration pool; ACI seeds its buffer from the latest W available scores. Document that difference. Match calibration forecasting conditions to the evaluated horizon as closely as possible.
-3. Supply identical point forecasts to the two methods.
-4. Preserve Arm A–D retraining policies. Uncertainty updates must not trigger additional forecaster fitting unless a separate policy explicitly requires it.
-5. Save forecast identifiers, issuance times, target times, point forecasts and originally issued bounds.
-6. Respect each model's actual issuance schedule. For a single forecast, use information available at its issuance; for any multi-step block, construct every bound from information available when the block was issued. The 48-step block is an NHITS example, not a universal rule. Outcomes from a block must not influence its already-issued intervals.
-7. Deliver ACI feedback only as the actual outcomes become available. Process it chronologically and once per evaluated forecast.
-8. If all outcomes in a block arrive before the next issuance, apply their feedback before the next block. Document this delayed-feedback schedule; it is not identical to immediate one-step feedback.
-9. For overlapping forecasts, select a consistent evaluation horizon or maintain horizon-specific streams. Do not accidentally count several forecasts for one target as independent feedback for one state.
-10. Select `gamma` and W using historical validation and freeze them before final test evaluation. Use the same parameter-selection protocol across models; if values differ, document the choices.
-11. Keep the same uncertainty procedure across teams for the final trigger comparison.
-12. Saved forecasts can be replayed without retraining if their chronology and information-availability boundaries are preserved.
-
-### Applying the methods across forecasters
-
-Use the same two UQ classes for seasonal naive, DHR–ARIMA, XGBoost, NHITS, or other included models. The classes operate on forecasts and outcomes, not on model-specific training code.
-
-| Shared across models | Separate per experiment stream |
-| --- | --- |
-| Class implementations and nominal 90% target | Calibration residuals and fixed radius |
-| Evaluation formulas and regime protocol | Rolling error buffer and ACI level |
-| Parameter-selection procedure | Forecast horizon and issuance schedule |
-| Logging schema | Feedback timing and pending issued forecasts |
-
-Use independent state per horizon when evaluating multiple lead times, or explicitly document and assess a pooled-horizon approach. Do not insert the same target outcome repeatedly into one shared state merely because several overlapping forecasts exist.
-
-At a forecaster retrain, retain the rolling UQ state by default: new issued-forecast errors gradually replace old-model errors. An automatic reset is a different policy and must be explicitly defined and evaluated; never seed a reset using outcomes that have not yet arrived.
-
-### Chronological replay outline
+Use errors from forecasts originally issued without knowing their target outcomes:
 
 ```text
-for each experiment stream:
-    initialise fixed method and rolling ACI from calibration errors
-    process issuance and outcome events in availability order
-
-    on forecast issuance:
-        generate fixed bounds
-        generate ACI bounds from current buffer and alpha_current
-        save point forecast, original bounds, issuance and target times
-
-    on actual outcome arrival:
-        retrieve the forecast and ACI bounds issued for that target/horizon
-        calculate miss against the original ACI bounds
-        append absolute issued-forecast error to the rolling buffer
-        update alpha_current using the published ACI rule
-        mark this feedback event as processed
+score = abs(actual - issued_point_forecast)
 ```
 
-Order events with equal timestamps according to the real information-availability convention. Generating the entire test forecast file offline does not imply that all future outcomes were available at the first forecast issuance.
+Validate that scores are nonempty, finite and one-dimensional. Preserve their timestamps and chronological order. Match calibration forecasting conditions to the evaluated forecast horizon.
 
-## 6. Evaluation and required outputs
+For the existing split, fit on 2018–2019, calibrate on January–February 2020, and begin test replay afterwards. If February is also reported as the stable reference, label its results **calibration-period diagnostics**, because those observations helped set the intervals.
 
-### Pinball loss for T3
+## Step 3 — Keep the fixed baseline
 
-Use the bounds supplied by each UQ method. Keep the nominal evaluation level fixed:
+For nominal 90% coverage, use `target_alpha = 0.10`. With `n` calibration scores:
 
 ```python
-calculate_interval_pinball_loss(
-    y_true,
-    lower_bound,
-    upper_bound,
-    alpha=0.10,
-)
+rank = ceil((n + 1) * (1 - target_alpha))
+radius = kth_smallest_score(rank)  # rank is one-based
+lower = point_forecast - radius
+upper = point_forecast + radius
 ```
 
-This evaluates the lower endpoint at 0.05 and upper endpoint at 0.95. Do not pass ACI's changing internal `alpha_current` as the scoring level. State which UQ method supplies T3's bounds; report separate results if comparing both.
+If `rank > n`, return an infinite radius or reject insufficient calibration clearly; do not silently cap the rank. Calibrate once and keep this radius unchanged throughout testing.
 
-Adding ACI does not change MAE if point forecasts are unchanged. Pinball loss can change because interval endpoints change.
+The standard coverage guarantee depends on assumptions such as exchangeability; it does not automatically apply to drifting time series.
 
-### T5 and F4
+## Step 4 — Configure AgACI
 
-For fixed conformal and ACI, calculate coverage, mean width, normalised width and worst 24-hour coverage by regime. Plot rolling coverage for both methods with the 0.90 target and event markers. Keep the seven-day plot window separate from the 24-hour worst-coverage metric.
+Create independent state for every **forecaster × region × arm × seed × configuration**, including detector settings when relevant.
 
-Handle `unassigned` timestamps explicitly and consistently. Retain the full chronological stream for rolling plots.
+| Configuration/state | Instruction |
+| --- | --- |
+| Target miscoverage | Keep `target_alpha = 0.10` fixed. |
+| Learning-rate grid | Predefine several rates; maintain one candidate per rate. |
+| Candidate levels | Initialise each `alpha_k = target_alpha`. |
+| Shared error buffer | Seed with the latest `min(W, n)` calibration scores. |
+| Endpoint aggregators | Maintain separate lower and upper BOA states. |
+| Replacement thresholds | Define finite `M_lower` and `M_upper` using historical information. |
+| Pending forecasts | Store original candidate bounds, final bounds and issuance metadata. |
 
-### Infinite intervals
+The paper examines rates including `0, 0.0001, 0.0004, 0.0007, 0.001, 0.004, 0.007, 0.01, 0.04, 0.07`. This is a published experimental grid, not an optimal AEMO setting. A zero-rate candidate keeps its level fixed, but its radius can still change with a rolling buffer.
 
-The currently inspected uncertainty validator rejects non-finite bounds. Update the evaluation policy before using strict ACI conventions:
+The previous guide's **W = 336 scores (7 days)** remains provisional. Choose W through chronological historical validation or document it as a predetermined project choice. Do not tune on final test results. AgACI adapts candidate influence; it does not select W automatically.
 
-- Valid infinite intervals can be evaluated for coverage.
-- Their width is infinite; do not replace it with a finite cap silently.
-- Pinball loss may be infinite for infinite endpoints. Handle this explicitly to avoid accidental `NaN` from arithmetic such as infinity multiplied by zero.
-- Report the frequency of infinite intervals alongside the required metrics.
-- Keep missing values and invalid/reversed bounds distinct from intentionally infinite bounds.
+## Step 5 — Develop one ACI candidate
 
-### T6 and F5
+At issuance, use the candidate's current internal level to select a calibration-error quantile:
 
-Implement a threshold rule using information available at issuance, such as interval width. Sweep thresholds and report review rate and coverage on retained forecasts. Handle the case where no forecasts remain. Mark target coverage as unreachable if no tested operating point achieves it.
+```text
+radius_k = conformal_quantile(shared_scores, 1 - alpha_k)
+candidate_lower_k = point_forecast - radius_k
+candidate_upper_k = point_forecast + radius_k
+```
 
-An all-false escalation array is a disabled-rule placeholder, not a completed escalation implementation.
+After the actual arrives, evaluate the candidate's **original interval**:
 
-## 7. Completion checklist
+```python
+miss_k = int(actual < original_lower_k or actual > original_upper_k)
+alpha_k += gamma_k * (target_alpha - miss_k)
+```
 
-- [ ] Both files inherit from the actual uncertainty interface.
-- [ ] Fixed calibration is performed once and stays fixed.
-- [ ] ACI updates its internal quantile level from issued-interval feedback.
-- [ ] ACI updates its rolling buffer only from available issued-forecast errors.
-- [ ] Buffer length, learning rate and extreme-level policies are documented.
-- [ ] Every included forecaster is supported by the same UQ classes.
-- [ ] Each forecaster/region/arm/seed/configuration has independent state.
-- [ ] Multi-horizon and overlapping-forecast feedback policies are explicit.
-- [ ] Forecast blocks respect outcome availability.
-- [ ] Learning-rate and buffer-length selection avoid final-test tuning.
-- [ ] Evaluation handles infinite intervals explicitly.
-- [ ] Fixed and ACI use identical point forecasts.
-- [ ] Metrics and curve records are logged for reproducibility.
-- [ ] T5/F4 compare both methods; T6/F5 evaluate escalation.
-- [ ] Leakage audit verifies issuance and update timing.
+A miss lowers `alpha_k`, which selects a higher error percentile and usually widens future intervals. A covered outcome raises it slightly. Equality with an endpoint counts as covered.
 
-## 8. Research references
+Document the quantile convention and extreme-level behaviour from the selected ACI reference. Do not silently clip levels. In particular, a zero-radius interval and an empty prediction set are different conventions. Keep original candidate sets available for feedback even if their endpoints need replacement for aggregation.
 
-1. Angelopoulos, A. N., & Bates, S. (2021). *A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification*. arXiv:2107.07511. Background for split conformal prediction, absolute-residual calibration and coverage assumptions. https://arxiv.org/abs/2107.07511
-2. Gibbs, I., & Candès, E. (2021). *Adaptive Conformal Inference Under Distribution Shift*. Advances in Neural Information Processing Systems, 34, 1660–1672. Original ACI feedback rule. https://proceedings.neurips.cc/paper_files/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html
-3. Zaffran, M., Féron, O., Goude, Y., Josse, J., & Dieuleveut, A. (2022). *Adaptive Conformal Predictions for Time Series*. Proceedings of ICML, PMLR 162, 25834–25866. Section 2 describes the ACI update and extreme-level conventions; later sections compare methods. https://proceedings.mlr.press/v162/zaffran22a.html
-4. Xu, C., & Xie, Y. (2021). *Conformal prediction interval for dynamic time-series*. Proceedings of ICML, PMLR 139, 11559–11569. Related EnbPI approach; neither of the two proposed classes implements full EnbPI. https://proceedings.mlr.press/v139/xu21h.html
+**Check:** misses lower the level, coverage raises it, and prediction calls do not update candidate state.
 
-## 9. Project requirement sources
+## Step 6 — Implement and verify BOA
 
-- `drift-project-briefing (1).pdf`: Step 6 requires initial intervals, adaptive conformal evaluation and escalation.
-- `sprint-plan-forcasting.pdf`: Sprint 4 begins intervals; Sprint 5 completes uncertainty, escalation, integration and the leakage audit.
-- `required-outputs_Drift.pdf`: T3 pinball loss, T5 uncertainty metrics, T6 operating points, F4 coverage trajectory and F5 escalation curve.
+Follow **Zaffran et al. (2022), Section 4, Algorithm 1 and Appendix C.1**. Their chosen implementation uses BOA with the gradient trick through R's `opera` package.
 
-The supervisor requires an adaptive conformal method but does not name ACI specifically. ACI is the proposed research-backed choice for the existing forecasting setup.
+1. Retrieve the authors' AgACI scripts and identify the actual `opera` settings, initialisation and update calls.
+2. Use that R backend directly, or port its exact updates to Python.
+3. Run a small chronological sequence of candidate endpoints and actuals through the reference and your implementation.
+4. Compare lower/upper predictions and weights after each update, within a stated numerical tolerance.
+5. Record the reference revision and package version.
+
+Do not substitute a generic exponential-weight rule and call it the paper's BOA. This guide describes the development workflow; it does not provide a verified numerical BOA port.
+
+For the gradient trick, use the aggregator's prescribed loss-gradient update, not just raw candidate losses. The two endpoint scoring levels stay fixed at **0.05 and 0.95** for a 90% target.
+
+## Step 7 — Issue the final AgACI interval
+
+1. Generate every candidate's original interval using currently available scores.
+2. Replace non-finite candidate endpoints with the specified finite thresholds before aggregation, following Algorithm 1. Preserve both original and replacement endpoints.
+3. Use the current normalised lower and upper weights:
+
+```text
+final_lower = sum(lower_weight_k * aggregation_lower_k)
+final_upper = sum(upper_weight_k * aggregation_upper_k)
+```
+
+4. Save the forecast ID, issuance/target times, point forecast, original candidate bounds, replacement bounds, weights and final interval.
+
+Lower and upper weights are separate, so the final interval can be asymmetric. Check that final bounds are finite and ordered. Flag crossing bounds and resolve the policy explicitly; do not silently sort them.
+
+## Step 8 — Process feedback once
+
+When the outcome becomes available:
+
+1. Retrieve the saved issuance record.
+2. Update each ACI candidate from its own original interval miss.
+3. Update lower BOA using saved replacement lower endpoints at quantile 0.05, and upper BOA using saved replacement upper endpoints at 0.95.
+4. Append `abs(actual - issued_point_forecast)` to the shared buffer **once**, then discard the oldest score if full.
+5. Mark the feedback as processed and log updated levels and weights.
+
+All updates affect future issuances. Do not recompute an old interval after seeing its outcome, and do not update every candidate from the final aggregated interval's miss.
+
+## Step 9 — Integrate chronological replay
+
+```text
+Initialise fixed conformal and AgACI from calibration errors.
+
+At forecast issuance:
+    produce fixed bounds
+    produce candidate bounds and aggregate AgACI bounds
+    save all original issuance records
+
+At outcome arrival:
+    retrieve the corresponding issuance record
+    update candidate levels and endpoint aggregators
+    update the shared error buffer once
+```
+
+Respect each model's issuance schedule. For NHITS forecasts issued as a 48-step block, construct all 48 intervals using information available at that issuance. Later outcomes must not change those intervals. Document delayed feedback and the ordering of events with equal timestamps.
+
+For overlapping forecasts, select one evaluation horizon or maintain separate horizon states. Do not insert one target outcome repeatedly into the same state accidentally. Retain UQ state across forecaster retraining by default; any reset policy must be explicit and use only available outcomes.
+
+Saved forecasts can be replayed without retraining when issuance times and outcome availability are recoverable.
+
+## Step 10 — Evaluate and produce outputs
+
+Use identical point forecasts and regime windows for fixed conformal and AgACI.
+
+| Output | What to calculate/report |
+| --- | --- |
+| T3 | Endpoint pinball loss at 0.05/0.95; identify the UQ method supplying the bounds. Point-forecast MAE stays unchanged. |
+| T5 | Coverage, mean width, normalised width and worst rolling 24-hour coverage, per UQ method and regime. |
+| F4 | Rolling coverage for both methods, the 0.90 target and event markers. |
+| T6/F5 | Width-based review thresholds, review rate and coverage among retained forecasts. |
+
+For normalised width, record the agreed denominator explicitly. If using each regime's mean actual demand, calculate `mean(upper - lower) / mean(actual)` on the same evaluated observations. This is a retrospective metric, not an input to interval generation.
+
+For worst 24-hour coverage, use 48 consecutive half-hours on a complete grid. A proposed regime rule requires all 48 points to belong to that regime; report N/A if no window qualifies. Never concatenate separate events before rolling. Keep this metric separate from a seven-day rolling-coverage plot.
+
+Report candidate infinite-interval frequency and endpoint replacements separately from final AgACI metrics. Missing or reversed bounds are invalid, not intentional infinite intervals. Inspect the actual evaluator before assuming it supports infinity. For escalation, report when no forecasts remain or target coverage is unreachable.
+
+Do not claim 90% coverage in every event or day. The rolling buffer, finite thresholds and delayed feedback must be documented as part of this project's implementation.
+
+## Completion checklist
+
+- [ ] Fixed conformal is calibrated once and remains fixed.
+- [ ] Candidates use separate levels and a shared chronological error buffer.
+- [ ] Lower and upper BOA implementations match the chosen reference.
+- [ ] Original and replacement candidate endpoints are saved separately.
+- [ ] Predictions do not update adaptive state; feedback is processed once.
+- [ ] Blocks and overlapping horizons respect outcome availability.
+- [ ] Grid, buffer, quantile convention, thresholds and feedback policy are recorded.
+- [ ] Fixed and AgACI use the same point forecasts and evaluation observations.
+- [ ] T3/T5/F4 and escalation outputs are generated from saved intervals.
+
+## Sources and scope
+
+- [Zaffran et al. (2022), Adaptive Conformal Predictions for Time Series](https://proceedings.mlr.press/v162/zaffran22a/zaffran22a.pdf): Section 4/Algorithm 1 for endpoint aggregation; Appendix C.1 for BOA; Figure 4 for experimental learning rates.
+- [Authors' reference repository](https://github.com/mzaffran/AdaptiveConformalPredictionsTimeSeries): inspect AgACI scripts and `opera` settings before implementing the backend.
+- [Gibbs & Candès (2021), Adaptive Conformal Inference Under Distribution Shift](https://proceedings.neurips.cc/paper_files/paper/2021/hash/0d441de75945e5acbc865406fc9a2559-Abstract.html): candidate ACI feedback update.
+
+Describe the result as **AgACI with rolling calibration from originally issued forecast errors**. It follows the published aggregation framework while retaining existing forecasters and documenting project-specific calibration and feedback choices. AgACI replaces single-rate ACI as the proposed adaptive comparison; fixed split conformal remains the baseline.

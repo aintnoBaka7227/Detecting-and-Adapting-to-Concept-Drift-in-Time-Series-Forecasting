@@ -1,0 +1,13 @@
+detector,drift type,delay (mean ± sd),false alarms / 10k,false alarms / year (17520),missed,config,seeds
+adwin,gradual,519 ± 0,0.0,0.0,0,"clock=48, delta=1e-08, min_window_length=336",5
+adwin,none,n/a,0.0,0.0,0,"clock=48, delta=1e-08, min_window_length=336",5
+adwin,recurring,152 ± 0,0.0,0.0,0,"clock=48, delta=1e-08, min_window_length=336",5
+adwin,sudden,135 ± 0,0.0,0.0,0,"clock=48, delta=1e-08, min_window_length=336",5
+kswin,gradual,293 ± 91,0.0,0.0,0,"alpha=5e-05, seed=42, stat_size=96, window_size=1344",5
+kswin,none,n/a,0.0,0.0,0,"alpha=5e-05, seed=42, stat_size=96, window_size=1344",5
+kswin,recurring,33 ± 1,0.0,0.0,0,"alpha=5e-05, seed=42, stat_size=96, window_size=1344",5
+kswin,sudden,36 ± 5,0.0,0.0,0,"alpha=5e-05, seed=42, stat_size=96, window_size=1344",5
+page_hinkley,gradual,338 ± 21,0.5,0.88,0,"alpha=0.9995, delta=0.0001, min_instances=20, mode=both, threshold=600",5
+page_hinkley,none,n/a,0.0,0.0,0,"alpha=0.9995, delta=0.0001, min_instances=20, mode=both, threshold=600",5
+page_hinkley,recurring,63 ± 4,0.0,0.0,0,"alpha=0.9995, delta=0.0001, min_instances=20, mode=both, threshold=600",5
+page_hinkley,sudden,56 ± 4,0.0,0.0,0,"alpha=0.9995, delta=0.0001, min_instances=20, mode=both, threshold=600",5
