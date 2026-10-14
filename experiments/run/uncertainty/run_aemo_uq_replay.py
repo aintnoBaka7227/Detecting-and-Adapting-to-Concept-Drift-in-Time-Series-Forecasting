@@ -1,0 +1,189 @@
+"""Step 6 / T5, F4 -- prediction intervals for every adaptation run.
+
+No model is refitted. For the latest logged run of every (model, arm,
+region, seed) this replays the saved per-timestamp curve (actual,
+forecast) in chronological order and issues a 90% interval for every TEST
+half-hour with two methods, both calibrated on that model x region x
+seed's Calibration-window residuals (run_aemo_calibration_forecasts.py):
+
+    fixed_split_conformal  one radius, set once, never updated;
+    agaci                  AgACI over a rolling 7-day error buffer
+                           (drift_lab.uncertainty.AgACI): one interval per
+                           half-hour, built from every outcome up to the
+                           previous half-hour, then fed its own outcome
+                           before the next is issued. The point forecast
+                           is the saved one and is never revised.
+
+Arm D is replayed at the 180-day window only, as in T4. A run with no
+calibration file is skipped.
+
+Outputs per run:
+
+    results/runs/<adaptation hash>/intervals_aemo_<region>_<seed>.csv
+        timestamp, regime, actual, forecast and both methods' bounds;
+    runs.csv rows under group "uncertainty", split_id SPLIT_ID, method
+        "<model>/<arm>/<uq method>": coverage, mean_interval_width and
+        worst_24h_coverage per regime (evaluation.
+        calculate_uq_metrics_by_regime) and over the whole stream, plus
+        pinball_loss over the whole stream.
+
+AgACI aggregates in R (opera), one call per half-hour: about a minute per
+run, so runs are replayed in parallel worker processes.
+
+Usage:
+    python -m experiments.run.uncertainty.run_aemo_uq_replay
+    python -m experiments.run.uncertainty.run_aemo_uq_replay --model xgboost --region SA1 --workers 4
+"""
+
+from __future__ import annotations
+
+import argparse
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import UTC, datetime
+
+import numpy as np
+import pandas as pd
+
+from drift_lab import evaluation
+from drift_lab.uncertainty import AgACI, FixedSplitConformal
+from experiments import results_io
+from experiments.produce.table_adaptation_common import D_PREFIX, latest_adaptation_rows
+from experiments.run.adaptation.run_aemo_adaptation_arms import arm_d
+from experiments.run_harness import build_row
+
+SPLIT_ID = "aemo_uq_half_hourly_v1"
+TARGET_ALPHA = 0.10
+ISSUANCE_STEP = 1  # forecasts per issuance: one half-hour, feedback after each
+WORST_COVERAGE_WINDOW = 48  # 24 hours
+REPORTED_D_ARM = arm_d(180)
+FIXED, AGACI = "fixed_split_conformal", "agaci"
+
+
+def replay_agaci(uq: AgACI, forecast: np.ndarray, actual: np.ndarray):
+    lower, upper = np.empty(len(actual)), np.empty(len(actual))
+    for start in range(0, len(actual), ISSUANCE_STEP):
+        block = slice(start, start + ISSUANCE_STEP)
+        issued = uq.predict(forecast[block])
+        lower[block], upper[block] = issued.lower, issued.upper
+        uq.observe(actual[block], issued)
+    return lower, upper
+
+
+def metric_rows(common: dict, actual, lower, upper, regimes) -> list[dict]:
+    rows = [
+        build_row(common, "coverage", evaluation.calculate_empirical_coverage(actual, lower, upper), "full"),
+        build_row(common, "mean_interval_width", evaluation.calculate_mean_interval_width(lower, upper), "full"),
+        build_row(
+            common,
+            "worst_24h_coverage",
+            evaluation.calculate_worst_rolling_coverage(actual, lower, upper, WORST_COVERAGE_WINDOW),
+            "full",
+        ),
+        build_row(
+            common,
+            "pinball_loss",
+            evaluation.calculate_interval_pinball_loss(actual, lower, upper, alpha=TARGET_ALPHA),
+            "full",
+        ),
+    ]
+    by_regime = evaluation.calculate_uq_metrics_by_regime(
+        actual, lower, upper, regimes, window=WORST_COVERAGE_WINDOW
+    )
+    for regime, metrics in by_regime.items():
+        name = regime.replace("_", "-")  # runs.csv spelling: pre-drift / drift / post-drift
+        rows.append(build_row(common, "coverage", metrics["coverage"], name))
+        rows.append(build_row(common, "mean_interval_width", metrics["mean_interval_width"], name))
+        rows.append(build_row(common, "worst_24h_coverage", metrics["worst_rolling_coverage"], name))
+        rows.append(build_row(common, "n_observations", metrics["n_observations"], name))
+    return rows
+
+
+def replay_one(method: str, region: str, seed: int | None, source_hash: str) -> tuple[str, list[dict]]:
+    """Replay one adaptation run; returns a progress note and its runs.csv rows."""
+    model = method.split("/", 1)[0]
+    label = f"{method} {region} seed={seed}"
+    calibration = results_io.calibration_path(model, region, seed)
+    if not calibration.exists():
+        return f"{label}: skipped, no calibration file", []
+
+    residuals = pd.read_csv(calibration)["residual"].to_numpy()
+    curve = pd.read_csv(
+        results_io.curve_path(source_hash, "aemo", region, seed), parse_dates=["timestamp"]
+    )
+    actual, forecast = curve["actual"].to_numpy(), curve["forecast"].to_numpy()
+
+    fixed = FixedSplitConformal(alpha=TARGET_ALPHA).calibrate(residuals)
+    fixed_bounds = fixed.predict(forecast)
+    agaci = AgACI(target_alpha=TARGET_ALPHA).calibrate(residuals)
+    started = time.perf_counter()
+    agaci_lower, agaci_upper = replay_agaci(agaci, forecast, actual)
+    agaci_seconds = time.perf_counter() - started
+
+    intervals = curve[["timestamp", "regime", "actual", "forecast"]].copy()
+    intervals[f"lower_{FIXED}"], intervals[f"upper_{FIXED}"] = fixed_bounds.lower, fixed_bounds.upper
+    intervals[f"lower_{AGACI}"], intervals[f"upper_{AGACI}"] = agaci_lower, agaci_upper
+    intervals.to_csv(results_io.intervals_path(source_hash, "aemo", region, seed), index=False)
+
+    methods = {
+        FIXED: (fixed_bounds.lower, fixed_bounds.upper, fixed.describe(), 0.0),
+        AGACI: (agaci_lower, agaci_upper, agaci.describe(), agaci_seconds),
+    }
+    rows: list[dict] = []
+    for uq_method, (lower, upper, description, seconds) in methods.items():
+        config = {
+            "source_config_hash": source_hash,
+            "issuance_step": ISSUANCE_STEP,
+            "worst_coverage_window": WORST_COVERAGE_WINDOW,
+            "uq": description,
+        }
+        chash = results_io.config_hash(config)
+        results_io.dump_config(chash, config)
+        common = {
+            "group": "uncertainty",
+            "method": f"{method}/{uq_method}",
+            "dataset": "aemo",
+            "region": region,
+            "seed": seed,
+            "config_hash": chash,
+            "split_id": SPLIT_ID,
+            "n_retrains": 0,
+            "train_samples": 0,
+            "wall_clock_s": seconds,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        rows.extend(metric_rows(common, actual, lower, upper, curve["regime"].to_numpy()))
+    return f"{label}: replayed in {agaci_seconds:.0f}s", rows
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--model")
+    parser.add_argument("--region")
+    parser.add_argument("--workers", type=int, default=8)
+    args = parser.parse_args()
+
+    runs = latest_adaptation_rows().drop_duplicates(["method", "region", "seed_key"])
+    other_windows = runs["arm"].str.startswith(D_PREFIX) & (runs["arm"] != REPORTED_D_ARM)
+    runs = runs[~other_windows]
+    if args.model:
+        runs = runs[runs["model"] == args.model]
+    if args.region:
+        runs = runs[runs["region"] == args.region]
+    jobs = [
+        (run.method, run.region, None if run.seed_key == -1 else int(run.seed_key), run.config_hash)
+        for run in runs.itertuples()
+    ]
+    print(f"replaying {len(jobs)} runs with {args.workers} workers", flush=True)
+
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        futures = [pool.submit(replay_one, *job) for job in jobs]
+        for done, future in enumerate(as_completed(futures), start=1):
+            note, rows = future.result()
+            if rows:
+                results_io.append_runs(rows)
+            print(f"[{done}/{len(jobs)}] {note}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
