@@ -287,6 +287,51 @@ def calculate_mae(y_true, y_pred):
     return float((y_true - y_pred).abs().mean())
 
 
+def calculate_pinball_loss(y_true, y_quantile, quantile):
+    """
+    Calculate mean pinball loss for a quantile forecast.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+    y_quantile : array-like
+        Forecast values for the requested quantile.
+    quantile : float
+        Quantile level strictly between 0 and 1.
+
+    Returns
+    -------
+    float
+        Mean pinball loss.
+    """
+    if not 0.0 < quantile < 1.0:
+        raise ValueError("quantile must be strictly between 0 and 1.")
+
+    y_true = pd.Series(y_true, dtype=float)
+    y_quantile = pd.Series(y_quantile, dtype=float)
+
+    if len(y_true) != len(y_quantile):
+        raise ValueError("y_true and y_quantile must have the same length.")
+
+    if y_true.isna().any() or y_quantile.isna().any():
+        raise ValueError(
+            "y_true and y_quantile must not contain missing values."
+        )
+
+    error = y_true - y_quantile
+    loss = error.where(
+        error < 0,
+        quantile * error,
+    )
+    loss = loss.where(
+        error >= 0,
+        (quantile - 1.0) * error,
+    )
+
+    return float(loss.mean())
+
+
 def calculate_rolling_mae(y_true, y_pred, window=48 * 7):
     """
     Calculate rolling Mean Absolute Error.

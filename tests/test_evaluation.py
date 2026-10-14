@@ -11,6 +11,7 @@ from drift_lab.evaluation import (
     build_event_windows,
     calculate_event_metrics,
     calculate_mae,
+    calculate_pinball_loss,
     calculate_rolling_mae,
     evaluate_aemo_detections,
     evaluate_detections,
@@ -29,6 +30,57 @@ def test_mae_rejects_length_mismatch_and_nan():
         calculate_mae([1.0, 2.0], [1.0])
     with pytest.raises(ValueError):
         calculate_mae([1.0, np.nan], [1.0, 2.0])
+
+
+def test_pinball_loss_median_matches_half_mae():
+    result = calculate_pinball_loss(
+        [1.0, 2.0, 3.0],
+        [1.0, 4.0, 3.0],
+        quantile=0.5,
+    )
+    assert result == pytest.approx(1 / 3)
+
+
+def test_pinball_loss_weights_underprediction():
+    result = calculate_pinball_loss(
+        [10.0],
+        [8.0],
+        quantile=0.9,
+    )
+    assert result == pytest.approx(1.8)
+
+
+def test_pinball_loss_weights_overprediction():
+    result = calculate_pinball_loss(
+        [8.0],
+        [10.0],
+        quantile=0.9,
+    )
+    assert result == pytest.approx(0.2)
+
+
+def test_pinball_loss_rejects_invalid_quantile():
+    with pytest.raises(ValueError):
+        calculate_pinball_loss([1.0], [1.0], quantile=0.0)
+
+    with pytest.raises(ValueError):
+        calculate_pinball_loss([1.0], [1.0], quantile=1.0)
+
+
+def test_pinball_loss_rejects_length_mismatch_and_nan():
+    with pytest.raises(ValueError):
+        calculate_pinball_loss(
+            [1.0, 2.0],
+            [1.0],
+            quantile=0.5,
+        )
+
+    with pytest.raises(ValueError):
+        calculate_pinball_loss(
+            [1.0, float("nan")],
+            [1.0, 2.0],
+            quantile=0.5,
+        )
 
 
 def test_rolling_mae_warmup_then_constant():

@@ -118,6 +118,47 @@ def dump_detections(
     return path
 
 
+def retrain_events_path(
+    config_hash_: str,
+    dataset: str,
+    region: str | None,
+    seed: int | None,
+) -> Path:
+    """Path used to persist adaptation retraining timestamps for figures."""
+    seed_token = "none" if seed is None else str(seed)
+    return (
+        RUNS_DIR
+        / config_hash_
+        / f"retrains_{dataset}_{region or '-'}_{seed_token}.csv"
+    )
+
+
+def dump_retrain_events(
+    config_hash_: str,
+    dataset: str,
+    region: str | None,
+    seed: int | None,
+    retrain_timestamps,
+) -> Path:
+    """Persist actual model-retraining timestamps for adaptation figures.
+
+    runs.csv stores the scalar retrain count; this artifact preserves when
+    those retrains occurred so Figure F3 can draw its retrain-event rug.
+    """
+    path = retrain_events_path(config_hash_, dataset, region, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    stamps = pd.DatetimeIndex(
+        pd.to_datetime(list(retrain_timestamps))
+    )
+    stamps.to_frame(
+        index=False,
+        name="timestamp",
+    ).to_csv(path, index=False)
+
+    return path
+
+
 def synthetic_detections_path(
     config_hash_: str,
     dataset: str,

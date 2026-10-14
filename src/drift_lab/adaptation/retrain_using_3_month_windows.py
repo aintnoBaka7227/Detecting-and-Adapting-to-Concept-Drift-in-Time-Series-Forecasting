@@ -23,39 +23,66 @@ from drift_lab.forecasting.base import Forecaster
 class RetrainUsing3MonthWindows(Adapter):
     name = "retrain_3mo_window"
 
-    def __init__(self, window_months: int = 3, target_column: str | None = None) -> None:
+    def __init__(
+        self,
+        window_months: int = 3,
+        target_column: str | None = None,
+    ) -> None:
         self.window_months = window_months
         self.target_column = target_column
         self._retrain_count = 0
+        self._train_samples = 0
 
     @property
     def retrain_count(self) -> int:
+        """Number of adaptation retrains performed."""
         return self._retrain_count
 
-    def adapt(
-        self, changepoints: Sequence[int], model: Forecaster, data: pd.DataFrame
-    ) -> Forecaster:
-        """Retrain `model` on the 3 months preceding the latest changepoint.
+    @property
+    def train_samples(self) -> int:
+        """Cumulative number of samples consumed by adaptation retrains."""
+        return self._train_samples
 
-        No-op (returns `model` unchanged) when `changepoints` is empty.
+    def adapt(
+        self,
+        changepoints: Sequence[int],
+        model: Forecaster,
+        data: pd.DataFrame,
+    ) -> Forecaster:
+        """Retrain the model on the trailing window before the latest drift.
+
+        No-op and return the model unchanged when no changepoints are
+        supplied.
         """
         if not changepoints:
             return model
 
         index = pd.DatetimeIndex(data.index)
-        detection_date = index[max(changepoints)]
+        detection_position = max(changepoints)
+        detection_date = index[detection_position]
+
         window_start = detection_date - pd.DateOffset(months=self.window_months)
 
-        window = data.loc[(index > window_start) & (index <= detection_date)]
+        window = data.loc[
+            (index > window_start) & (index <= detection_date)
+        ]
+
         y = self._target(window)
         X = pd.DataFrame(index=window.index)
 
         self._retrain_count += 1
+        self._train_samples += len(window)
+
         return model.fit(X, y)
 
     def _target(self, window: pd.DataFrame) -> pd.Series:
+        """Return the configured forecasting target."""
         if self.target_column is not None:
             return window[self.target_column]
+
         if window.shape[1] == 1:
             return window.iloc[:, 0]
-        raise ValueError("data has more than one column; set target_column")
+
+        raise ValueError(
+            "data has more than one column; set target_column"
+        )

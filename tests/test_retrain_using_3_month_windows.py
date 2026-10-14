@@ -137,3 +137,19 @@ def test_window_months_is_configurable():
     expected_start = data.index[changepoint_idx] - pd.DateOffset(months=1)
     assert y.index.min() > expected_start
     assert len(y) < 95  # roughly one month, not three
+def test_train_samples_accumulates_samples_used_by_retrains():
+    data = _history(n_days=400)
+    model = FakeForecaster()
+    adapter = RetrainUsing3MonthWindows()
+
+    adapter.adapt([100], model, data)
+    first_samples = len(model.fit_calls[0][1])
+
+    adapter.adapt([], model, data)
+    assert adapter.train_samples == first_samples
+
+    adapter.adapt([300], model, data)
+    second_samples = len(model.fit_calls[1][1])
+
+    assert adapter.retrain_count == 2
+    assert adapter.train_samples == first_samples + second_samples
