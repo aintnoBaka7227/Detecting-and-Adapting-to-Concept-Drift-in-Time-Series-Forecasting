@@ -1,7 +1,7 @@
 """Shared pieces of the two conformal uncertainty methods.
 
 Nothing here holds state: `fixed_split_conformal.py` and
-`adaptive_conformal.py` each own their calibration scores and radius.
+`agaci.py` each own their calibration scores and radius.
 """
 
 from __future__ import annotations

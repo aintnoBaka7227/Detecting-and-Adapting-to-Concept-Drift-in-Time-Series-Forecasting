@@ -703,11 +703,6 @@ def evaluate_detections(
 REGIME_PRE_DRIFT_DAYS = 7
 REGIME_POST_DRIFT_DAYS = 7
 
-# Regime (and event ID) of a timestamp that falls outside every documented
-# event's pre-drift, drift and post-drift window. Such timestamps stay
-# valid -- they are kept in the labelled output and in whole-run metrics --
-# but they belong to no regime, so per-regime metrics leave them out.
-UNASSIGNED_REGIME = "unassigned"
 POINT_WINDOW = pd.Timedelta(days=7)
 INTERVAL_GRACE = pd.Timedelta(days=7)
 
@@ -780,21 +775,22 @@ def assign_regime(detected_timestamps, event_windows):
     Assign one regime and event ID to every detection timestamp.
 
     Priority:
-        drift > pre_drift > post_drift > unassigned
+        drift > pre_drift > event-linked post_drift
+        > general post_drift > pre_drift fallback
 
     Attribution:
         - drift:
           Use the matching event ID.
         - pre_drift:
           Use the upcoming event ID.
-        - post_drift:
+        - event-linked post_drift:
           Use the event ID when the timestamp falls between that
           event's drift_end and post_drift_end.
-        - unassigned:
-          The timestamp falls outside every event's pre-drift, drift
-          and post-drift window. Use regime="unassigned" and
-          event_id="unassigned". The timestamp is still returned, but
-          per-regime metrics leave it out.
+        - general post_drift:
+          If an earlier event exists but the timestamp falls outside
+          every event window, use event_id="unassigned".
+        - before all events:
+          Use regime="pre_drift" and event_id="unassigned".
 
     When multiple windows overlap:
         - drift and pre_drift use the earliest event by drift_start;
@@ -889,10 +885,17 @@ def assign_regime(detected_timestamps, event_windows):
                     regime = "post_drift"
                     event_id = selected_event["event_id"]
 
-                # Priority 4: outside every event window.
+                # Priority 4: outside all event windows, but at least
+                # one event has already occurred.
+                elif (windows["drift_start"] <= timestamp).any():
+                    regime = "post_drift"
+                    event_id = "unassigned"
+
+                # Priority 5: before every event and outside an
+                # explicit pre-drift window.
                 else:
-                    regime = UNASSIGNED_REGIME
-                    event_id = UNASSIGNED_REGIME
+                    regime = "pre_drift"
+                    event_id = "unassigned"
 
         records.append(
             {
@@ -1281,9 +1284,7 @@ def calculate_regime_metrics(match_results, regime_results):
     Returns
     -------
     dict
-        Detection metrics for pre-drift, drift and post-drift, plus an
-        "unassigned" entry holding only the count of detections outside
-        every event window (they are valid but not scored by regime).
+        Detection metrics for pre-drift, drift and post-drift.
     """
     required_match_columns = {"timestamp", "label", "tier"}
     required_regime_columns = {"timestamp", "regime"}
@@ -1358,12 +1359,6 @@ def calculate_regime_metrics(match_results, regime_results):
             ),
         }
 
-    unassigned_rows = audit[audit["regime"] == UNASSIGNED_REGIME]
-    regime_metrics[UNASSIGNED_REGIME] = {
-        "detections": len(unassigned_rows),
-        "ignored_detections": int((unassigned_rows["label"] == "Ignored").sum()),
-    }
-
     return regime_metrics
 # Planned evaluation metrics
 #
@@ -1403,8 +1398,7 @@ def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
     `regime_labels` must be aligned to the forecast timestamps; "pre_drift"
     and "pre-drift" are both accepted. Returns {regime: {"mae",
     "n_observations"}} keyed pre_drift / drift / post_drift; empty regimes
-    are omitted. Timestamps labelled "unassigned" get no MAE: they are
-    reported as {"unassigned": {"n_observations"}} only.
+    are omitted.
     """
 
     y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
@@ -1418,7 +1412,7 @@ def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
         raise ValueError("regime_labels must not contain missing values.")
 
     labels = labels.astype(str).str.replace("-", "_", regex=False)
-    unexpected = set(labels.unique()) - set(FORECAST_REGIMES) - {UNASSIGNED_REGIME}
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
     if unexpected:
         raise ValueError(
             f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
@@ -1433,10 +1427,6 @@ def calculate_forecast_metrics_by_regime(y_true, y_pred, regime_labels):
             "mae": calculate_mae(y_true[mask], y_pred[mask]),
             "n_observations": int(mask.sum()),
         }
-
-    n_unassigned = int((labels == UNASSIGNED_REGIME).sum())
-    if n_unassigned:
-        metrics[UNASSIGNED_REGIME] = {"n_observations": n_unassigned}
     return metrics
 
 
@@ -1781,3 +1771,74 @@ def calculate_worst_rolling_coverage(
         return float("nan")
 
     return float(rolling.min())
+
+
+def calculate_uq_metrics_by_regime(
+    y_true,
+    lower_bound,
+    upper_bound,
+    regime_labels,
+    window=48,
+):
+    """
+    Coverage, mean interval width and worst rolling coverage per regime (T5).
+
+    Pass the full chronological stream. Coverage and width are pooled over
+    every timestamp of the regime; the worst rolling coverage only counts
+    windows lying entirely inside it (NaN when none does). `regime_labels`
+    follows `calculate_forecast_metrics_by_regime`: "pre_drift" and
+    "pre-drift" are both accepted and empty regimes are omitted.
+
+    Returns
+    -------
+    dict
+        {regime: {"coverage", "mean_interval_width",
+        "worst_rolling_coverage", "n_observations"}} keyed pre_drift /
+        drift / post_drift.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+    labels = pd.Series(regime_labels).reset_index(drop=True)
+
+    if not (len(y_true) == len(lower_bound) == len(labels)):
+        raise ValueError(
+            "y_true, lower_bound, upper_bound and regime_labels "
+            "must have the same length."
+        )
+
+    if labels.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    labels = labels.astype(str).str.replace("-", "_", regex=False)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
+    if unexpected:
+        raise ValueError(
+            f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
+        )
+
+    metrics = {}
+    for regime in FORECAST_REGIMES:
+        mask = (labels == regime).to_numpy()
+        if not mask.any():
+            continue
+        metrics[regime] = {
+            "coverage": calculate_empirical_coverage(
+                y_true[mask], lower_bound[mask], upper_bound[mask]
+            ),
+            "mean_interval_width": calculate_mean_interval_width(
+                lower_bound[mask], upper_bound[mask]
+            ),
+            "worst_rolling_coverage": calculate_worst_rolling_coverage(
+                y_true,
+                lower_bound,
+                upper_bound,
+                window=window,
+                regime_labels=labels,
+                regime=regime,
+            ),
+            "n_observations": int(mask.sum()),
+        }
+    return metrics

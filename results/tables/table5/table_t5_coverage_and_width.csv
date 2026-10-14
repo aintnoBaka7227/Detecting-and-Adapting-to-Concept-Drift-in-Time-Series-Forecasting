@@ -1,0 +1,145 @@
+model,arm,region,UQ method,regime,coverage,mean width (MW),normalised width,worst 24h coverage,seeds
+dhr_arima,A_never_retrain,NSW1,fixed split conformal,pre-drift,0.795 ± n/a,2829 ± n/a,,0.354 ± n/a,1
+dhr_arima,A_never_retrain,NSW1,fixed split conformal,drift,0.803 ± n/a,2829 ± n/a,,0.271 ± n/a,1
+dhr_arima,A_never_retrain,NSW1,fixed split conformal,post-drift,0.815 ± n/a,2829 ± n/a,,0.125 ± n/a,1
+dhr_arima,A_never_retrain,NSW1,AgACI,pre-drift,0.929 ± n/a,3525 ± n/a,,0.729 ± n/a,1
+dhr_arima,A_never_retrain,NSW1,AgACI,drift,0.931 ± n/a,3362 ± n/a,,0.750 ± n/a,1
+dhr_arima,A_never_retrain,NSW1,AgACI,post-drift,0.926 ± n/a,3249 ± n/a,,0.750 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,fixed split conformal,pre-drift,0.872 ± n/a,2829 ± n/a,,0.125 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,fixed split conformal,drift,0.874 ± n/a,2829 ± n/a,,0.250 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,fixed split conformal,post-drift,0.906 ± n/a,2829 ± n/a,,0.000 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,AgACI,pre-drift,0.929 ± n/a,2767 ± n/a,,0.646 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,AgACI,drift,0.930 ± n/a,2711 ± n/a,,0.771 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,AgACI,post-drift,0.931 ± n/a,2510 ± n/a,,0.667 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,fixed split conformal,pre-drift,0.826 ± n/a,2829 ± n/a,,0.292 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,fixed split conformal,drift,0.825 ± n/a,2829 ± n/a,,0.250 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,fixed split conformal,post-drift,0.847 ± n/a,2829 ± n/a,,0.250 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,AgACI,pre-drift,0.931 ± n/a,3218 ± n/a,,0.708 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,AgACI,drift,0.930 ± n/a,3172 ± n/a,,0.750 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,AgACI,post-drift,0.928 ± n/a,2993 ± n/a,,0.708 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,fixed split conformal,pre-drift,0.803 ± n/a,2829 ± n/a,,0.167 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,fixed split conformal,drift,0.844 ± n/a,2829 ± n/a,,0.146 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,fixed split conformal,post-drift,0.824 ± n/a,2829 ± n/a,,0.125 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,AgACI,pre-drift,0.926 ± n/a,3208 ± n/a,,0.729 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,AgACI,drift,0.930 ± n/a,3061 ± n/a,,0.771 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,AgACI,post-drift,0.929 ± n/a,3024 ± n/a,,0.708 ± n/a,1
+dhr_arima,A_never_retrain,SA1,fixed split conformal,pre-drift,0.847 ± n/a,950 ± n/a,,0.375 ± n/a,1
+dhr_arima,A_never_retrain,SA1,fixed split conformal,drift,0.835 ± n/a,950 ± n/a,,0.000 ± n/a,1
+dhr_arima,A_never_retrain,SA1,fixed split conformal,post-drift,0.881 ± n/a,950 ± n/a,,0.125 ± n/a,1
+dhr_arima,A_never_retrain,SA1,AgACI,pre-drift,0.932 ± n/a,1009 ± n/a,,0.708 ± n/a,1
+dhr_arima,A_never_retrain,SA1,AgACI,drift,0.926 ± n/a,1019 ± n/a,,0.750 ± n/a,1
+dhr_arima,A_never_retrain,SA1,AgACI,post-drift,0.923 ± n/a,922 ± n/a,,0.688 ± n/a,1
+dhr_arima,B_every_30_days,SA1,fixed split conformal,pre-drift,0.934 ± n/a,950 ± n/a,,0.333 ± n/a,1
+dhr_arima,B_every_30_days,SA1,fixed split conformal,drift,0.932 ± n/a,950 ± n/a,,0.000 ± n/a,1
+dhr_arima,B_every_30_days,SA1,fixed split conformal,post-drift,0.932 ± n/a,950 ± n/a,,0.250 ± n/a,1
+dhr_arima,B_every_30_days,SA1,AgACI,pre-drift,0.929 ± n/a,734 ± n/a,,0.750 ± n/a,1
+dhr_arima,B_every_30_days,SA1,AgACI,drift,0.927 ± n/a,753 ± n/a,,0.750 ± n/a,1
+dhr_arima,B_every_30_days,SA1,AgACI,post-drift,0.927 ± n/a,751 ± n/a,,0.708 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,fixed split conformal,pre-drift,0.871 ± n/a,950 ± n/a,,0.354 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,fixed split conformal,drift,0.847 ± n/a,950 ± n/a,,0.000 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,fixed split conformal,post-drift,0.895 ± n/a,950 ± n/a,,0.104 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,AgACI,pre-drift,0.936 ± n/a,934 ± n/a,,0.729 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,AgACI,drift,0.926 ± n/a,952 ± n/a,,0.750 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,AgACI,post-drift,0.924 ± n/a,867 ± n/a,,0.688 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,fixed split conformal,pre-drift,0.840 ± n/a,950 ± n/a,,0.375 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,fixed split conformal,drift,0.840 ± n/a,950 ± n/a,,0.000 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,fixed split conformal,post-drift,0.879 ± n/a,950 ± n/a,,0.083 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,AgACI,pre-drift,0.929 ± n/a,962 ± n/a,,0.688 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,AgACI,drift,0.926 ± n/a,945 ± n/a,,0.729 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,AgACI,post-drift,0.923 ± n/a,887 ± n/a,,0.729 ± n/a,1
+nhits,A_never_retrain,NSW1,fixed split conformal,pre-drift,0.968 ± 0.004,2890 ± 72,,0.425 ± 0.024,5
+nhits,A_never_retrain,NSW1,fixed split conformal,drift,0.969 ± 0.002,2890 ± 72,,0.421 ± 0.052,5
+nhits,A_never_retrain,NSW1,fixed split conformal,post-drift,0.975 ± 0.003,2890 ± 72,,0.429 ± 0.076,5
+nhits,A_never_retrain,NSW1,AgACI,pre-drift,0.930 ± 0.002,1848 ± 61,,0.733 ± 0.017,5
+nhits,A_never_retrain,NSW1,AgACI,drift,0.934 ± 0.003,1672 ± 35,,0.742 ± 0.011,5
+nhits,A_never_retrain,NSW1,AgACI,post-drift,0.932 ± 0.002,1641 ± 33,,0.729 ± 0.000,5
+nhits,B_every_30_days,NSW1,fixed split conformal,pre-drift,0.930 ± 0.006,2890 ± 72,,0.429 ± 0.024,5
+nhits,B_every_30_days,NSW1,fixed split conformal,drift,0.928 ± 0.006,2890 ± 72,,0.300 ± 0.024,5
+nhits,B_every_30_days,NSW1,fixed split conformal,post-drift,0.943 ± 0.004,2890 ± 72,,0.312 ± 0.036,5
+nhits,B_every_30_days,NSW1,AgACI,pre-drift,0.923 ± 0.004,2197 ± 29,,0.767 ± 0.017,5
+nhits,B_every_30_days,NSW1,AgACI,drift,0.929 ± 0.003,2154 ± 47,,0.737 ± 0.011,5
+nhits,B_every_30_days,NSW1,AgACI,post-drift,0.925 ± 0.003,2131 ± 38,,0.704 ± 0.009,5
+nhits,C_drift_full_history,NSW1,fixed split conformal,pre-drift,0.968 ± 0.002,2890 ± 72,,0.442 ± 0.017,5
+nhits,C_drift_full_history,NSW1,fixed split conformal,drift,0.977 ± 0.002,2890 ± 72,,0.421 ± 0.009,5
+nhits,C_drift_full_history,NSW1,fixed split conformal,post-drift,0.979 ± 0.002,2890 ± 72,,0.504 ± 0.027,5
+nhits,C_drift_full_history,NSW1,AgACI,pre-drift,0.933 ± 0.002,1725 ± 35,,0.738 ± 0.043,5
+nhits,C_drift_full_history,NSW1,AgACI,drift,0.936 ± 0.002,1544 ± 53,,0.729 ± 0.015,5
+nhits,C_drift_full_history,NSW1,AgACI,post-drift,0.932 ± 0.002,1513 ± 23,,0.713 ± 0.017,5
+nhits,D_drift_recent_180d,NSW1,fixed split conformal,pre-drift,0.932 ± 0.005,2890 ± 72,,0.375 ± 0.026,5
+nhits,D_drift_recent_180d,NSW1,fixed split conformal,drift,0.960 ± 0.002,2890 ± 72,,0.421 ± 0.017,5
+nhits,D_drift_recent_180d,NSW1,fixed split conformal,post-drift,0.959 ± 0.003,2890 ± 72,,0.408 ± 0.019,5
+nhits,D_drift_recent_180d,NSW1,AgACI,pre-drift,0.931 ± 0.002,2098 ± 62,,0.700 ± 0.041,5
+nhits,D_drift_recent_180d,NSW1,AgACI,drift,0.934 ± 0.003,1846 ± 39,,0.746 ± 0.017,5
+nhits,D_drift_recent_180d,NSW1,AgACI,post-drift,0.929 ± 0.003,1868 ± 44,,0.704 ± 0.017,5
+nhits,A_never_retrain,SA1,fixed split conformal,pre-drift,0.929 ± 0.013,815 ± 41,,0.412 ± 0.043,5
+nhits,A_never_retrain,SA1,fixed split conformal,drift,0.904 ± 0.011,815 ± 41,,0.421 ± 0.054,5
+nhits,A_never_retrain,SA1,fixed split conformal,post-drift,0.935 ± 0.010,815 ± 41,,0.350 ± 0.009,5
+nhits,A_never_retrain,SA1,AgACI,pre-drift,0.935 ± 0.004,706 ± 25,,0.738 ± 0.028,5
+nhits,A_never_retrain,SA1,AgACI,drift,0.940 ± 0.002,740 ± 39,,0.733 ± 0.031,5
+nhits,A_never_retrain,SA1,AgACI,post-drift,0.935 ± 0.001,675 ± 21,,0.667 ± 0.049,5
+nhits,B_every_30_days,SA1,fixed split conformal,pre-drift,0.899 ± 0.012,815 ± 41,,0.342 ± 0.028,5
+nhits,B_every_30_days,SA1,fixed split conformal,drift,0.862 ± 0.012,815 ± 41,,0.338 ± 0.027,5
+nhits,B_every_30_days,SA1,fixed split conformal,post-drift,0.881 ± 0.011,815 ± 41,,0.075 ± 0.062,5
+nhits,B_every_30_days,SA1,AgACI,pre-drift,0.929 ± 0.001,807 ± 8,,0.746 ± 0.017,5
+nhits,B_every_30_days,SA1,AgACI,drift,0.936 ± 0.001,875 ± 6,,0.729 ± 0.039,5
+nhits,B_every_30_days,SA1,AgACI,post-drift,0.932 ± 0.001,870 ± 10,,0.721 ± 0.011,5
+nhits,C_drift_full_history,SA1,fixed split conformal,pre-drift,0.940 ± 0.009,815 ± 41,,0.342 ± 0.032,5
+nhits,C_drift_full_history,SA1,fixed split conformal,drift,0.933 ± 0.009,815 ± 41,,0.425 ± 0.043,5
+nhits,C_drift_full_history,SA1,fixed split conformal,post-drift,0.950 ± 0.007,815 ± 41,,0.371 ± 0.009,5
+nhits,C_drift_full_history,SA1,AgACI,pre-drift,0.935 ± 0.002,660 ± 12,,0.746 ± 0.017,5
+nhits,C_drift_full_history,SA1,AgACI,drift,0.943 ± 0.002,645 ± 7,,0.733 ± 0.031,5
+nhits,C_drift_full_history,SA1,AgACI,post-drift,0.935 ± 0.001,614 ± 5,,0.688 ± 0.021,5
+nhits,D_drift_recent_180d,SA1,fixed split conformal,pre-drift,0.892 ± 0.010,815 ± 41,,0.296 ± 0.009,5
+nhits,D_drift_recent_180d,SA1,fixed split conformal,drift,0.883 ± 0.011,815 ± 41,,0.279 ± 0.024,5
+nhits,D_drift_recent_180d,SA1,fixed split conformal,post-drift,0.920 ± 0.009,815 ± 41,,0.333 ± 0.021,5
+nhits,D_drift_recent_180d,SA1,AgACI,pre-drift,0.930 ± 0.002,807 ± 14,,0.742 ± 0.011,5
+nhits,D_drift_recent_180d,SA1,AgACI,drift,0.939 ± 0.002,817 ± 23,,0.725 ± 0.034,5
+nhits,D_drift_recent_180d,SA1,AgACI,post-drift,0.934 ± 0.001,724 ± 6,,0.696 ± 0.019,5
+xgboost,A_never_retrain,NSW1,fixed split conformal,pre-drift,0.842 ± 0.027,3230 ± 205,,0.258 ± 0.064,5
+xgboost,A_never_retrain,NSW1,fixed split conformal,drift,0.899 ± 0.019,3230 ± 205,,0.196 ± 0.056,5
+xgboost,A_never_retrain,NSW1,fixed split conformal,post-drift,0.875 ± 0.028,3230 ± 205,,0.221 ± 0.084,5
+xgboost,A_never_retrain,NSW1,AgACI,pre-drift,0.930 ± 0.002,3383 ± 101,,0.758 ± 0.028,5
+xgboost,A_never_retrain,NSW1,AgACI,drift,0.931 ± 0.001,2903 ± 61,,0.717 ± 0.011,5
+xgboost,A_never_retrain,NSW1,AgACI,post-drift,0.927 ± 0.001,3036 ± 93,,0.704 ± 0.037,5
+xgboost,B_every_30_days,NSW1,fixed split conformal,pre-drift,0.855 ± 0.023,3230 ± 205,,0.287 ± 0.086,5
+xgboost,B_every_30_days,NSW1,fixed split conformal,drift,0.864 ± 0.035,3230 ± 205,,0.263 ± 0.150,5
+xgboost,B_every_30_days,NSW1,fixed split conformal,post-drift,0.868 ± 0.014,3230 ± 205,,0.000 ± 0.000,5
+xgboost,B_every_30_days,NSW1,AgACI,pre-drift,0.921 ± 0.002,3335 ± 116,,0.771 ± 0.015,5
+xgboost,B_every_30_days,NSW1,AgACI,drift,0.930 ± 0.001,3163 ± 233,,0.750 ± 0.021,5
+xgboost,B_every_30_days,NSW1,AgACI,post-drift,0.926 ± 0.001,3233 ± 112,,0.704 ± 0.027,5
+xgboost,C_drift_full_history,NSW1,fixed split conformal,pre-drift,0.899 ± 0.026,3230 ± 205,,0.171 ± 0.048,5
+xgboost,C_drift_full_history,NSW1,fixed split conformal,drift,0.953 ± 0.012,3230 ± 205,,0.375 ± 0.061,5
+xgboost,C_drift_full_history,NSW1,fixed split conformal,post-drift,0.904 ± 0.023,3230 ± 205,,0.208 ± 0.074,5
+xgboost,C_drift_full_history,NSW1,AgACI,pre-drift,0.930 ± 0.001,2787 ± 142,,0.758 ± 0.019,5
+xgboost,C_drift_full_history,NSW1,AgACI,drift,0.932 ± 0.002,2257 ± 62,,0.758 ± 0.019,5
+xgboost,C_drift_full_history,NSW1,AgACI,post-drift,0.926 ± 0.001,2690 ± 113,,0.704 ± 0.017,5
+xgboost,D_drift_recent_180d,NSW1,fixed split conformal,pre-drift,0.740 ± 0.039,3230 ± 205,,0.008 ± 0.019,5
+xgboost,D_drift_recent_180d,NSW1,fixed split conformal,drift,0.859 ± 0.023,3230 ± 205,,0.008 ± 0.011,5
+xgboost,D_drift_recent_180d,NSW1,fixed split conformal,post-drift,0.775 ± 0.033,3230 ± 205,,0.042 ± 0.072,5
+xgboost,D_drift_recent_180d,NSW1,AgACI,pre-drift,0.923 ± 0.001,4105 ± 271,,0.767 ± 0.009,5
+xgboost,D_drift_recent_180d,NSW1,AgACI,drift,0.923 ± 0.003,3053 ± 138,,0.708 ± 0.021,5
+xgboost,D_drift_recent_180d,NSW1,AgACI,post-drift,0.922 ± 0.001,3714 ± 149,,0.704 ± 0.017,5
+xgboost,A_never_retrain,SA1,fixed split conformal,pre-drift,0.850 ± 0.006,880 ± 19,,0.292 ± 0.061,5
+xgboost,A_never_retrain,SA1,fixed split conformal,drift,0.835 ± 0.005,880 ± 19,,0.000 ± 0.000,5
+xgboost,A_never_retrain,SA1,fixed split conformal,post-drift,0.874 ± 0.020,880 ± 19,,0.013 ± 0.028,5
+xgboost,A_never_retrain,SA1,AgACI,pre-drift,0.932 ± 0.001,931 ± 18,,0.733 ± 0.009,5
+xgboost,A_never_retrain,SA1,AgACI,drift,0.929 ± 0.004,940 ± 8,,0.750 ± 0.015,5
+xgboost,A_never_retrain,SA1,AgACI,post-drift,0.924 ± 0.001,876 ± 44,,0.696 ± 0.041,5
+xgboost,B_every_30_days,SA1,fixed split conformal,pre-drift,0.875 ± 0.015,880 ± 19,,0.363 ± 0.032,5
+xgboost,B_every_30_days,SA1,fixed split conformal,drift,0.831 ± 0.018,880 ± 19,,0.000 ± 0.000,5
+xgboost,B_every_30_days,SA1,fixed split conformal,post-drift,0.858 ± 0.010,880 ± 19,,0.079 ± 0.048,5
+xgboost,B_every_30_days,SA1,AgACI,pre-drift,0.920 ± 0.002,890 ± 40,,0.729 ± 0.029,5
+xgboost,B_every_30_days,SA1,AgACI,drift,0.923 ± 0.002,961 ± 59,,0.742 ± 0.019,5
+xgboost,B_every_30_days,SA1,AgACI,post-drift,0.923 ± 0.001,923 ± 19,,0.729 ± 0.029,5
+xgboost,C_drift_full_history,SA1,fixed split conformal,pre-drift,0.890 ± 0.008,880 ± 19,,0.425 ± 0.041,5
+xgboost,C_drift_full_history,SA1,fixed split conformal,drift,0.848 ± 0.015,880 ± 19,,0.000 ± 0.000,5
+xgboost,C_drift_full_history,SA1,fixed split conformal,post-drift,0.903 ± 0.004,880 ± 19,,0.017 ± 0.023,5
+xgboost,C_drift_full_history,SA1,AgACI,pre-drift,0.932 ± 0.002,850 ± 14,,0.742 ± 0.019,5
+xgboost,C_drift_full_history,SA1,AgACI,drift,0.929 ± 0.003,909 ± 33,,0.746 ± 0.027,5
+xgboost,C_drift_full_history,SA1,AgACI,post-drift,0.927 ± 0.001,790 ± 11,,0.696 ± 0.032,5
+xgboost,D_drift_recent_180d,SA1,fixed split conformal,pre-drift,0.866 ± 0.020,880 ± 19,,0.208 ± 0.117,5
+xgboost,D_drift_recent_180d,SA1,fixed split conformal,drift,0.842 ± 0.007,880 ± 19,,0.000 ± 0.000,5
+xgboost,D_drift_recent_180d,SA1,fixed split conformal,post-drift,0.821 ± 0.015,880 ± 19,,0.000 ± 0.000,5
+xgboost,D_drift_recent_180d,SA1,AgACI,pre-drift,0.918 ± 0.003,862 ± 38,,0.742 ± 0.019,5
+xgboost,D_drift_recent_180d,SA1,AgACI,drift,0.924 ± 0.001,901 ± 20,,0.713 ± 0.009,5
+xgboost,D_drift_recent_180d,SA1,AgACI,post-drift,0.923 ± 0.001,960 ± 19,,0.700 ± 0.024,5

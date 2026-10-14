@@ -24,6 +24,7 @@ TABLE1_DIR = TABLES_DIR / "table1"
 TABLE2_DIR = TABLES_DIR / "table2"
 TABLE3_DIR = TABLES_DIR / "table3"
 TABLE4_DIR = TABLES_DIR / "table4"
+TABLE5_DIR = TABLES_DIR / "table5"
 FIGURE1_DIR = FIGURES_DIR / "figure1"
 FIGURE2_DIR = FIGURES_DIR / "figure2"
 FIGURE3_DIR = FIGURES_DIR / "figure3"
@@ -136,6 +137,15 @@ def dump_retrains(
     stamps = pd.DatetimeIndex(pd.to_datetime(list(retrain_timestamps)))
     stamps.to_frame(index=False, name="timestamp").to_csv(path, index=False)
     return path
+
+
+def intervals_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
+    """Where run_aemo_uq_replay.py writes one adaptation run's issued
+    prediction intervals, every UQ method side by side (T5, F4)."""
+    seed_token = "none" if seed is None else str(seed)
+    return RUNS_DIR / config_hash_ / f"intervals_{dataset}_{region or '-'}_{seed_token}.csv"
 
 
 def calibration_path(model: str, region: str, seed: int | None) -> Path:

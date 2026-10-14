@@ -13,8 +13,7 @@ Inspect the existing `UncertaintyQuantifier` interface before writing classes. P
 | Component | What to develop |
 | --- | --- |
 | `fixed_split_conformal.py` | The fixed-radius baseline. |
-| `adaptive_conformal.py` | A reusable ACI candidate: one learning rate and one internal level. |
-| `agaci.py` | Candidate collection, shared error buffer, endpoint aggregation and issued records. |
+| `agaci.py` | ACI candidates (one learning rate and one internal level each), shared error buffer, endpoint aggregation and issued records. |
 | BOA backend/helper | The paper's Bernstein Online Aggregation with the gradient trick. |
 | Experiment harness | Forecast issuance, outcome delivery, chronological execution and logging. |
 | `evaluation.py` | Metrics only; no adaptive state updates. |
@@ -61,6 +60,7 @@ Create independent state for every **forecaster × region × arm × seed × conf
 | Endpoint aggregators | Maintain separate lower and upper BOA states. |
 | Replacement thresholds | Define finite `M_lower` and `M_upper` using historical information. |
 | Pending forecasts | Store original candidate bounds, final bounds and issuance metadata. |
+| Issuance | One interval per half-hour for every forecaster; feedback is applied after each outcome. |
 
 The paper examines rates including `0, 0.0001, 0.0004, 0.0007, 0.001, 0.004, 0.007, 0.01, 0.04, 0.07`. This is a published experimental grid, not an optimal AEMO setting. A zero-rate candidate keeps its level fixed, but its radius can still change with a rolling buffer.
 
@@ -135,18 +135,18 @@ All updates affect future issuances. Do not recompute an old interval after seei
 ```text
 Initialise fixed conformal and AgACI from calibration errors.
 
-At forecast issuance:
-    produce fixed bounds
-    produce candidate bounds and aggregate AgACI bounds
-    save all original issuance records
+For each half-hour, in chronological order:
+    produce the fixed bounds
+    produce candidate bounds and the aggregate AgACI bounds for that half-hour
+    save the original issuance record
 
-At outcome arrival:
+When that half-hour's outcome arrives, before the next issuance:
     retrieve the corresponding issuance record
     update candidate levels and endpoint aggregators
     update the shared error buffer once
 ```
 
-Respect each model's issuance schedule. For NHITS forecasts issued as a 48-step block, construct all 48 intervals using information available at that issuance. Later outcomes must not change those intervals. Document delayed feedback and the ordering of events with equal timestamps.
+Issue one interval per half-hour for every forecaster (NHITS, XGBoost and DHR-ARIMA), regardless of when the point forecast was produced. Build each interval from the state available just before its target time, that is, from every outcome up to the previous half-hour, then apply its outcome as feedback before the next interval is issued. The point forecast itself is not revised: for NHITS it is still the value from the 48-step block, and for XGBoost and DHR-ARIMA the value from the last fit. An outcome must never change an interval that was already issued. Record the issuance step (1) in the run configuration.
 
 For overlapping forecasts, select one evaluation horizon or maintain separate horizon states. Do not insert one target outcome repeatedly into the same state accidentally. Retain UQ state across forecaster retraining by default; any reset policy must be explicit and use only available outcomes.
 
@@ -178,7 +178,7 @@ Do not claim 90% coverage in every event or day. The rolling buffer, finite thre
 - [ ] Lower and upper BOA implementations match the chosen reference.
 - [ ] Original and replacement candidate endpoints are saved separately.
 - [ ] Predictions do not update adaptive state; feedback is processed once.
-- [ ] Blocks and overlapping horizons respect outcome availability.
+- [ ] Half-hourly issuance and overlapping horizons respect outcome availability.
 - [ ] Grid, buffer, quantile convention, thresholds and feedback policy are recorded.
 - [ ] Fixed and AgACI use the same point forecasts and evaluation observations.
 - [ ] T3/T5/F4 and escalation outputs are generated from saved intervals.

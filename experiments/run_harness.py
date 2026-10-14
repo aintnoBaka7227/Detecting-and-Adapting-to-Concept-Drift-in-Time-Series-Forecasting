@@ -99,8 +99,7 @@ def record_run(
     `regime_labels`, forecast runs only: one documented-event regime label
     per forecast timestamp (from `evaluation.assign_regime`), shared by
     every adaptation arm. Logs the `regime="full"` rows plus a pooled `mae`
-    and `n_observations` row per regime (Table T3) -- `n_observations` only
-    for timestamps outside every event window ("unassigned") -- and writes the full
+    and `n_observations` row per regime (Table T3), and writes the full
     per-timestamp curve (actual, forecast, absolute error, rolling MAE,
     regime, arm, seed). Mutually exclusive with `changepoints`.
 
@@ -244,8 +243,7 @@ def build_regime_forecast_rows(
         rows.append(build_row(common, "pinball_loss", pinball, "full"))
     for regime, metrics in by_regime.items():
         name = regime.replace("_", "-")  # runs.csv spelling: pre-drift / drift / post-drift
-        if "mae" in metrics:  # "unassigned" timestamps are counted, not scored
-            rows.append(build_row(common, "mae", metrics["mae"], name))
+        rows.append(build_row(common, "mae", metrics["mae"], name))
         rows.append(build_row(common, "n_observations", metrics["n_observations"], name))
     return rows
 
