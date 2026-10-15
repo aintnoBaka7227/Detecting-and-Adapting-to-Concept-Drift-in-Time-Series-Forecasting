@@ -1,21 +1,36 @@
 """Shared loading for Tables T3 and T4 (adaptation arms).
 
 Reads run_aemo_adaptation_arms.py's rows from runs.csv (method is
-"<model>/<arm>"), keeps the latest record_run batch per (model, arm,
-region, seed), and marks the official arm D window per (model, region):
-the recent-window run with the lowest seed-mean drift-regime MAE
-(TEAM_DECISIONS.md 5.1). Every D window stays in the tables.
+"<model>/<arm>") and keeps the latest record_run batch per (model, arm,
+region, seed). Arm D is reported at the 180-day window only
+(REPORTED_D_ARM) until the full sweep is run.
+
+Two regime rules (TEAM_DECISIONS.md 5.3):
+    global       every TEST timestamp, logged in runs.csv by the run /
+                 rescore (`mae_by_run`) -- the official tables;
+    event-local  only timestamps near an event, pooled here from each
+                 run's saved curve (`mae_by_run_event_local`) -- the
+                 comparison tables. runs.csv is not touched.
 """
 
 from __future__ import annotations
 
 import pandas as pd
 
+from drift_lab import evaluation
+from experiments import results_io
 from experiments.results_io import RUNS_CSV
-from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, SPLIT_ID
+from experiments.run.adaptation.run_aemo_adaptation_arms import (
+    ARM_A,
+    SPLIT_ID,
+    arm_d,
+    event_local_regime_labels,
+)
 
 REGIMES = ("pre-drift", "drift", "post-drift")
 D_PREFIX = "D_drift_recent_"
+REPORTED_D_ARM = arm_d(180)
+RUN_KEYS = ["model", "arm", "region", "seed_key"]
 
 
 def latest_adaptation_rows() -> pd.DataFrame:
@@ -32,6 +47,12 @@ def latest_adaptation_rows() -> pd.DataFrame:
     return rows[rows["timestamp"] == latest]
 
 
+def drop_unreported_d_arms(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep arms A-C and only the reported arm D window."""
+    other = frame["arm"].str.startswith(D_PREFIX) & (frame["arm"] != REPORTED_D_ARM)
+    return frame[~other].reset_index(drop=True)
+
+
 def mae_by_run(rows: pd.DataFrame) -> pd.DataFrame:
     """One row per (model, arm, region, seed) with a column per regime MAE
     plus the run's cost fields."""
@@ -43,6 +64,35 @@ def mae_by_run(rows: pd.DataFrame) -> pd.DataFrame:
         ["n_retrains", "train_samples", "wall_clock_s"]
     ].first()
     return wide.join(cost).reset_index()
+
+
+def mae_by_run_event_local(rows: pd.DataFrame) -> pd.DataFrame:
+    """`mae_by_run`'s shape, but each regime MAE pooled over the run's
+    event-local timestamps only (evaluation.assign_event_local_regime),
+    read from its saved curve. Timestamps outside every event window are
+    left out. Cost fields come from runs.csv as in `mae_by_run`."""
+    labels_by_region: dict[str, pd.Series] = {}
+    records = []
+    for (model, arm, region, seed_key, chash), _ in rows.groupby([*RUN_KEYS, "config_hash"]):
+        seed = None if seed_key == -1 else int(seed_key)
+        curve = pd.read_csv(
+            results_io.curve_path(chash, "aemo", region, seed), parse_dates=["timestamp"]
+        )
+        index = pd.DatetimeIndex(curve["timestamp"])
+        if region not in labels_by_region:
+            labels_by_region[region] = event_local_regime_labels(index, region)
+        labels = labels_by_region[region].reindex(index)
+        inside = labels.notna().to_numpy()
+        metrics = evaluation.calculate_forecast_metrics_by_regime(
+            curve["actual"][inside], curve["forecast"][inside], labels[inside]
+        )
+        record = {"model": model, "arm": arm, "region": region, "seed_key": seed_key}
+        for regime, values in metrics.items():
+            record[regime.replace("_", "-")] = values["mae"]
+        records.append(record)
+
+    cost = rows.groupby(RUN_KEYS)[["n_retrains", "train_samples", "wall_clock_s"]].first()
+    return pd.DataFrame(records).set_index(RUN_KEYS).join(cost).reset_index()
 
 
 def pinball_by_run(rows: pd.DataFrame) -> pd.DataFrame:

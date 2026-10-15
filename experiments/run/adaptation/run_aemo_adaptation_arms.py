@@ -23,8 +23,8 @@ the BLOCK protocol (real context between horizon-sized blocks) with the
 shared settings (horizon 48, input 336, 500 steps); xgboost / dhr_arima
 roll forward blind from their latest fit. A retrain is just `fit()`.
 
-Regimes: documented-event regimes from `evaluation.assign_regime`, the
-same labels for every arm. Cost fields per run: `n_retrains`,
+Regimes: the global regime rule (`evaluation.assign_timestamp_global_regime`)
+over the documented events, the same labels for every arm. Cost fields per run: `n_retrains`,
 `train_samples` (cumulative retrain samples) and `wall_clock_s`
 (cumulative retrain fit time); the initial TRAIN fit is excluded.
 
@@ -58,7 +58,11 @@ from drift_lab.adaptation.retrain_using_recent_window import (
 )
 from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SEEDS
-from drift_lab.evaluation import assign_regime, build_event_windows
+from drift_lab.evaluation import (
+    assign_event_local_regime,
+    assign_timestamp_global_regime,
+    build_event_windows,
+)
 from drift_lab.forecasting.base import Forecaster
 from experiments.run.detection.run_adwin_changepoints import (
     DETECTOR as TRIGGER_DETECTOR,
@@ -135,9 +139,18 @@ def demand_series(frame: pd.DataFrame) -> pd.Series:
 
 
 def regime_labels(test_index: pd.DatetimeIndex, region: str) -> pd.Series:
-    """Documented-event regime for every TEST timestamp (shared by all arms)."""
+    """Global regime for every TEST timestamp (shared by all arms)."""
     events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
-    labelled = assign_regime(test_index, build_event_windows(events, region))
+    labelled = assign_timestamp_global_regime(test_index, build_event_windows(events, region))
+    return labelled.set_index("timestamp")["regime"].reindex(test_index)
+
+
+def event_local_regime_labels(test_index: pd.DatetimeIndex, region: str) -> pd.Series:
+    """Event-local regime per TEST timestamp (shared by all arms); NaN for
+    timestamps outside every event window, which the event-local tables
+    leave out."""
+    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
+    labelled = assign_event_local_regime(test_index, build_event_windows(events, region))
     return labelled.set_index("timestamp")["regime"].reindex(test_index)
 
 

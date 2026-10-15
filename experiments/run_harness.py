@@ -96,8 +96,8 @@ def record_run(
     every caller sharing one fixed assumption. Omitted (the default),
     behaviour is unchanged from before this parameter existed.
 
-    `regime_labels`, forecast runs only: one documented-event regime label
-    per forecast timestamp (from `evaluation.assign_regime`), shared by
+    `regime_labels`, forecast runs only: one global regime label per
+    forecast timestamp (from `evaluation.assign_timestamp_global_regime`), shared by
     every adaptation arm. Logs the `regime="full"` rows plus a pooled `mae`
     and `n_observations` row per regime (Table T3), and writes the full
     per-timestamp curve (actual, forecast, absolute error, rolling MAE,
