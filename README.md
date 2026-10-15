@@ -97,7 +97,7 @@ there."
 │   │   └── base.py
 │   │
 │   └── evaluation/                  # the ONE place every metric is computed
-│       ├── evaluation.py              calculate_mae, calculate_rolling_mae, evaluate_detections, match_unmatch, assign_regime, ...
+│       ├── evaluation.py              calculate_mae, calculate_rolling_mae, evaluate_detections, match_unmatch, assign_timestamp_global_regime, ...
 │       └── __init__.py                 re-exports the public functions
 │
 ├── experiments/                     # the only place that runs anything or writes to results/
@@ -357,9 +357,8 @@ from drift_lab.evaluation import (
     match_unmatch,             # classify each detection as Match / Unmatch against events
     calculate_event_metrics,   # precision, recall, unmatched counts, from match_unmatch's output
     build_event_windows,       # turn each event into a pre-drift / drift / post-drift date range
-    assign_regime,             # label each detection with which of those windows it falls in
-    calculate_regime_metrics,  # match/unmatch counts broken down by regime
-    evaluate_aemo_detections,  # runs everything above together, returns it all in one dict
+    assign_timestamp_global_regime,  # label every TEST timestamp (official T3 onwards)
+    assign_event_local_regime,       # label only timestamps near an event (comparison)
 )
 ```
 
@@ -370,15 +369,20 @@ covers the seven days after it ends. Tier 1 events are checked first, followed
 by Tier 2 events. A detection outside these windows is labelled `Unmatch`, not
 a false positive, because the documented events are not complete ground truth.
 
-**Regime labelling** (`assign_regime`) describes where a detection falls in an
-event's lifecycle. Each detection is labelled `drift` (during an event),
-`pre_drift` (before an event), or `post_drift` (after an event). Across all
-events, the priority is `drift > pre_drift > post_drift`.
+**Regime labelling** applies to forecast timestamps, not detections. Windows
+are left-inclusive, right-exclusive: an event from 13 to 15 June covers
+[13 June 00:00, 16 June 00:00).
 
-For example, assume one event occurs on 1 March and another on 10 March, each
-with a seven-day pre-drift window. A detection on 5 March is after the first
-event but also before the second. It is labelled `pre_drift` and attributed to
-the second event because `pre_drift` has priority over `post_drift`.
+- `assign_timestamp_global_regime` (official, T3 onwards) labels every TEST
+  timestamp: `pre_drift` before the first event in the test split, `drift`
+  inside an event plus a 7-day end buffer (`DRIFT_END_BUFFER`), and
+  `post_drift` from then until the next event starts.
+- `assign_event_local_regime` (comparison tables) labels only timestamps in
+  the 7 days before an event (`pre_drift`), the event itself (`drift`, no
+  buffer) and the 7 days after (`post_drift`); everything else is left out.
+
+Overlaps resolve as `drift > pre_drift > post_drift`; drift and pre-drift go
+to the earliest event, post-drift to the most recently started one.
 
 Each `drift` or `pre_drift` label records the event whose window produced it.
 `post_drift` detections and detections before any event use

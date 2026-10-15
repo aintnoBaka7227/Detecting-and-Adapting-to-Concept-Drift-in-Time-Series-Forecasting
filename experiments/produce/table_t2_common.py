@@ -25,6 +25,7 @@ from __future__ import annotations
 import pandas as pd
 
 from drift_lab.config import AEMO_5MIN_END, DOCUMENTED_EVENTS_CSV, SPLIT
+from drift_lab.evaluation import calculate_match_window
 from experiments.produce.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUNS_CSV
 
@@ -53,8 +54,18 @@ def tier1_events() -> pd.DataFrame:
     """Every Tier 1 event, in date order -- the master column order for
     every region (all five are tagged region='NEM', so the same columns
     apply everywhere)."""
-    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date"])
+    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
     return events.loc[events["tier"] == 1].sort_values("start_date")
+
+
+def match_window_days(events: pd.DataFrame) -> list[float]:
+    """Length in days of each event's match window, from the same rule
+    match_unmatch uses (evaluation.calculate_match_window)."""
+    lengths = []
+    for event in events.itertuples(index=False):
+        start, end = calculate_match_window(event.start_date, event.end_date, event.date_precision)
+        lengths.append((end - start) / pd.Timedelta(days=1))
+    return lengths
 
 
 def latest_detection_metrics(split_id: str) -> pd.DataFrame:
@@ -85,13 +96,14 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
     separately (never combined into one value -- see
     drift_lab.evaluation.calculate_event_metrics), alongside raw vs.
     post-refractory detection counts and, unless disabled, the
-    Tier-1-only chance-matching baseline: `K * (1 - (1 - w/T)^N)` with
-    K = number of Tier 1 events, for each row's own post-refractory
-    detection count. Any result not clearly above that line is not a
+    Tier-1-only chance-matching baseline: `sum_k (1 - (1 - w_k/T)^N)` over
+    the Tier 1 events, w_k each event's own match window, for each row's
+    own post-refractory detection count. Any result not clearly above that line is not a
     result -- but note this baseline is Tier-1-scoped only; `tier2_matched`
     has no chance baseline to compare against."""
     metrics = latest_detection_metrics(split_id)
     tier1 = tier1_events()
+    tier1_window_days = match_window_days(tier1)
 
     # One row per (method, region), one column per metric_name -- the only
     # reshape step, and it's a pure groupby: no manual per-(method, region)
@@ -133,10 +145,9 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
         row["post_refractory_detection_count"] = accepted_count
 
         if include_chance_baseline:
-            k_tier1 = len(tier1)
             test_days = (TEST_END - TEST_START) / pd.Timedelta(days=1)
             row["chance_tier1"] = round(
-                expected_matches_closed_form(k_tier1, test_days, accepted_count), 2
+                expected_matches_closed_form(test_days, accepted_count, tier1_window_days), 2
             )
 
         rows.append(row)

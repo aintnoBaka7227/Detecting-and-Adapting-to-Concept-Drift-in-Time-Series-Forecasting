@@ -68,14 +68,15 @@ def test_aggregate_raises_when_no_complete_days_remain():
 
 
 def test_remove_profile_zeroes_out_a_series_matching_its_own_reference():
-    # A weekly pattern (48 * 7 values) tiled across 2 weeks -> every
-    # (weekday, half_hour) combination's mean across the reference equals
-    # that single week's own value at that slot, so a target built from one
-    # more occurrence of the same pattern should net to exactly zero.
-    week_pattern = np.arange(48 * 7, dtype=float)
+    # Each weekday has its own intraday shape (the same 48 values rotated by
+    # the weekday number), so every day has the same daily mean: the annual
+    # factor is flat and the weekday/half-hour factor alone carries the
+    # pattern. A target repeating that pattern must net to exactly zero.
+    day_shape = 1000.0 + 100.0 * np.sin(np.linspace(0, 2 * np.pi, 48, endpoint=False))
+    week_pattern = np.concatenate([np.roll(day_shape, weekday) for weekday in range(7)])
     reference = pd.Series(
         np.tile(week_pattern, 2),
-        index=pd.date_range("2020-03-02", periods=48 * 7 * 2, freq="30min"),
+        index=pd.date_range("2020-03-02", periods=48 * 7 * 2, freq="30min"),  # a Monday
         name="TOTALDEMAND",
     )
     target = pd.Series(

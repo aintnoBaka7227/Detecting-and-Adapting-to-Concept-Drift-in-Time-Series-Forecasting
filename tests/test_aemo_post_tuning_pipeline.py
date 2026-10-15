@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from drift_lab.evaluation.evaluation import assign_regime, build_event_windows
 from experiments.produce.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUN_COLUMNS
 
@@ -22,8 +21,12 @@ def _aemo_events(rows):
     )
 
 
-def _frame(dates: pd.DatetimeIndex, value: float) -> pd.DataFrame:
-    return pd.DataFrame({"SETTLEMENTDATE": dates, "TOTALDEMAND": value})
+def _frame(dates: pd.DatetimeIndex, value) -> pd.DataFrame:
+    """Half-hourly frame (48 rows per date, as the loader returns), each
+    day holding its own value."""
+    stamps = pd.date_range(dates[0], periods=len(dates) * 48, freq="30min")
+    values = np.repeat(np.broadcast_to(np.asarray(value, dtype=float), len(dates)), 48)
+    return pd.DataFrame({"SETTLEMENTDATE": stamps, "TOTALDEMAND": values})
 
 
 # --- TRAIN-only profile + scaler fitting ------------------------------------
@@ -149,45 +152,58 @@ def test_match_and_persist_splits_accepted_from_raw(tmp_path, monkeypatch):
 # --- bounded post-drift event attribution + unassigned fallback ------------
 
 
-def test_assign_regime_bounded_post_drift_gets_the_event_id():
-    events = _aemo_events([("E1", "2020-03-01", "2020-03-01", "day", "SA1")])
-    windows = build_event_windows(events, "SA1")
-    # drift_end = 2020-03-02; post_drift_end = drift_end + 7 days = 2020-03-09.
-    labels = assign_regime(["2020-03-05"], windows)
+# Commented out with assign_detection_with_regime (unused).
+# def test_assign_detection_with_regime_bounded_post_drift_gets_the_event_id():
+#     events = _aemo_events([("E1", "2020-03-01", "2020-03-01", "day", "SA1")])
+#     windows = build_event_windows(events, "SA1")
+#     # drift_end = 2020-03-02; post_drift_end = drift_end + 7 days = 2020-03-09.
+#     labels = assign_detection_with_regime(["2020-03-05"], windows)
+#
+#     assert labels.iloc[0]["regime"] == "post_drift"
+#     assert labels.iloc[0]["event_id"] == "E1"
+#
+#
+# def test_assign_detection_with_regime_unassigned_post_drift_fallback_beyond_the_bound():
+#     events = _aemo_events([("E1", "2020-03-01", "2020-03-01", "day", "SA1")])
+#     windows = build_event_windows(events, "SA1")
+#     # Well past post_drift_end (2020-03-09): general, unassigned fallback,
+#     # not a reversion to pre_drift.
+#     labels = assign_detection_with_regime(["2020-06-01"], windows)
+#
+#     assert labels.iloc[0]["regime"] == "post_drift"
+#     assert labels.iloc[0]["event_id"] == "unassigned"
 
-    assert labels.iloc[0]["regime"] == "post_drift"
-    assert labels.iloc[0]["event_id"] == "E1"
-
-
-def test_assign_regime_unassigned_post_drift_fallback_beyond_the_bound():
-    events = _aemo_events([("E1", "2020-03-01", "2020-03-01", "day", "SA1")])
-    windows = build_event_windows(events, "SA1")
-    # Well past post_drift_end (2020-03-09): general, unassigned fallback,
-    # not a reversion to pre_drift.
-    labels = assign_regime(["2020-06-01"], windows)
-
-    assert labels.iloc[0]["regime"] == "post_drift"
-    assert labels.iloc[0]["event_id"] == "unassigned"
 
 
 # --- chance-matching baseline (closed form) ---------------------------------
 
 
 def test_expected_matches_closed_form_matches_the_stated_formula():
-    # expected matches = K * (1 - (1 - w/T)^N)
-    k_events, test_days, n_detections, window_days = 5, 1000.0, 80, 7.0
-    expected = k_events * (1 - (1 - window_days / test_days) ** n_detections)
+    # expected matches = sum_k (1 - (1 - w_k/T)^N)
+    test_days, n_detections, window_days = 1000.0, 80, [8.0, 70.0, 17.0]
+    expected = sum(1 - (1 - w / test_days) ** n_detections for w in window_days)
 
-    assert expected_matches_closed_form(k_events, test_days, n_detections, window_days) == pytest.approx(
-        expected
-    )
+    assert expected_matches_closed_form(test_days, n_detections, window_days) == pytest.approx(expected)
+
+
+def test_expected_matches_closed_form_equal_windows_reduce_to_k_times_one_event():
+    one = expected_matches_closed_form(1000.0, 80, [8.0])
+
+    assert expected_matches_closed_form(1000.0, 80, [8.0] * 5) == pytest.approx(5 * one)
 
 
 def test_expected_matches_closed_form_is_deterministic():
-    first = expected_matches_closed_form(5, 1000.0, 80, 7.0)
-    second = expected_matches_closed_form(5, 1000.0, 80, 7.0)
+    first = expected_matches_closed_form(1000.0, 80, [8.0, 70.0])
+    second = expected_matches_closed_form(1000.0, 80, [8.0, 70.0])
 
     assert first == second
+
+
+def test_t2_tier1_match_windows_follow_match_unmatch():
+    from experiments.produce.table_t2_common import match_window_days, tier1_events
+
+    # COVID 16 Mar - 17 May 2020: [16 Mar 00:00, 18 May 00:00) + 7-day grace
+    assert match_window_days(tier1_events())[0] == 70.0
 
 
 # --- runs.csv schema is unchanged -------------------------------------------

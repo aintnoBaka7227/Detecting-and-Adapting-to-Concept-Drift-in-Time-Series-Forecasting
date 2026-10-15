@@ -9,12 +9,15 @@ import pandas as pd
 import pytest
 
 from drift_lab.evaluation import (
+    calculate_complete_window_count,
     calculate_empirical_coverage,
     calculate_interval_pinball_loss,
     calculate_mean_interval_width,
+    calculate_normalised_interval_width,
     calculate_pinball_loss,
     calculate_rolling_coverage,
     calculate_uq_metrics_by_regime,
+    calculate_width_scale,
     calculate_worst_rolling_coverage,
 )
 from drift_lab.uncertainty import (
@@ -180,8 +183,58 @@ def test_uq_metrics_by_regime_pool_within_the_regime():
         "coverage": pytest.approx(1 / 3),
         "mean_interval_width": 2.0,
         "worst_rolling_coverage": 0.0,
+        "n_complete_windows": 2,
         "n_observations": 3,
     }
     assert metrics["pre_drift"]["coverage"] == 1.0
     assert math.isnan(metrics["post_drift"]["worst_rolling_coverage"])  # one row, no window
 
+
+
+def test_normalised_interval_width_divides_by_the_fixed_scale():
+    assert calculate_width_scale([8.0, float("nan"), 12.0]) == 10.0
+    assert calculate_normalised_interval_width([-1.0, -3.0], [1.0, 3.0], 10.0) == pytest.approx(0.4)
+    labels = ["pre-drift", "drift", "drift"]
+    metrics = calculate_uq_metrics_by_regime([0.0] * 3, [-1.0, -2.0, -4.0], [1.0, 2.0, 4.0], labels, 2, 10.0)
+    assert metrics["drift"]["normalised_interval_width"] == pytest.approx(0.6)
+    with pytest.raises(ValueError):
+        calculate_normalised_interval_width([0.0], [1.0], 0.0)
+    with pytest.raises(ValueError):
+        calculate_width_scale([float("nan")])
+
+
+@pytest.mark.parametrize(("n", "expected"), [(30, 0), (48, 1), (60, 13), (336, 289)])
+def test_complete_window_count_one_segment(n, expected):
+    stamps = pd.date_range("2020-03-01", periods=n, freq="30min")
+    assert calculate_complete_window_count(n, 48, ["drift"] * n, "drift", stamps) == expected
+
+
+def test_complete_window_count_sums_separate_segments_of_a_regime():
+    # drift 60, post 10, drift 50 -> 13 + 3 windows; none crosses post_drift.
+    labels = ["drift"] * 60 + ["post_drift"] * 10 + ["drift"] * 50
+    assert calculate_complete_window_count(len(labels), 48, labels, "drift") == 16
+
+
+def test_windows_spanning_a_timestamp_gap_are_not_eligible():
+    # 100 half-hours with the 31st missing: 30 rows before the gap, 69 after.
+    stamps = pd.date_range("2020-03-01", periods=100, freq="30min").delete(30)
+    labels = ["drift"] * 99
+
+    assert calculate_complete_window_count(99, 48, labels, "drift") == 99 - 48 + 1
+    assert calculate_complete_window_count(99, 48, labels, "drift", stamps) == 69 - 48 + 1
+
+    # The only miss sits just before the gap: every window holding it spans
+    # the gap, so with timestamps no eligible window sees it.
+    y = [0.0] * 99
+    y[29] = 5.0
+    lower, upper = [-1.0] * 99, [1.0] * 99
+    assert calculate_worst_rolling_coverage(y, lower, upper, 48) < 1.0
+    assert calculate_worst_rolling_coverage(y, lower, upper, 48, timestamps=stamps) == 1.0
+
+
+def test_fixed_interface_observe_is_ignored():
+    uq = FixedSplitConformal()
+    first = uq.quantify([1.0], RESIDUALS_19)
+    assert uq.observe([1000.0]) is None  # static: outcomes never move the radius
+    again = uq.quantify([1.0], RESIDUALS_19)
+    assert (first.lower, first.upper) == (again.lower, again.upper)

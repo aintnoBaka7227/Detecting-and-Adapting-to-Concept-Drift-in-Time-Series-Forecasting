@@ -1,31 +1,25 @@
 model,arm,region,MAE pre-drift (MW),MAE drift (MW),MAE post-drift (MW),pinball loss (MW),seeds
-dhr_arima,A_never_retrain,NSW1,945.7 ± n/a,931.2 ± n/a,865.3 ± n/a,124.5 ± n/a,1
-dhr_arima,B_every_30_days,NSW1,750.2 ± n/a,697.1 ± n/a,646.1 ± n/a,95.0 ± n/a,1
-dhr_arima,C_drift_full_history,NSW1,859.6 ± n/a,874.4 ± n/a,794.3 ± n/a,109.3 ± n/a,1
-dhr_arima,D_drift_recent_180d (selected),NSW1,894.6 ± n/a,828.0 ± n/a,819.0 ± n/a,114.5 ± n/a,1
-dhr_arima,A_never_retrain,SA1,249.1 ± n/a,259.4 ± n/a,231.3 ± n/a,34.2 ± n/a,1
-dhr_arima,B_every_30_days,SA1,186.0 ± n/a,194.1 ± n/a,185.2 ± n/a,29.5 ± n/a,1
-dhr_arima,C_drift_full_history,SA1,234.2 ± n/a,245.7 ± n/a,219.0 ± n/a,31.5 ± n/a,1
-dhr_arima,D_drift_recent_180d (selected),SA1,254.0 ± n/a,252.2 ± n/a,229.7 ± n/a,33.6 ± n/a,1
-nhits,A_never_retrain,NSW1,408.9 ± 10.2,370.1 ± 9.4,356.4 ± 2.7,78.5 ± 1.3,5
-nhits,B_every_30_days,NSW1,529.7 ± 2.1,529.0 ± 6.8,502.8 ± 2.0,87.6 ± 0.7,5
-nhits,C_drift_full_history,NSW1,365.4 ± 4.1,325.5 ± 7.0,320.9 ± 2.5,77.2 ± 1.5,5
-nhits,D_drift_recent_30d,NSW1,573.0 ± n/a,538.7 ± n/a,526.0 ± n/a,89.5 ± n/a,1
-nhits,D_drift_recent_60d,NSW1,520.2 ± n/a,503.3 ± n/a,496.3 ± n/a,87.2 ± n/a,1
-nhits,D_drift_recent_120d,NSW1,498.2 ± n/a,425.5 ± n/a,441.7 ± n/a,82.9 ± n/a,1
-nhits,D_drift_recent_180d (selected),NSW1,489.4 ± 5.0,412.4 ± 7.1,419.4 ± 4.1,82.6 ± 1.1,5
-nhits,A_never_retrain,SA1,150.9 ± 4.3,161.9 ± 6.3,141.2 ± 4.3,26.6 ± 0.9,5
-nhits,B_every_30_days,SA1,180.4 ± 2.1,198.9 ± 1.1,189.8 ± 0.7,33.3 ± 0.2,5
-nhits,C_drift_full_history,SA1,139.2 ± 2.7,137.8 ± 2.9,123.8 ± 0.3,25.1 ± 0.5,5
-nhits,D_drift_recent_30d,SA1,194.7 ± n/a,221.2 ± n/a,184.7 ± n/a,32.6 ± n/a,1
-nhits,D_drift_recent_60d,SA1,190.4 ± n/a,194.7 ± n/a,168.8 ± n/a,30.0 ± n/a,1
-nhits,D_drift_recent_120d,SA1,178.5 ± n/a,181.0 ± n/a,156.0 ± n/a,28.4 ± n/a,1
-nhits,D_drift_recent_180d (selected),SA1,174.4 ± 1.6,180.1 ± 5.4,152.9 ± 1.1,28.4 ± 0.2,5
-xgboost,A_never_retrain,NSW1,851.6 ± 31.5,731.7 ± 15.8,768.9 ± 38.2,113.7 ± 5.9,5
-xgboost,B_every_30_days,NSW1,850.6 ± 31.6,791.1 ± 92.0,804.6 ± 32.3,133.3 ± 5.0,5
-xgboost,C_drift_full_history,NSW1,671.8 ± 54.0,500.2 ± 22.0,676.4 ± 42.7,106.4 ± 4.8,5
-xgboost,D_drift_recent_180d (selected),NSW1,1159.7 ± 84.7,808.0 ± 46.0,1038.0 ± 55.1,176.1 ± 20.6,5
-xgboost,A_never_retrain,SA1,232.6 ± 3.3,238.6 ± 3.1,224.0 ± 14.1,32.9 ± 1.1,5
-xgboost,B_every_30_days,SA1,206.5 ± 12.0,235.7 ± 11.6,221.7 ± 5.3,38.3 ± 1.3,5
-xgboost,C_drift_full_history,SA1,203.0 ± 3.8,222.5 ± 8.5,188.8 ± 4.6,30.0 ± 0.8,5
-xgboost,D_drift_recent_180d (selected),SA1,215.6 ± 12.8,231.2 ± 4.3,246.4 ± 6.9,40.2 ± 1.8,5
+dhr_arima,A_never_retrain,NSW1,659.0 ± n/a,932.2 ± n/a,869.4 ± n/a,124.5 ± n/a,1
+dhr_arima,B_every_30_days,NSW1,659.0 ± n/a,716.7 ± n/a,646.1 ± n/a,95.0 ± n/a,1
+dhr_arima,C_drift_full_history,NSW1,659.0 ± n/a,862.9 ± n/a,797.8 ± n/a,109.3 ± n/a,1
+dhr_arima,D_drift_recent_180d,NSW1,659.0 ± n/a,853.7 ± n/a,821.1 ± n/a,114.5 ± n/a,1
+dhr_arima,A_never_retrain,SA1,205.9 ± n/a,254.3 ± n/a,232.3 ± n/a,34.2 ± n/a,1
+dhr_arima,B_every_30_days,SA1,205.9 ± n/a,187.0 ± n/a,186.2 ± n/a,29.5 ± n/a,1
+dhr_arima,C_drift_full_history,SA1,205.9 ± n/a,239.6 ± n/a,220.0 ± n/a,31.5 ± n/a,1
+dhr_arima,D_drift_recent_180d,SA1,205.9 ± n/a,252.4 ± n/a,230.6 ± n/a,33.6 ± n/a,1
+nhits,A_never_retrain,NSW1,249.5 ± 24.7,377.8 ± 6.4,359.8 ± 3.0,78.5 ± 1.3,5
+nhits,B_every_30_days,NSW1,249.5 ± 24.7,512.4 ± 3.4,510.9 ± 2.3,87.6 ± 0.7,5
+nhits,C_drift_full_history,NSW1,249.5 ± 24.7,333.9 ± 2.9,323.7 ± 2.1,77.2 ± 1.5,5
+nhits,D_drift_recent_180d,NSW1,249.5 ± 24.7,422.2 ± 5.5,427.1 ± 3.9,82.6 ± 1.1,5
+nhits,A_never_retrain,SA1,120.9 ± 5.1,155.3 ± 5.9,142.4 ± 4.1,26.6 ± 0.9,5
+nhits,B_every_30_days,SA1,120.9 ± 5.1,194.8 ± 1.2,189.6 ± 0.7,33.3 ± 0.2,5
+nhits,C_drift_full_history,SA1,120.9 ± 5.1,133.0 ± 1.9,125.8 ± 0.6,25.1 ± 0.5,5
+nhits,D_drift_recent_180d,SA1,120.9 ± 5.1,173.2 ± 4.0,155.2 ± 1.0,28.4 ± 0.2,5
+xgboost,A_never_retrain,NSW1,398.8 ± 19.1,742.1 ± 8.4,783.7 ± 38.9,113.7 ± 5.9,5
+xgboost,B_every_30_days,NSW1,398.8 ± 19.1,774.6 ± 54.1,821.0 ± 36.2,133.3 ± 5.0,5
+xgboost,C_drift_full_history,NSW1,398.8 ± 19.1,568.2 ± 39.4,679.6 ± 40.7,106.4 ± 4.8,5
+xgboost,D_drift_recent_180d,NSW1,398.8 ± 19.1,929.1 ± 34.2,1050.5 ± 59.4,176.1 ± 20.6,5
+xgboost,A_never_retrain,SA1,163.0 ± 2.1,233.3 ± 2.0,226.0 ± 14.7,32.9 ± 1.1,5
+xgboost,B_every_30_days,SA1,163.0 ± 2.1,219.3 ± 9.1,224.0 ± 6.7,38.3 ± 1.3,5
+xgboost,C_drift_full_history,SA1,163.0 ± 2.1,212.3 ± 8.3,190.2 ± 3.8,30.0 ± 0.8,5
+xgboost,D_drift_recent_180d,SA1,163.0 ± 2.1,230.2 ± 6.9,245.5 ± 5.7,40.2 ± 1.8,5

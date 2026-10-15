@@ -46,10 +46,15 @@ configuration (a forecaster retrain does not reset it):
     uq = AgACI()
     issued = uq.quantify(forecasts, calibration_residuals)  # seeds once
     ...the outcomes of those forecasts arrive...
-    uq.observe(actuals, issued)
+    uq.observe(actuals)                  # feeds back the last quantify call
     issued = uq.quantify(next_forecasts, calibration_residuals)
 
-`quantify` / `predict` never change state, and every forecast in one call
+This is the shared `quantify` / `observe` loop of base.py. `observe` can
+also be given an issuance explicitly (`uq.observe(actuals, issued)`), e.g.
+after `predict`.
+
+`predict` never changes state; `quantify` only records its issuance as the
+one `observe` feeds back. Every forecast in one call
 shares the candidate radii and weights available at that issuance. The
 project issues one forecast per call (a half-hour) and feeds its outcome
 back before the next, so each interval uses every outcome up to the
@@ -205,6 +210,7 @@ class AgACI(UncertaintyQuantifier):
         self._upper_aggregator: OperaBOA | None = None
         self._n_feedback = 0
         self._n_replaced = np.zeros(len(self.gammas), dtype=int)
+        self._last_issuance: AgACIIssuance | None = None
 
     def predict(self, point_forecast) -> AgACIIssuance:
         """Bounds for one issuance, from the current buffer, levels and
@@ -240,10 +246,14 @@ class AgACI(UncertaintyQuantifier):
     def quantify(self, point_forecast: np.ndarray, calibration_residuals: np.ndarray) -> AgACIIssuance:
         if self._buffer is None:
             self.calibrate(calibration_residuals)
-        return self.predict(point_forecast)
+        self._last_issuance = self.predict(point_forecast)
+        return self._last_issuance
 
-    def observe(self, actual, issued: AgACIIssuance) -> np.ndarray:
+    def observe(self, actual, issued: AgACIIssuance | None = None) -> np.ndarray:
         """Feed back the outcomes of one issuance, oldest first.
+
+        Without `issued`, feeds back the most recent `quantify` call (the
+        shared interface loop); pass `issued` to feed back a `predict`.
 
         Every candidate's level is updated from that candidate's own
         original interval (an outcome on a bound is covered, and an
@@ -253,6 +263,10 @@ class AgACI(UncertaintyQuantifier):
         Returns the 0/1 misses of the issued interval.
         """
         self._require_calibrated("observe()")
+        if issued is None:
+            issued = self._last_issuance
+            if issued is None:
+                raise ValueError("observe() needs a prior quantify() call or an issuance.")
         if issued.processed:
             raise ValueError("this issuance has already been fed back.")
 

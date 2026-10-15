@@ -4,8 +4,12 @@ Columns (required-outputs T4): model, arm, region, retrains, cumulative
 train samples, wall clock (s) (cumulative TEST retrain fit time), drift-MAE
 gain vs arm A and gain per retrain (evaluation.calculate_adaptation_gain,
 paired with arm A on region and seed; negative = better than never
-retraining), seeds. Arm D is reported at the 180-day window only; the
-other sweep windows stay in T3.
+retraining), seeds. Arm D is reported at the 180-day window only, as in
+T3 and T5.
+
+Two versions are written, differing only in which drift regime the gain
+uses (TEAM_DECISIONS.md 5.3): global (official) and event-local
+(comparison). Retrains and cost are the same in both.
 """
 
 from __future__ import annotations
@@ -14,23 +18,27 @@ import pandas as pd
 
 from drift_lab.evaluation import calculate_adaptation_gain
 from experiments.produce.table_adaptation_common import (
-    D_PREFIX,
     arm_sort_key,
+    drop_unreported_d_arms,
     latest_adaptation_rows,
     mae_by_run,
+    mae_by_run_event_local,
     mean_sd,
 )
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE4_DIR
-from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, arm_d
+from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A
 
-REPORTED_D_ARM = arm_d(180)
+VERSIONS = {
+    "global": ("table_t4_adaptation_cost", "global drift regime"),
+    "event_local": ("table_t4_adaptation_cost_event_local", "event-local drift regime (event dates only)"),
+}
 
 
-def build_table() -> pd.DataFrame:
-    per_run = mae_by_run(latest_adaptation_rows())
-    other_windows = per_run["arm"].str.startswith(D_PREFIX) & (per_run["arm"] != REPORTED_D_ARM)
-    per_run = per_run[~other_windows].reset_index(drop=True)
+def build_table(regimes: str = "global") -> pd.DataFrame:
+    latest = drop_unreported_d_arms(latest_adaptation_rows())
+    by_run = mae_by_run if regimes == "global" else mae_by_run_event_local
+    per_run = by_run(latest)
     arm_a = per_run[per_run["arm"] == ARM_A].set_index(["model", "region", "seed_key"])["drift"]
 
     gains = []
@@ -67,17 +75,21 @@ def build_table() -> pd.DataFrame:
 
 def main() -> None:
     TABLE4_DIR.mkdir(parents=True, exist_ok=True)
-    table = build_table()
-    out = TABLE4_DIR / "table_t4_adaptation_cost.csv"
-    table.to_csv(out, index=False)
-    image = save_table_image(
-        table,
-        TABLE4_DIR / "table_t4_adaptation_cost.png",
-        title="T4 — Adaptation cost, four adaptation arms",
-        subtitle="Gain = drift-regime MAE(arm) − MAE(arm A), paired by region and seed; negative is better.",
-    )
-    print(table.to_string(index=False))
-    print(f"\nwrote {out}\nwrote {image}")
+    for regimes, (stem, regime_note) in VERSIONS.items():
+        table = build_table(regimes)
+        out = TABLE4_DIR / f"{stem}.csv"
+        table.to_csv(out, index=False)
+        image = save_table_image(
+            table,
+            TABLE4_DIR / f"{stem}.png",
+            title=f"T4 — Adaptation cost ({regimes.replace('_', '-')}), four adaptation arms",
+            subtitle=(
+                f"Gain = MAE(arm) − MAE(arm A) over the {regime_note}, paired by region and "
+                "seed; negative is better."
+            ),
+        )
+        print(f"\n[{regimes}]\n{table.to_string(index=False)}")
+        print(f"wrote {out}\nwrote {image}")
 
 
 if __name__ == "__main__":

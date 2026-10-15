@@ -232,3 +232,22 @@ def test_agaci_escalation_follows_the_issued_width():
     assert _agaci(escalate_threshold=30.0).predict([1.0, 2.0]).escalate.all()  # width 36 > 30
     assert not _agaci(escalate_threshold=40.0).predict([1.0]).escalate.any()
     assert not _agaci().predict([1.0]).escalate.any()  # disabled
+
+
+def test_interface_loop_matches_predict_observe():
+    # quantify + observe() must issue exactly what predict + observe(issued) does.
+    rng = np.random.default_rng(1)
+    forecasts, actuals = rng.normal(100, 5, 40), rng.normal(100, 8, 40)
+    via_interface, direct = _agaci(), _agaci().calibrate(RESIDUALS_19)
+    for forecast, actual in zip(forecasts, actuals, strict=True):
+        a = via_interface.quantify([forecast], RESIDUALS_19)
+        via_interface.observe([actual])
+        b = direct.predict([forecast])
+        direct.observe([actual], b)
+        np.testing.assert_allclose([a.lower, a.upper], [b.lower, b.upper])
+
+
+def test_observe_without_a_quantify_call_raises():
+    uq = _agaci().calibrate(RESIDUALS_19)
+    with pytest.raises(ValueError):
+        uq.observe([1.0])

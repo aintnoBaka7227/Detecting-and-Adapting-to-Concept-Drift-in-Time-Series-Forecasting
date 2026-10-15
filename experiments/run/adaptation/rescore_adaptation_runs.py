@@ -5,8 +5,8 @@ region, seed) this reads the saved per-timestamp curve (actual, forecast)
 and logs the run again through `record_run`, with its original config and
 cost fields, after recomputing:
 
-    regimes     the documented-event regime of every TEST timestamp, from
-                the current `evaluation.assign_regime`;
+    regimes     the global regime of every TEST timestamp, from the
+                current `evaluation.assign_timestamp_global_regime`;
     intervals   90% fixed split conformal bounds (`FixedSplitConformal`),
                 calibrated once on that model x region x seed's
                 Calibration-window residuals from

@@ -2,6 +2,20 @@
 
     uq(point_forecast, calibration_residuals) -> lower bound, upper bound, escalate flag
 
+Extended 2026-10-15 (additive, `quantify` unchanged) with an optional
+feedback step, so static and adaptive methods share one calling loop:
+
+    uq.quantify(point_forecast, calibration_residuals) -> UQResult
+    uq.observe(actual)                                  -> feedback
+
+    for t in range(n):
+        result = uq.quantify(forecast[t], calibration_residuals)  # issue
+        uq.observe(actual[t])                                     # outcome
+
+`observe` feeds back the outcomes of the most recent `quantify` call. A
+static method (fixed split conformal) ignores it; an adaptive one (AgACI)
+updates from it before the next issuance.
+
 The escalate flag is returned by `quantify()` itself, not by a separate
 top-level "escalation" module — the slide's contract bundles it into UQ.
 The Step 6 threshold-sweep analysis (coverage vs. fraction escalated)
@@ -61,3 +75,9 @@ class UncertaintyQuantifier(ABC):
         Step 7 leakage audit will fail on this function.
         """
         raise NotImplementedError
+
+    def observe(self, actual) -> None:
+        """Feed back the outcomes of the most recent `quantify` call, in the
+        same order as its forecasts. Static methods ignore them (this
+        default); adaptive methods override it to update before the next
+        issuance."""
