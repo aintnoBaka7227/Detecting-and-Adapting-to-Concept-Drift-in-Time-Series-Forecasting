@@ -325,3 +325,31 @@ def test_worst_rolling_coverage_only_counts_windows_inside_the_regime():
     # one post-drift row cannot hold a 2-observation window
     assert math.isnan(calculate_worst_rolling_coverage(*args, 2, labels, "post_drift"))
     assert math.isnan(calculate_worst_rolling_coverage(*args, window=48))
+
+
+def test_uq_metrics_by_regime_pools_coverage_and_width_per_regime():
+    from drift_lab.evaluation import calculate_uq_metrics_by_regime
+
+    y = np.array([0.0, 0.0, 5.0, 5.0, 0.0, 0.0])
+    labels = ["pre-drift"] * 2 + ["drift"] * 2 + ["post_drift"] * 2
+    stamps = pd.date_range("2021-01-01", periods=6, freq="30min")
+    out = calculate_uq_metrics_by_regime(
+        y, [-1.0] * 6, [1.0] * 6, labels, window=2, width_scale=4.0, timestamps=stamps
+    )
+    assert out["pre_drift"]["coverage"] == 1.0
+    assert out["drift"]["coverage"] == 0.0
+    assert out["drift"]["worst_rolling_coverage"] == 0.0
+    assert out["drift"]["mean_interval_width"] == 2.0
+    assert out["drift"]["normalised_interval_width"] == 0.5
+    assert out["drift"]["n_complete_windows"] == 1
+
+
+def test_worst_rolling_coverage_skips_windows_spanning_a_timestamp_gap():
+    y = np.zeros(4)
+    stamps = pd.to_datetime(
+        ["2021-01-01 00:00", "2021-01-01 00:30", "2021-01-01 05:00", "2021-01-01 05:30"]
+    )
+    lo, hi = [-1.0, 1.0, 1.0, -1.0], [1.0, 2.0, 2.0, 1.0]  # middle two uncovered
+    assert calculate_worst_rolling_coverage(y, lo, hi, window=2) == 0.0
+    # the all-uncovered (00:30, 05:00) window spans a gap, so it is skipped
+    assert calculate_worst_rolling_coverage(y, lo, hi, window=2, timestamps=stamps) == 0.5
