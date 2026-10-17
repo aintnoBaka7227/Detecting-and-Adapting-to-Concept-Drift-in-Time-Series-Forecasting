@@ -226,12 +226,14 @@ def apply_filters(df, models, regions, arms):
 
 @st.cache_data(show_spinner=False)
 def f3_curves(runs_mtime: float, model: str, region: str):
-    """Mean 7-day rolling MAE across seeds for arms A, B, C and the official D,
-    read from the saved curve files of the latest runs. None if the curve files
-    are not on this machine (they are gitignored)."""
+    """Mean 7-day rolling MAE across the seeds whose saved curve files are on
+    this machine, for arms A, B, C and the official D, read from the latest
+    runs. Curve files are gitignored, so a machine that re-ran only some seeds
+    plots just those. Returns (frame, info) or None when nothing is plottable."""
     try:
-        from experiments.produce.produce_figure_f3 import load_arm
+        from experiments import results_io
         from experiments.produce.table_adaptation_common import (
+            D_PREFIX,
             latest_adaptation_rows,
             mae_by_run,
             official_d_arms,
@@ -239,17 +241,39 @@ def f3_curves(runs_mtime: float, model: str, region: str):
         from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, ARM_B, ARM_C
 
         rows = latest_adaptation_rows()
-        official = official_d_arms(mae_by_run(rows))
-        d_arm = official[(model, region)]
-        arms = {"A": ARM_A, "B": ARM_B, "C": ARM_C, f"D ({d_arm.removeprefix('D_drift_recent_')})": d_arm}
-        frame = {}
-        retrains = {}
+        d_arm = official_d_arms(mae_by_run(rows))[(model, region)]
+        arms = {
+            "A": ARM_A,
+            "B": ARM_B,
+            "C": ARM_C,
+            f"D ({d_arm.removeprefix(D_PREFIX)})": d_arm,
+        }
+        frame, info = {}, {}
         for label, arm in arms.items():
-            index, curves, stamps = load_arm(rows, model, region, arm)
-            frame[label] = pd.Series(curves.mean(axis=0), index=index)
-            retrains[label] = len(stamps)
-        return pd.DataFrame(frame), retrains
-    except Exception:  # noqa: BLE001 - missing curve files, missing rows, etc.
+            runs = rows[(rows["model"] == model) & (rows["region"] == region) & (rows["arm"] == arm)]
+            runs = runs.drop_duplicates(["seed_key", "config_hash"]).sort_values("seed_key")
+            curves, index, retrains = [], None, 0
+            for run in runs.itertuples():
+                seed = None if run.seed_key == -1 else int(run.seed_key)
+                try:
+                    curve = pd.read_csv(
+                        results_io.curve_path(run.config_hash, "aemo", region, seed),
+                        parse_dates=["timestamp"],
+                    )
+                    stamps = pd.read_csv(
+                        results_io.retrains_path(run.config_hash, "aemo", region, seed)
+                    )
+                except FileNotFoundError:
+                    continue  # that seed was run on another machine
+                index = pd.DatetimeIndex(curve["timestamp"])
+                curves.append(curve["rolling_mae_7d"].to_numpy())
+                retrains = len(stamps)
+            if not curves:
+                return None  # an arm with no local curve: show the saved figure instead
+            frame[label] = pd.Series(sum(curves) / len(curves), index=index)
+            info[label] = (retrains, len(curves), len(runs))
+        return pd.DataFrame(frame), info
+    except Exception:  # noqa: BLE001 - missing rows, missing files, etc.
         return None
 
 
@@ -350,11 +374,14 @@ def tab_adaptation() -> None:
     region = c2.selectbox("Region (Figure 3)", list(REGIONS))
     curves = f3_curves(mtime, model, region)
     if curves is not None:
-        frame, retrains = curves
+        frame, info = curves
         st.line_chart(frame, y_label="7-day rolling MAE (MW)")
+        have = min(v[1] for v in info.values())
+        total = max(v[2] for v in info.values())
         st.caption(
-            "Mean 7-day rolling MAE across seeds over the TEST period. Retrains: "
-            + ", ".join(f"{k} {v}" for k, v in retrains.items())
+            "Mean 7-day rolling MAE over the TEST period, from the curve files on this machine "
+            f"({have} of {total} seeds). Retrains: "
+            + ", ".join(f"{k} {v[0]}" for k, v in info.items())
         )
     else:
         st.caption("Curve files are not on this machine (they are gitignored); showing the saved figure.")
