@@ -28,14 +28,14 @@ def test_stage_order_is_data_detect_adapt_produce():
 
 def test_default_runs_cheap_stages_and_reports_heavy_ones_skipped():
     to_run, skipped = rp.select_stages(STAGES, None, include_heavy=False)
-    assert [s.name for s in to_run] == ["forecast", "detect", "produce"]
-    assert {s.name for s in skipped} == {"synthetic", "adapt"}
+    assert [s.name for s in to_run] == ["forecast", "synthetic", "detect", "produce"]
+    assert {s.name for s in skipped} == {"adapt"}
 
 
 def test_all_without_heavy_skips_heavy_stages():
     to_run, skipped = rp.select_stages(STAGES, ["all"], include_heavy=False)
     assert "adapt" not in [s.name for s in to_run]
-    assert {"synthetic", "adapt", "uncertainty"} <= {s.name for s in skipped}
+    assert {"adapt", "uncertainty"} <= {s.name for s in skipped}
 
 
 def test_naming_a_heavy_stage_runs_it():
@@ -72,3 +72,12 @@ def test_dry_run_runs_nothing(capsys, monkeypatch):
 def test_arms_option_is_passed_to_every_adaptation_step():
     steps = rp.adaptation_steps(("xgboost", "dhr_arima"), ("SA1",), (1,), arms="D_drift_recent_30d")
     assert steps and all(s.args[-2:] == ("--arms", "D_drift_recent_30d") for s in steps)
+
+
+def test_tuning_sweep_only_with_retune():
+    names = lambda stages: [  # noqa: E731
+        s.module.rsplit(".", 1)[-1] for st in stages if st.name == "synthetic" for s in st.steps
+    ]
+    assert "run_fine_tune_on_synthetic" not in names(STAGES)
+    retuned = rp.build_stages(rp.MODELS, ("SA1",), (1,), retune=True)
+    assert "run_fine_tune_on_synthetic" in names(retuned)
