@@ -13,7 +13,8 @@ the first failure and prints what it did.
 Stages, in order:
 
     forecast     frozen baselines on AEMO (F1 curves)
-    synthetic    synthetic benchmark: generator plots, detector tuning, frozen run
+    synthetic    synthetic benchmark: generator plots, frozen detector run
+                 (the multi-hour tuning sweep only with --retune)
     detect       detectors on AEMO (raw / daily / half-hourly) + ADWIN change
                  points that trigger arms C and D
     adapt        the four adaptation arms, per model x region x seed
@@ -24,21 +25,20 @@ ledger), so re-running a stage adds a newer batch; the produce_* scripts read
 the latest batch. Use `--stages produce` to rebuild tables and figures
 without touching the ledger.
 
-Heavy stages are skipped unless asked for, because they take hours:
-`synthetic` (the tuning sweep) and `adapt` (NHITS / XGBoost x 2 regions x 5
-seeds). `produce` only reads what is already in results/runs.csv, so a
-default run is quick and safe to repeat.
+The heavy `adapt` stage is skipped unless asked for, because it takes hours
+(NHITS / XGBoost x 2 regions x 5 seeds). `produce` only reads what is already
+in results/runs.csv.
 
 Uncertainty and escalation are not part of this script yet. When they are
 ready, add their steps to UNCERTAINTY below and they run after `adapt`
-(calibration forecasts and re-scoring already exist for the conformal
-intervals: see UNCERTAINTY_READY_STEPS). `--stages uncertainty` runs those.
+(the calibration forecasts and re-scoring for the conformal intervals already
+exist: see uncertainty_ready_steps). `--stages uncertainty` runs those.
 
 Usage (from the repo root):
 
     python -m experiments.run_pipeline --list              # show every step
     python -m experiments.run_pipeline --dry-run           # print the plan only
-    python -m experiments.run_pipeline                     # forecast + detect + produce
+    python -m experiments.run_pipeline                     # forecast, synthetic, detect, produce
     python -m experiments.run_pipeline --stages produce    # rebuild tables/figures only
     python -m experiments.run_pipeline --stages adapt --models xgboost --regions SA1 --seeds 1
     python -m experiments.run_pipeline --stages adapt --models nhits --arms D_drift_recent_30d,D_drift_recent_60d,D_drift_recent_120d
@@ -126,7 +126,7 @@ def uncertainty_ready_steps(models) -> list[Step]:
 UNCERTAINTY: list[Step] = []
 
 
-def build_stages(models, regions, seeds, arms=None) -> list[Stage]:
+def build_stages(models, regions, seeds, arms=None, retune=False) -> list[Stage]:
     return [
         Stage(
             "forecast",
@@ -135,11 +135,16 @@ def build_stages(models, regions, seeds, arms=None) -> list[Stage]:
         ),
         Stage(
             "synthetic",
-            "Synthetic benchmark: tune detectors, then run the frozen configs",
-            heavy=True,
+            "Synthetic benchmark: run the frozen detector configs "
+            "(add --retune to redo the tuning sweep first)",
             steps=[
                 Step("synthetic", f"{RUN}.detection.run_synthetic_generator"),
-                Step("synthetic", f"{RUN}.detection.run_fine_tune_on_synthetic"),
+                *(
+                    [Step("synthetic", f"{RUN}.detection.run_fine_tune_on_synthetic",
+                          note="multi-hour sweep; the winners are already committed")]
+                    if retune
+                    else []
+                ),
                 Step("synthetic", f"{RUN}.detection.run_post_tune_on_synthetic"),
             ],
         ),
@@ -258,6 +263,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="adapt stage only: comma list passed to the runner's --arms "
         "(default: all arms), e.g. D_drift_recent_30d,D_drift_recent_60d,D_drift_recent_120d",
     )
+    p.add_argument(
+        "--retune",
+        action="store_true",
+        help="synthetic stage: also redo the detector tuning sweep (hours; the tuned "
+        "winners are already committed in results/tables/)",
+    )
     p.add_argument("--dry-run", action="store_true", help="print the plan and run nothing")
     p.add_argument("--list", action="store_true", help="list every stage and step, then exit")
     p.add_argument(
@@ -270,7 +281,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    stages = build_stages(args.models, args.regions, args.seeds, args.arms)
+    stages = build_stages(args.models, args.regions, args.seeds, args.arms, args.retune)
 
     if args.list:
         for s in stages:
