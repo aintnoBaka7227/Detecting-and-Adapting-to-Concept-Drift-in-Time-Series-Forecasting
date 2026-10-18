@@ -837,19 +837,71 @@ def test_calculate_regime_metrics_counts_but_does_not_score_unassigned():
 # --- guard ----------------------------------------------------------------
 
 
+
 def test_no_metric_code_outside_evaluation_module():
     repo = Path(__file__).resolve().parents[1]
     roots = [repo / "src" / "drift_lab", repo / "experiments"]
-    allowed = {"drift_lab/evaluation/evaluation.py"}
+
+    # Evaluation metrics belong in evaluation.py.
+    # Rolling operations used for AEMO preprocessing are permitted.
+    allowed = {
+        "drift_lab/evaluation/evaluation.py",
+        "drift_lab/aemo/deseasonalise.py",
+    }
+
     offenders = []
+
     for root in roots:
         for path in root.rglob("*.py"):
             rel = path.relative_to(
                 repo / "src" if root.name == "drift_lab" else repo
             ).as_posix()
+
             if rel in allowed:
                 continue
-            text = path.read_text()
+
+            text = path.read_text(encoding="utf-8")
+
             if ".rolling(" in text or ".ewm(" in text:
                 offenders.append(rel)
-    assert not offenders, f"metric code outside evaluation.py: {offenders}"
+
+    assert not offenders, (
+        f"Metric code outside evaluation.py: {offenders}"
+    )
+
+    
+def test_retained_coverage_removes_widest_interval_first():
+    from drift_lab.evaluation import calculate_retained_coverage_curve
+
+    result = calculate_retained_coverage_curve(
+        y_true=[10, 30, 30, 40],
+        lower_bound=[9, 18, 28, 39],
+        upper_bound=[11, 22, 32, 41],
+        review_rates=[0, 0.25, 0.5],
+    )
+
+    # Initially, 3 of 4 forecasts are covered.
+    assert result.iloc[0]["retained_coverage"] == 0.75
+
+    # The widest interval is escalated first.
+    # That interval missed, so the remaining 3 are covered.
+    assert result.iloc[1]["retained_coverage"] == 1.0
+
+    assert result.iloc[1]["n_escalated"] == 1
+    assert result.iloc[1]["n_retained"] == 3
+
+
+def test_retained_coverage_all_escalated():
+    import numpy as np
+    from drift_lab.evaluation import calculate_retained_coverage_curve
+
+    result = calculate_retained_coverage_curve(
+        y_true=[10, 20],
+        lower_bound=[9, 19],
+        upper_bound=[11, 21],
+        review_rates=[1.0],
+    )
+
+    assert np.isnan(result.iloc[0]["retained_coverage"])
+    assert result.iloc[0]["n_retained"] == 0
+

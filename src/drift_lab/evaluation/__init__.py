@@ -20,6 +20,7 @@ from drift_lab.evaluation.evaluation import (
     evaluate_aemo_detections,
     evaluate_detections,
     match_unmatch,
+    calculate_retained_coverage_curve,
 )
 
 __all__ = [

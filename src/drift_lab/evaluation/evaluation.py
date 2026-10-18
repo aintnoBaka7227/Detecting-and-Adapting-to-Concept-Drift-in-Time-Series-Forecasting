@@ -1781,3 +1781,72 @@ def calculate_worst_rolling_coverage(
         return float("nan")
 
     return float(rolling.min())
+
+def calculate_retained_coverage_curve(
+    y_true,
+    lower_bound,
+    upper_bound,
+    review_rates=None,
+):
+    """
+    Figure 5: coverage among forecasts retained without review.
+
+    Forecasts with the widest prediction intervals are escalated first.
+    Review rates are fractions between 0 and 1.
+
+    Returns a DataFrame with actual review rate, retained coverage,
+    number escalated and number retained.
+    """
+    covered = _interval_covered(
+        y_true, lower_bound, upper_bound
+    ).to_numpy(dtype=bool)
+
+    lower, upper = _validate_interval_inputs(
+        lower_bound, upper_bound
+    )
+    widths = upper.to_numpy() - lower.to_numpy()
+
+    if np.isnan(widths).any():
+        raise ValueError("Interval widths must not be NaN.")
+
+    if review_rates is None:
+        review_rates = np.linspace(0.0, 1.0, 101)
+
+    rates = np.asarray(review_rates, dtype=float)
+
+    if rates.ndim != 1 or not np.isfinite(rates).all():
+        raise ValueError("review_rates must be a finite 1D array.")
+
+    if ((rates < 0) | (rates > 1)).any():
+        raise ValueError("review_rates must be between 0 and 1.")
+
+    n = len(covered)
+
+    # Stable sorting makes tied-width handling reproducible.
+    # The largest widths are escalated first.
+    ranking = np.argsort(-widths, kind="stable")
+
+    records = []
+
+    for requested_rate in rates:
+        n_escalated = min(n, int(np.floor(requested_rate * n)))
+        retained = np.ones(n, dtype=bool)
+        retained[ranking[:n_escalated]] = False
+
+        n_retained = int(retained.sum())
+
+        coverage = (
+            float(covered[retained].mean())
+            if n_retained > 0
+            else float("nan")
+        )
+
+        records.append({
+            "requested_review_rate": float(requested_rate),
+            "review_rate": n_escalated / n,
+            "retained_coverage": coverage,
+            "n_escalated": n_escalated,
+            "n_retained": n_retained,
+        })
+
+    return pd.DataFrame(records)
