@@ -1,5 +1,6 @@
 from drift_lab.evaluation.evaluation import (
-    assign_regime,
+    assign_timestamp_global_regime,
+    assign_event_local_regime,
     build_event_windows,
     calculate_absolute_error,
     calculate_adaptation_gain,
@@ -11,15 +12,14 @@ from drift_lab.evaluation.evaluation import (
     calculate_mae,
     calculate_missed_detections,
     calculate_pinball_loss,
-    calculate_regime_metrics,
     calculate_rolling_mae,
-    evaluate_aemo_detections,
     evaluate_detections,
     match_unmatch,
 )
 
 __all__ = [
-    "assign_regime",
+    "assign_timestamp_global_regime",
+    "assign_event_local_regime",
     "build_event_windows",
     "calculate_absolute_error",
     "calculate_adaptation_gain",
@@ -31,9 +31,7 @@ __all__ = [
     "calculate_mae",
     "calculate_missed_detections",
     "calculate_pinball_loss",
-    "calculate_regime_metrics",
     "calculate_rolling_mae",
-    "evaluate_aemo_detections",
     "evaluate_detections",
     "match_unmatch",
 ]

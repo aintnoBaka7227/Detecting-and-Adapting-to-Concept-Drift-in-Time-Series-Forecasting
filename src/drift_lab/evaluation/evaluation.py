@@ -346,7 +346,6 @@ def calculate_rolling_mae(y_true, y_pred, window=48 * 7):
 
 # Detection evaluation metrics
 
-
 def _validate_changepoints(changepoints, n_observations, name):
     """
     Validate changepoint indices and return them as sorted unique integers.
@@ -702,6 +701,11 @@ def evaluate_detections(
 
 REGIME_PRE_DRIFT_DAYS = 7
 REGIME_POST_DRIFT_DAYS = 7
+
+# Global regime only: added to the end of each event's drift window, so
+# the week after an event still counts as drift before post_drift begins.
+DRIFT_END_BUFFER = pd.Timedelta(days=7)
+
 POINT_WINDOW = pd.Timedelta(days=7)
 INTERVAL_GRACE = pd.Timedelta(days=7)
 
@@ -769,37 +773,315 @@ def build_event_windows(
     ]
 
 
-def assign_regime(detected_timestamps, event_windows):
-    """
-    Assign one regime and event ID to every detection timestamp.
+# Commented out 2026-10-15: labelled detections with a regime, which no
+# table reports. Forecast timestamps now use assign_timestamp_global_regime
+# (official) and assign_event_local_regime (comparison).
+# def assign_detection_with_regime(detected_timestamps, event_windows):
+#     """
+#     Assign one regime and event ID to every detection timestamp.
+#
+#     Priority:
+#         drift > pre_drift > event-linked post_drift
+#         > general post_drift > pre_drift fallback
+#
+#     Attribution:
+#         - drift:
+#           Use the matching event ID.
+#         - pre_drift:
+#           Use the upcoming event ID.
+#         - event-linked post_drift:
+#           Use the event ID when the timestamp falls between that
+#           event's drift_end and post_drift_end.
+#         - general post_drift:
+#           If an earlier event exists but the timestamp falls outside
+#           every event window, use event_id="unassigned".
+#         - before all events:
+#           Use regime="pre_drift" and event_id="unassigned".
+#
+#     When multiple windows overlap:
+#         - drift and pre_drift use the earliest event by drift_start;
+#         - post_drift uses the most recently started applicable event.
+#     """
+#     required_columns = {
+#         "event_id",
+#         "drift_start",
+#         "drift_end",
+#         "pre_drift_start",
+#         "post_drift_end",
+#     }
+#
+#     missing_columns = required_columns - set(event_windows.columns)
+#     if missing_columns:
+#         raise ValueError(
+#             "event_windows is missing columns: "
+#             f"{sorted(missing_columns)}"
+#         )
+#
+#     timestamps = (
+#         pd.DatetimeIndex(
+#             pd.to_datetime(list(detected_timestamps))
+#         )
+#         .unique()
+#         .sort_values()
+#     )
+#
+#     windows = event_windows.copy()
+#
+#     for column in (
+#         "drift_start",
+#         "drift_end",
+#         "pre_drift_start",
+#         "post_drift_end",
+#     ):
+#         windows[column] = pd.to_datetime(windows[column])
+#
+#     windows = (
+#         windows
+#         .sort_values(["drift_start", "event_id"])
+#         .reset_index(drop=True)
+#     )
+#
+#     records = []
+#
+#     for timestamp in timestamps:
+#         # Priority 1: inside a documented drift window.
+#         drift_matches = windows[
+#             (windows["drift_start"] <= timestamp)
+#             & (timestamp < windows["drift_end"])
+#         ]
+#
+#         if not drift_matches.empty:
+#             selected_event = drift_matches.iloc[0]
+#
+#             regime = "drift"
+#             event_id = selected_event["event_id"]
+#
+#         else:
+#             # Priority 2: inside an upcoming event's pre-drift window.
+#             pre_drift_matches = windows[
+#                 (windows["pre_drift_start"] <= timestamp)
+#                 & (timestamp < windows["drift_start"])
+#             ]
+#
+#             if not pre_drift_matches.empty:
+#                 selected_event = pre_drift_matches.iloc[0]
+#
+#                 regime = "pre_drift"
+#                 event_id = selected_event["event_id"]
+#
+#             else:
+#                 # Priority 3: inside a bounded post-drift window.
+#                 post_drift_matches = windows[
+#                     (windows["drift_end"] <= timestamp)
+#                     & (timestamp < windows["post_drift_end"])
+#                 ]
+#
+#                 if not post_drift_matches.empty:
+#                     # Attribute overlapping post-drift windows to the
+#                     # most recently started applicable event.
+#                     selected_event = (
+#                         post_drift_matches
+#                         .sort_values(
+#                             ["drift_start", "event_id"],
+#                             ascending=[False, True],
+#                         )
+#                         .iloc[0]
+#                     )
+#
+#                     regime = "post_drift"
+#                     event_id = selected_event["event_id"]
+#
+#                 # Priority 4: outside all event windows, but at least
+#                 # one event has already occurred.
+#                 elif (windows["drift_start"] <= timestamp).any():
+#                     regime = "post_drift"
+#                     event_id = "unassigned"
+#
+#                 # Priority 5: before every event and outside an
+#                 # explicit pre-drift window.
+#                 else:
+#                     regime = "pre_drift"
+#                     event_id = "unassigned"
+#
+#         records.append(
+#             {
+#                 "timestamp": timestamp,
+#                 "regime": regime,
+#                 "event_id": event_id,
+#             }
+#         )
+#
+#     return pd.DataFrame(
+#         records,
+#         columns=["timestamp", "regime", "event_id"],
+#     )
 
-    Priority:
-        drift > pre_drift > event-linked post_drift
-        > general post_drift > pre_drift fallback
+
+
+def assign_timestamp_global_regime(
+    timestamps,
+    event_windows,
+    drift_end_buffer=DRIFT_END_BUFFER,
+):
+    """
+    Assign one global regime to every test-split timestamp.
+
+    The formal regime rule for T3 onwards. Only each event's drift window
+    from `build_event_windows` is used, extended at the end by
+    `drift_end_buffer`: `drift_start` to `drift_end + drift_end_buffer`.
+    The pre-drift and post-drift buffers are not used.
+
+    Rules:
+        - pre_drift: before the first event in the test split;
+        - drift: inside an event's drift window;
+        - post_drift: after an event's drift window ends, until the next
+          event starts.
+
+    Every timestamp gets exactly one regime and one event; none is left
+    unassigned.
 
     Attribution:
-        - drift:
-          Use the matching event ID.
-        - pre_drift:
-          Use the upcoming event ID.
-        - event-linked post_drift:
-          Use the event ID when the timestamp falls between that
-          event's drift_end and post_drift_end.
-        - general post_drift:
-          If an earlier event exists but the timestamp falls outside
-          every event window, use event_id="unassigned".
-        - before all events:
-          Use regime="pre_drift" and event_id="unassigned".
+        - pre_drift: the first event in the test split;
+        - drift: the earliest event (by drift_start, event_id) whose
+          drift window contains the timestamp;
+        - post_drift: the most recently started event whose drift window
+          has ended.
 
-    When multiple windows overlap:
-        - drift and pre_drift use the earliest event by drift_start;
-        - post_drift uses the most recently started applicable event.
+    Parameters
+    ----------
+    timestamps : array-like of datetime-like
+        Test-split timestamps to label.
+    event_windows : pandas.DataFrame
+        Output from build_event_windows().
+    drift_end_buffer : pandas.Timedelta
+        Added to the end of every drift window. Default is 7 days.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per unique timestamp, sorted, with columns: timestamp,
+        regime, event_id.
+    """
+    required_columns = {"event_id", "drift_start", "drift_end"}
+
+    missing_columns = required_columns - set(event_windows.columns)
+    if missing_columns:
+        raise ValueError(
+            "event_windows is missing columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    timestamps = (
+        pd.DatetimeIndex(
+            pd.to_datetime(list(timestamps))
+        )
+        .unique()
+        .sort_values()
+    )
+
+    windows = event_windows.copy()
+
+    for column in ("drift_start", "drift_end"):
+        windows[column] = pd.to_datetime(windows[column])
+
+    windows["drift_end"] = windows["drift_end"] + pd.Timedelta(drift_end_buffer)
+
+    windows = (
+        windows
+        .sort_values(["drift_start", "event_id"])
+        .reset_index(drop=True)
+    )
+
+    if len(timestamps) == 0:
+        return pd.DataFrame(columns=["timestamp", "regime", "event_id"])
+
+    # Global rule for the test split: only events whose drift window
+    # overlaps the supplied timestamps count. Events wholly before or
+    # after the split are ignored.
+    windows = windows[
+        (windows["drift_end"] > timestamps[0])
+        & (windows["drift_start"] <= timestamps[-1])
+    ]
+
+    if windows.empty:
+        raise ValueError(
+            "no event's drift window overlaps the timestamps; "
+            "every timestamp needs a regime and an event."
+        )
+
+    # pre_drift: everything before the first event in the split.
+    regime = np.full(len(timestamps), "pre_drift", dtype=object)
+    event_id = np.full(len(timestamps), windows.iloc[0]["event_id"], dtype=object)
+
+    # post_drift: in start order, so the most recently started event
+    # whose drift window has ended is written last.
+    for window in windows.itertuples():
+        ended = timestamps >= window.drift_end
+        regime[ended] = "post_drift"
+        event_id[ended] = window.event_id
+
+    # drift outranks post_drift; in reverse start order, so the earliest
+    # event is written last.
+    for window in windows.iloc[::-1].itertuples():
+        inside = (
+            (timestamps >= window.drift_start)
+            & (timestamps < window.drift_end)
+        )
+        regime[inside] = "drift"
+        event_id[inside] = window.event_id
+
+    return pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "regime": regime,
+            "event_id": event_id,
+        },
+        columns=["timestamp", "regime", "event_id"],
+    )
+
+
+def assign_event_local_regime(timestamps, event_windows):
+    """
+    Assign an event-local regime to test-split timestamps near an event.
+
+    For the event-local variant of T3 / T4, compared against the global
+    rule (`assign_timestamp_global_regime`). Uses all three windows from
+    `build_event_windows`, each left inclusive, right exclusive, with no
+    drift-end buffer:
+        - pre_drift: [pre_drift_start, drift_start);
+        - drift: [drift_start, drift_end);
+        - post_drift: [drift_end, post_drift_end).
+
+    Only timestamps inside some event's window are labelled; every other
+    timestamp is left out of the result.
+
+    Overlapping windows follow the same rules as the global regime:
+        - priority: drift > pre_drift > post_drift;
+        - drift and pre_drift: the earliest event (by drift_start,
+          event_id) wins;
+        - post_drift: the most recently started event wins.
+
+    Like the global rule, only events whose drift window overlaps the
+    supplied timestamps (the test split) count.
+
+    Parameters
+    ----------
+    timestamps : array-like of datetime-like
+        Test-split timestamps to label.
+    event_windows : pandas.DataFrame
+        Output from build_event_windows().
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per labelled timestamp, sorted, with columns: timestamp,
+        regime, event_id. Timestamps outside every window are absent.
     """
     required_columns = {
         "event_id",
+        "pre_drift_start",
         "drift_start",
         "drift_end",
-        "pre_drift_start",
         "post_drift_end",
     }
 
@@ -812,7 +1094,7 @@ def assign_regime(detected_timestamps, event_windows):
 
     timestamps = (
         pd.DatetimeIndex(
-            pd.to_datetime(list(detected_timestamps))
+            pd.to_datetime(list(timestamps))
         )
         .unique()
         .sort_values()
@@ -820,12 +1102,7 @@ def assign_regime(detected_timestamps, event_windows):
 
     windows = event_windows.copy()
 
-    for column in (
-        "drift_start",
-        "drift_end",
-        "pre_drift_start",
-        "post_drift_end",
-    ):
+    for column in ("pre_drift_start", "drift_start", "drift_end", "post_drift_end"):
         windows[column] = pd.to_datetime(windows[column])
 
     windows = (
@@ -834,80 +1111,78 @@ def assign_regime(detected_timestamps, event_windows):
         .reset_index(drop=True)
     )
 
-    records = []
-
-    for timestamp in timestamps:
-        # Priority 1: inside a documented drift window.
-        drift_matches = windows[
-            (windows["drift_start"] <= timestamp)
-            & (timestamp < windows["drift_end"])
+    if len(timestamps) > 0:
+        # Only events in the test split count, as in the global rule.
+        windows = windows[
+            (windows["drift_end"] > timestamps[0])
+            & (windows["drift_start"] <= timestamps[-1])
         ]
 
-        if not drift_matches.empty:
-            selected_event = drift_matches.iloc[0]
+    regime = np.full(len(timestamps), None, dtype=object)
+    event_id = np.full(len(timestamps), None, dtype=object)
 
-            regime = "drift"
-            event_id = selected_event["event_id"]
+    def label(name, start_column, end_column, frame):
+        for window in frame.itertuples():
+            inside = (
+                (timestamps >= getattr(window, start_column))
+                & (timestamps < getattr(window, end_column))
+            )
+            regime[inside] = name
+            event_id[inside] = window.event_id
 
-        else:
-            # Priority 2: inside an upcoming event's pre-drift window.
-            pre_drift_matches = windows[
-                (windows["pre_drift_start"] <= timestamp)
-                & (timestamp < windows["drift_start"])
-            ]
+    # Lowest priority first, so higher priorities overwrite. Within a
+    # regime the winning event is written last.
+    label("post_drift", "drift_end", "post_drift_end", windows)
+    label("pre_drift", "pre_drift_start", "drift_start", windows.iloc[::-1])
+    label("drift", "drift_start", "drift_end", windows.iloc[::-1])
 
-            if not pre_drift_matches.empty:
-                selected_event = pre_drift_matches.iloc[0]
-
-                regime = "pre_drift"
-                event_id = selected_event["event_id"]
-
-            else:
-                # Priority 3: inside a bounded post-drift window.
-                post_drift_matches = windows[
-                    (windows["drift_end"] <= timestamp)
-                    & (timestamp < windows["post_drift_end"])
-                ]
-
-                if not post_drift_matches.empty:
-                    # Attribute overlapping post-drift windows to the
-                    # most recently started applicable event.
-                    selected_event = (
-                        post_drift_matches
-                        .sort_values(
-                            ["drift_start", "event_id"],
-                            ascending=[False, True],
-                        )
-                        .iloc[0]
-                    )
-
-                    regime = "post_drift"
-                    event_id = selected_event["event_id"]
-
-                # Priority 4: outside all event windows, but at least
-                # one event has already occurred.
-                elif (windows["drift_start"] <= timestamp).any():
-                    regime = "post_drift"
-                    event_id = "unassigned"
-
-                # Priority 5: before every event and outside an
-                # explicit pre-drift window.
-                else:
-                    regime = "pre_drift"
-                    event_id = "unassigned"
-
-        records.append(
-            {
-                "timestamp": timestamp,
-                "regime": regime,
-                "event_id": event_id,
-            }
-        )
+    labelled = pd.notna(regime)
 
     return pd.DataFrame(
-        records,
+        {
+            "timestamp": timestamps[labelled],
+            "regime": regime[labelled],
+            "event_id": event_id[labelled],
+        },
         columns=["timestamp", "regime", "event_id"],
     )
+
+
+def calculate_match_window(
+    start_date,
+    end_date,
+    date_precision,
+    point_window=POINT_WINDOW,
+    interval_grace=INTERVAL_GRACE,
+):
+    """
+    Match window of one documented event: [start, end), left inclusive,
+    right exclusive.
+
+    The event's end date counts as a whole day, so an event from s to e
+    covers [s 00:00, (e+1) 00:00); the tolerance is added after that.
+
+    - Single-date event (date_precision == day):
+      [start, start + 1 day + point_window).
+    - Long event (date_precision != day):
+      [start, end + 1 day + interval_grace).
+
+    Shared by `match_unmatch` and the T2 chance baseline, so both use the
+    same window.
+
+    Returns
+    -------
+    tuple of pandas.Timestamp
+        (window_start, window_end), window_end exclusive.
+    """
+    start = pd.Timestamp(start_date)
+
+    if str(date_precision).lower() == "day":
+        end = start + pd.Timedelta(days=1) + point_window
+    else:
+        end = pd.Timestamp(end_date) + pd.Timedelta(days=1) + interval_grace
+
+    return start, end
 
 
 def match_unmatch(
@@ -922,10 +1197,10 @@ def match_unmatch(
     Classify each detection as Match, Unmatch, or Ignored.
 
     Matching rules:
-    - Single-date event (date_precision == day): match window is
-      [event_start, event_start + tolerance].
-    - Long event (date_precision != day): match window is
-      [event_start, event_end + tolerance].
+    - Match windows come from `calculate_match_window`: left inclusive,
+      right exclusive, the end date counting as a whole day, then the
+      tolerance. Single-date event: [start, start + 1 day +
+      point_window). Long event: [start, end + 1 day + interval_grace).
     - Pre-event detections cannot match.
     - Tier 1 events are ranked above Tier 2 and are allocated before any
       Tier 2 event can take a detection. Matching within each tier is
@@ -938,8 +1213,10 @@ def match_unmatch(
 
     Before event matching runs, the raw detection stream is passed
     through a chronological refractory filter: the earliest detection
-    is kept and starts a `refractory_period` window; every later
-    detection that falls inside that window is labelled Ignored; the
+    is kept and starts a `refractory_period` window
+    [kept, kept + refractory_period), left inclusive, right exclusive;
+    every later detection that falls inside that window is labelled
+    Ignored; the
     first detection after the window elapses is kept and starts the
     next window; and so on for the whole stream. Only surviving (kept)
     detections are eligible for event matching. This applies uniformly
@@ -1011,7 +1288,7 @@ def match_unmatch(
     ignored_list = []
     refractory_until = None
     for timestamp in detected_raw:
-        if refractory_until is not None and timestamp <= refractory_until:
+        if refractory_until is not None and timestamp < refractory_until:
             ignored_list.append(timestamp)
         else:
             kept_timestamps.append(timestamp)
@@ -1024,17 +1301,19 @@ def match_unmatch(
     results = []
 
     for event in catalogue.itertuples(index=False):
-        start = event.start_date
-        if str(event.date_precision).lower() == "day":
-            window_end = start + point_window
-        else:
-            window_end = event.end_date + interval_grace
+        start, window_end = calculate_match_window(
+            event.start_date,
+            event.end_date,
+            event.date_precision,
+            point_window=point_window,
+            interval_grace=interval_grace,
+        )
 
         hit = next(
             (
                 i
                 for i, timestamp in enumerate(detected)
-                if not used[i] and start <= timestamp <= window_end
+                if not used[i] and start <= timestamp < window_end
             ),
             None,
         )
@@ -1088,86 +1367,84 @@ def match_unmatch(
     ).reset_index(drop=True)
 
 
-def evaluate_aemo_detections(
-    detected_timestamps,
-    events,
-    region,
-    point_window=POINT_WINDOW,
-    interval_grace=INTERVAL_GRACE,
-    refractory_period=REFRACTORY_PERIOD,
-    pre_drift_days=REGIME_PRE_DRIFT_DAYS,
-    post_drift_days=REGIME_POST_DRIFT_DAYS,
-):
-    """
-    Full evaluation pipeline: regime labels, match/unmatch, metrics.
+# Commented out 2026-10-15: unused. T2 calls match_unmatch and
+# calculate_event_metrics directly (run_harness.record_run), and the
+# per-detection regime tags this added are not reported anywhere.
+# def evaluate_aemo_detections(
+#     detected_timestamps,
+#     events,
+#     region,
+#     point_window=POINT_WINDOW,
+#     interval_grace=INTERVAL_GRACE,
+#     refractory_period=REFRACTORY_PERIOD,
+#     pre_drift_days=REGIME_PRE_DRIFT_DAYS,
+#     post_drift_days=REGIME_POST_DRIFT_DAYS,
+# ):
+#     """
+#     Full evaluation pipeline: regime labels, match/unmatch, metrics.
+#
+#     Parameters
+#     ----------
+#     detected_timestamps : array-like of datetime-like
+#         Detector output timestamps.
+#     events : pandas.DataFrame
+#         Full events catalogue with region column.
+#     region : str
+#         Filter events to this region.
+#     point_window : pandas.Timedelta
+#         Window for matching point events.
+#     interval_grace : pandas.Timedelta
+#         Grace period for matching interval events.
+#     refractory_period : pandas.Timedelta
+#         Mandatory waiting time after a kept detection during which
+#         further detections in the raw stream are ignored, regardless of
+#         whether they would otherwise match, before event matching runs.
+#         Default is 14 days.
+#     pre_drift_days : int
+#         Days before event for pre-drift window.
+#     post_drift_days : int
+#         Days after event for post-drift window.
+#
+#     Returns
+#     -------
+#     dict
+#         match_results : pandas.DataFrame from match_unmatch()
+#         regime_labels : pandas.DataFrame from assign_detection_with_regime()
+#         metrics : dict from calculate_event_metrics()
+#     """
+#     match_results = match_unmatch(
+#     detected_timestamps,
+#     events,
+#     region,
+#     point_window=point_window,
+#     interval_grace=interval_grace,
+#     refractory_period=refractory_period,
+#     )
+#
+#     event_windows = build_event_windows(
+#         events,
+#         region,
+#         pre_drift_days,
+#         post_drift_days,
+#     )
+#
+#     regime_results = assign_detection_with_regime(
+#         detected_timestamps,
+#         event_windows,
+#     )
+#
+#     event_metrics = calculate_event_metrics(
+#         match_results,
+#         events,
+#         region,
+#     )
+#
+#     return {
+#         "match_results": match_results,
+#         "regime_results": regime_results,
+#         "event_metrics": event_metrics,
+#     }
 
-    Parameters
-    ----------
-    detected_timestamps : array-like of datetime-like
-        Detector output timestamps.
-    events : pandas.DataFrame
-        Full events catalogue with region column.
-    region : str
-        Filter events to this region.
-    point_window : pandas.Timedelta
-        Window for matching point events.
-    interval_grace : pandas.Timedelta
-        Grace period for matching interval events.
-    refractory_period : pandas.Timedelta
-        Mandatory waiting time after a kept detection during which
-        further detections in the raw stream are ignored, regardless of
-        whether they would otherwise match, before event matching runs.
-        Default is 14 days.
-    pre_drift_days : int
-        Days before event for pre-drift window.
-    post_drift_days : int
-        Days after event for post-drift window.
-
-    Returns
-    -------
-    dict
-        match_results : pandas.DataFrame from match_unmatch()
-        regime_labels : pandas.DataFrame from assign_regime()
-        metrics : dict from calculate_event_metrics()
-    """
-    match_results = match_unmatch(
-    detected_timestamps,
-    events,
-    region,
-    point_window=point_window,
-    interval_grace=interval_grace,
-    refractory_period=refractory_period,
-    )
-
-    event_windows = build_event_windows(
-        events,
-        region,
-        pre_drift_days,
-        post_drift_days,
-    )
-
-    regime_results = assign_regime(
-        detected_timestamps,
-        event_windows,
-    )
-
-    event_metrics = calculate_event_metrics(
-        match_results,
-        events,
-        region,
-    )
-
-    regime_metrics = calculate_regime_metrics(
-        match_results,
-        regime_results,
-    )
-
-    return {
-        "match_results": match_results,
-        "regime_results": regime_results,
-        "event_metrics": event_metrics,
-        "regime_metrics": regime_metrics,
-    }
 
 
 def calculate_event_metrics(match_results, events, region):
@@ -1256,109 +1533,6 @@ def calculate_event_metrics(match_results, events, region):
         ),
     }
 
-def calculate_regime_metrics(match_results, regime_results):
-    """
-    Calculate detection metrics separately for each regime.
-
-    Overall `precision` is matched / effective detections per regime
-    (effective excludes rows labelled "Ignored" by the refractory
-    period -- see REFRACTORY_PERIOD / match_unmatch). `precision_t1`
-    and `precision_t2` use the same pooled per-regime denominator as
-    the overall `precision` -- each tier's own match count divided by
-    that regime's effective detections (see calculate_event_metrics for
-    the same convention at the whole-run level).
-
-    Parameters
-    ----------
-    match_results : pandas.DataFrame
-        Output from match_unmatch().
-        Required columns:
-            timestamp, label, tier
-
-    regime_results : pandas.DataFrame
-        Output from assign_regime().
-        Required columns:
-            timestamp, regime
-
-    Returns
-    -------
-    dict
-        Detection metrics for pre-drift, drift and post-drift.
-    """
-    required_match_columns = {"timestamp", "label", "tier"}
-    required_regime_columns = {"timestamp", "regime"}
-
-    missing_match = required_match_columns - set(match_results.columns)
-    if missing_match:
-        raise ValueError(
-            f"match_results is missing columns: {sorted(missing_match)}"
-        )
-
-    missing_regime = required_regime_columns - set(regime_results.columns)
-    if missing_regime:
-        raise ValueError(
-            f"regime_results is missing columns: {sorted(missing_regime)}"
-        )
-
-    # Combine each detection's matching result with its regime.
-    audit = regime_results.merge(
-        match_results,
-        on="timestamp",
-        how="left",
-        validate="one_to_one",
-    )
-
-    regime_metrics = {}
-
-    for regime in ("pre_drift", "drift", "post_drift"):
-        rows = audit[audit["regime"] == regime]
-
-        n_detections = len(rows)
-        n_ignored = int((rows["label"] == "Ignored").sum())
-        n_effective = n_detections - n_ignored
-
-        tier1_matched = int(
-            (
-                (rows["label"] == "Match")
-                & (rows["tier"] == 1)
-            ).sum()
-        )
-
-        tier2_matched = int(
-            (
-                (rows["label"] == "Match")
-                & (rows["tier"] == 2)
-            ).sum()
-        )
-
-        n_matched = tier1_matched + tier2_matched
-        n_unmatched = n_effective - n_matched
-
-        regime_metrics[regime] = {
-            "detections": n_detections,
-            "ignored_detections": n_ignored,
-            "tier1_matched": tier1_matched,
-            "tier2_matched": tier2_matched,
-            "matched_detections": n_matched,
-            "unmatched_detections": n_unmatched,
-            "precision": (
-                n_matched / n_effective
-                if n_effective > 0
-                else float("nan")
-            ),
-            "precision_t1": (
-                tier1_matched / n_effective
-                if n_effective > 0
-                else float("nan")
-            ),
-            "precision_t2": (
-                tier2_matched / n_effective
-                if n_effective > 0
-                else float("nan")
-            ),
-        }
-
-    return regime_metrics
 # Planned evaluation metrics
 #
 # Uncertainty evaluation (Step 6):
@@ -1473,7 +1647,13 @@ def calculate_adaptation_gain(arm_drift_mae, arm_a_drift_mae, n_retrains):
 
 
 def calculate_pinball_loss(y_true, y_quantile, quantile):
-    """Mean pinball loss of one quantile forecast."""
+    """
+    Mean pinball loss of one quantile forecast.
+
+    An infinite quantile forecast (a conformal interval with an infinite
+    radius) is valid input and makes the loss infinite; it is never
+    capped or turned into NaN.
+    """
 
     y_true = pd.Series(y_true, dtype=float)
     y_quantile = pd.Series(y_quantile, dtype=float)
@@ -1488,7 +1668,7 @@ def calculate_pinball_loss(y_true, y_quantile, quantile):
         raise ValueError("quantile must be strictly between 0 and 1.")
 
     error = y_true.to_numpy() - y_quantile.to_numpy()
-    losses = quantile * error * (error >= 0) + (quantile - 1) * error * (error < 0)
+    losses = np.where(error >= 0, quantile * error, (quantile - 1) * error)
     return float(np.mean(losses))
 
 
@@ -1517,3 +1697,496 @@ def calculate_interval_pinball_loss(y_true, lower, upper, alpha=0.10):
     lower_loss = calculate_pinball_loss(y_true, lower, alpha / 2)
     upper_loss = calculate_pinball_loss(y_true, upper, 1 - alpha / 2)
     return float((lower_loss + upper_loss) / 2)
+
+# Step 6: uncertainty evaluation metrics
+# emperical coverage, mean interval width, normalised interval width, worst 24-hour coverage
+
+def _validate_interval_inputs(
+    lower_bound,
+    upper_bound,
+):
+    """
+    Validate prediction-interval bounds and return float Series.
+
+    Infinite bounds are valid (a conformal interval with an infinite
+    radius); missing values are not. Both Series are re-indexed 0..n-1 so
+    the metrics compare by position, not by index label.
+    """
+    lower_bound = pd.Series(lower_bound, dtype=float).reset_index(drop=True)
+    upper_bound = pd.Series(upper_bound, dtype=float).reset_index(drop=True)
+
+    if len(lower_bound) != len(upper_bound):
+        raise ValueError(
+            "lower_bound and upper_bound must have the same length."
+        )
+
+    if len(lower_bound) == 0:
+        raise ValueError(
+            "Uncertainty evaluation inputs must not be empty."
+        )
+
+    if lower_bound.isna().any() or upper_bound.isna().any():
+        raise ValueError(
+            "Uncertainty evaluation inputs must not contain missing values."
+        )
+
+    if (lower_bound > upper_bound).any():
+        raise ValueError(
+            "lower_bound must not exceed upper_bound."
+        )
+
+    return lower_bound, upper_bound
+
+
+def _interval_covered(
+    y_true,
+    lower_bound,
+    upper_bound,
+):
+    """
+    Per-observation coverage flags (bool Series), both boundaries included.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    if len(y_true) != len(lower_bound):
+        raise ValueError(
+            "y_true, lower_bound, and upper_bound "
+            "must have the same length."
+        )
+
+    if not np.isfinite(y_true.to_numpy()).all():
+        raise ValueError(
+            "y_true must contain only finite values."
+        )
+
+    return (y_true >= lower_bound) & (y_true <= upper_bound)
+
+
+def calculate_empirical_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+):
+    """
+    Calculate empirical prediction-interval coverage.
+
+    Coverage is the proportion of observed values lying inside the
+    supplied prediction interval, including both interval boundaries.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    Returns
+    -------
+    float
+        Fraction of observations covered by the interval.
+    """
+    covered = _interval_covered(y_true, lower_bound, upper_bound)
+
+    return float(covered.mean())
+
+
+def calculate_mean_interval_width(
+    lower_bound,
+    upper_bound,
+):
+    """
+    Calculate mean prediction-interval width.
+
+    Parameters
+    ----------
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    Returns
+    -------
+    float
+        Mean interval width.
+    """
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    return float(
+        (upper_bound - lower_bound).mean()
+    )
+
+
+def calculate_width_scale(y_train):
+    """
+    Denominator for the normalised interval width: mean actual demand over
+    the TRAIN window.
+
+    Compute it once per region from TRAIN only and pass the same value to
+    every method and regime; never recompute it on calibration, test or a
+    single regime.
+
+    Parameters
+    ----------
+    y_train : array-like
+        Actual values in the TRAIN window. Missing values are ignored.
+
+    Returns
+    -------
+    float
+        Mean of the TRAIN actuals.
+    """
+    y_train = pd.Series(y_train, dtype=float).dropna()
+
+    if y_train.empty:
+        raise ValueError("y_train must contain at least one value.")
+
+    scale = float(y_train.mean())
+
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("width scale must be a positive finite number.")
+
+    return scale
+
+
+def calculate_normalised_interval_width(
+    lower_bound,
+    upper_bound,
+    scale,
+):
+    """
+    Calculate mean prediction-interval width divided by a fixed scale.
+
+    NormalisedMeanWidth = mean(upper - lower) / scale. For AEMO the scale
+    is the region's mean TRAIN demand (`calculate_width_scale`); for the
+    synthetic simulation it is the fixed value 10.
+
+    Parameters
+    ----------
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    scale : float
+        Positive denominator, shared by every method and regime.
+
+    Returns
+    -------
+    float
+        Normalised mean interval width.
+    """
+    if isinstance(scale, bool) or not np.isfinite(scale) or scale <= 0:
+        raise ValueError("scale must be a positive finite number.")
+
+    return calculate_mean_interval_width(lower_bound, upper_bound) / float(scale)
+
+
+def calculate_rolling_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    window=48,
+):
+    """
+    Calculate rolling empirical coverage.
+
+    Default:
+        48 half-hour intervals = 24 hours (window=8 gives 4 hours).
+
+    Pass the full chronological stream, not one regime's rows, so every
+    window covers consecutive timestamps.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    window : int
+        Number of observations in the rolling window.
+
+    Returns
+    -------
+    pd.Series
+        Coverage of the window ending at each observation; NaN until the
+        first full window.
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, np.integer)) or window < 1:
+        raise ValueError("window must be a positive integer.")
+
+    covered = _interval_covered(y_true, lower_bound, upper_bound)
+
+    return covered.astype(float).rolling(window=window).mean()
+
+
+HALF_HOUR = pd.Timedelta(minutes=30)
+
+
+def _eligible_window_ends(
+    length,
+    window=48,
+    regime_labels=None,
+    regime=None,
+    timestamps=None,
+    interval=HALF_HOUR,
+):
+    """
+    Boolean mask over observations: True where the `window` observations
+    ending there form an eligible window.
+
+    A window is eligible when it is complete (`window` observations), when
+    every observation carries `regime` (if `regime_labels` is given), and
+    when its timestamps are consecutive -- the first and last are exactly
+    (window - 1) * interval apart -- so a window never spans a gap (if
+    `timestamps` is given).
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, np.integer)) or window < 1:
+        raise ValueError("window must be a positive integer.")
+
+    if (regime_labels is None) != (regime is None):
+        raise ValueError("regime_labels and regime must be given together.")
+
+    eligible = pd.Series(np.arange(length) >= window - 1)
+
+    if regime_labels is not None:
+        labels = pd.Series(regime_labels).reset_index(drop=True)
+
+        if len(labels) != length:
+            raise ValueError(
+                "regime_labels must have the same length as y_true."
+            )
+
+        if labels.isna().any():
+            raise ValueError("regime_labels must not contain missing values.")
+
+        labels = labels.astype(str).str.replace("-", "_", regex=False)
+        in_regime = labels == str(regime).replace("-", "_")
+        eligible &= in_regime.astype(float).rolling(window=window).sum() == window
+
+    if timestamps is not None:
+        stamps = pd.Series(pd.to_datetime(timestamps)).reset_index(drop=True)
+
+        if len(stamps) != length:
+            raise ValueError("timestamps must have the same length as y_true.")
+
+        span = stamps - stamps.shift(window - 1)
+        eligible &= span == (window - 1) * pd.Timedelta(interval)
+
+    return eligible
+
+
+def calculate_complete_window_count(
+    length,
+    window=48,
+    regime_labels=None,
+    regime=None,
+    timestamps=None,
+):
+    """
+    Number of eligible rolling windows (T5 "complete 24-hour windows").
+
+    Uses exactly the eligibility rule of `calculate_worst_rolling_coverage`:
+    complete, inside one regime, consecutive timestamps. For one continuous
+    segment of n observations this is max(0, n - window + 1), summed over
+    segments. Windows overlap, so the count is not a number of independent
+    days.
+
+    Parameters
+    ----------
+    length : int
+        Number of observations in the full chronological stream.
+    window, regime_labels, regime, timestamps
+        As in `calculate_worst_rolling_coverage`.
+
+    Returns
+    -------
+    int
+    """
+    return int(
+        _eligible_window_ends(
+            length,
+            window=window,
+            regime_labels=regime_labels,
+            regime=regime,
+            timestamps=timestamps,
+        ).sum()
+    )
+
+
+def calculate_worst_rolling_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    window=48,
+    regime_labels=None,
+    regime=None,
+    timestamps=None,
+):
+    """
+    Calculate the worst (lowest) rolling coverage (T5 "worst 24h coverage").
+
+    With `regime_labels` and `regime`, only windows lying entirely inside
+    that regime count, so the by-regime value never mixes regimes or joins
+    two separate events. Rolling is still done on the full stream.
+
+    Parameters
+    ----------
+    y_true : array-like
+        Observed values, full chronological stream.
+
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    window : int
+        Number of observations in the rolling window (48 = 24 hours).
+
+    regime_labels : array-like, optional
+        Regime label per observation; "pre_drift" and "pre-drift" are both
+        accepted.
+
+    regime : str, optional
+        Regime to report. Required together with `regime_labels`.
+
+    timestamps : array-like of datetime-like, optional
+        Timestamp per observation. When given, a window counts only if its
+        timestamps are consecutive half-hours, so it never spans a gap.
+
+    Returns
+    -------
+    float
+        Lowest window coverage; NaN when no full window qualifies.
+    """
+    rolling = calculate_rolling_coverage(
+        y_true,
+        lower_bound,
+        upper_bound,
+        window=window,
+    )
+
+    eligible = _eligible_window_ends(
+        len(rolling),
+        window=window,
+        regime_labels=regime_labels,
+        regime=regime,
+        timestamps=timestamps,
+    )
+    rolling = rolling[eligible.to_numpy()].dropna()
+
+    if rolling.empty:
+        return float("nan")
+
+    return float(rolling.min())
+
+
+def calculate_uq_metrics_by_regime(
+    y_true,
+    lower_bound,
+    upper_bound,
+    regime_labels,
+    window=48,
+    width_scale=None,
+    timestamps=None,
+):
+    """
+    Coverage, mean interval width and worst rolling coverage per regime (T5).
+
+    Pass the full chronological stream. Coverage and width are pooled over
+    every timestamp of the regime; the worst rolling coverage only counts
+    windows lying entirely inside it (NaN when none does). `regime_labels`
+    follows `calculate_forecast_metrics_by_regime`: "pre_drift" and
+    "pre-drift" are both accepted and empty regimes are omitted. With
+    `width_scale` (see `calculate_width_scale`), each regime also gets a
+    "normalised_interval_width" over that same fixed denominator. With
+    `timestamps`, windows spanning a gap in timestamps are not eligible.
+    "n_complete_windows" counts the eligible windows behind the worst
+    rolling coverage (`calculate_complete_window_count`).
+
+    Returns
+    -------
+    dict
+        {regime: {"coverage", "mean_interval_width",
+        ["normalised_interval_width",] "worst_rolling_coverage",
+        "n_complete_windows", "n_observations"}} keyed pre_drift / drift /
+        post_drift.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+    labels = pd.Series(regime_labels).reset_index(drop=True)
+
+    if not (len(y_true) == len(lower_bound) == len(labels)):
+        raise ValueError(
+            "y_true, lower_bound, upper_bound and regime_labels "
+            "must have the same length."
+        )
+
+    if labels.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    labels = labels.astype(str).str.replace("-", "_", regex=False)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
+    if unexpected:
+        raise ValueError(
+            f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
+        )
+
+    metrics = {}
+    for regime in FORECAST_REGIMES:
+        mask = (labels == regime).to_numpy()
+        if not mask.any():
+            continue
+        metrics[regime] = {
+            "coverage": calculate_empirical_coverage(
+                y_true[mask], lower_bound[mask], upper_bound[mask]
+            ),
+            "mean_interval_width": calculate_mean_interval_width(
+                lower_bound[mask], upper_bound[mask]
+            ),
+            "worst_rolling_coverage": calculate_worst_rolling_coverage(
+                y_true,
+                lower_bound,
+                upper_bound,
+                window=window,
+                regime_labels=labels,
+                regime=regime,
+                timestamps=timestamps,
+            ),
+            "n_complete_windows": calculate_complete_window_count(
+                len(labels),
+                window=window,
+                regime_labels=labels,
+                regime=regime,
+                timestamps=timestamps,
+            ),
+            "n_observations": int(mask.sum()),
+        }
+        if width_scale is not None:
+            metrics[regime]["normalised_interval_width"] = (
+                calculate_normalised_interval_width(
+                    lower_bound[mask], upper_bound[mask], width_scale
+                )
+            )
+    return metrics

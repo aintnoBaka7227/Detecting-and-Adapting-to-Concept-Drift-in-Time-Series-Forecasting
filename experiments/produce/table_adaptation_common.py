@@ -10,9 +10,10 @@ the recent-window run with the lowest seed-mean drift-regime MAE
 from __future__ import annotations
 
 import pandas as pd
-
 from experiments.results_io import RUNS_CSV
-from experiments.run.forecasting.run_aemo_adaptation_arms import ARM_A, SPLIT_ID
+
+ARM_A = "A_never_retrain"
+SPLIT_ID = "aemo_adapt_adwin_std_hh_v1"
 BINGQI_SPLIT_ID = "aemo_bingqi_adapt_adwin_std_hh_v1"
 
 VALID_SPLIT_IDS = {
@@ -36,6 +37,15 @@ def latest_adaptation_rows() -> pd.DataFrame:
         raise SystemExit(f"no rows for split_id={SPLIT_ID!r} -- run run_aemo_adaptation_arms.py first")
     parts = rows["method"].str.split("/", n=1, expand=True)
     rows["model"], rows["arm"] = parts[0], parts[1]
+
+    # Bingqi NHITS official runs use seeds 1-5 only.
+    # Seed 56 was an accidental old run and must not be included.
+    seed_numeric = pd.to_numeric(rows["seed"], errors="coerce")
+    rows = rows[
+        (rows["model"] != "bingqi_nhits")
+        | seed_numeric.isin([1, 2, 3, 4, 5])
+    ].copy()
+
     rows["seed_key"] = rows["seed"].fillna(-1)
     latest = rows.groupby(["model", "arm", "region", "seed_key"])["timestamp"].transform("max")
     return rows[rows["timestamp"] == latest]

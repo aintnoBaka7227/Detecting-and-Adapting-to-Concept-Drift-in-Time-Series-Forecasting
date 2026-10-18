@@ -51,7 +51,10 @@ from drift_lab.adaptation.bingqi.arm_c_full_history import ArmCFullHistory
 from drift_lab.adaptation.bingqi.arm_d_recent_window import ArmDRecentWindow
 from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
-from drift_lab.evaluation import assign_regime, build_event_windows
+from drift_lab.evaluation import (
+    assign_timestamp_global_regime,
+    build_event_windows,
+)
 from drift_lab.forecasting.base import Forecaster
 from experiments.run.detection.run_adwin_changepoints import (
     DETECTOR as TRIGGER_DETECTOR,
@@ -131,7 +134,10 @@ def demand_series(frame: pd.DataFrame) -> pd.Series:
 def regime_labels(test_index: pd.DatetimeIndex, region: str) -> pd.Series:
     """Documented-event regime for every TEST timestamp (shared by all arms)."""
     events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
-    labelled = assign_regime(test_index, build_event_windows(events, region))
+    labelled = assign_timestamp_global_regime(
+        test_index,
+        build_event_windows(...)
+    )
     return labelled.set_index("timestamp")["regime"].reindex(test_index)
 
 
