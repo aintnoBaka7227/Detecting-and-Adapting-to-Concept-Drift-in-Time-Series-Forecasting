@@ -25,9 +25,12 @@ TABLE2_DIR = TABLES_DIR / "table2"
 TABLE3_DIR = TABLES_DIR / "table3"
 TABLE4_DIR = TABLES_DIR / "table4"
 TABLE5_DIR = TABLES_DIR / "table5"
+TABLE6_DIR = TABLES_DIR / "table6"
 FIGURE1_DIR = FIGURES_DIR / "figure1"
 FIGURE2_DIR = FIGURES_DIR / "figure2"
 FIGURE3_DIR = FIGURES_DIR / "figure3"
+FIGURE4_DIR = FIGURES_DIR / "figure4"
+FIGURE5_DIR = FIGURES_DIR / "figure5"
 
 RUN_COLUMNS = [
     "group",
@@ -146,6 +149,16 @@ def intervals_path(
     prediction intervals, every UQ method side by side (T5, F4)."""
     seed_token = "none" if seed is None else str(seed)
     return RUNS_DIR / config_hash_ / f"intervals_{dataset}_{region or '-'}_{seed_token}.csv"
+
+
+def escalation_curve_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
+    """Where run_aemo_escalation_sweep.py writes one UQ run's escalation
+    curves: review rate and retained coverage per width threshold and
+    regime (T6, F5)."""
+    seed_token = "none" if seed is None else str(seed)
+    return RUNS_DIR / config_hash_ / f"escalation_curve_{dataset}_{region or '-'}_{seed_token}.csv"
 
 
 def calibration_path(model: str, region: str, seed: int | None) -> Path:

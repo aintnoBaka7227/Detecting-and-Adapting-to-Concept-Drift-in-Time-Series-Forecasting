@@ -14,6 +14,7 @@ import pandas as pd
 from matplotlib.lines import Line2D
 
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
+from experiments.produce.figure_text import axes_right_in, line_height_in, wrap_to_width
 from experiments.results_io import FIGURE1_DIR, RUNS_CSV, curve_path
 
 MODEL_STYLE = {
@@ -245,6 +246,21 @@ def style_axes(ax: plt.Axes) -> None:
     ax.spines[["left", "bottom"]].set_color("#AAB2BD")
 
 
+SUBTITLE_SIZE = 9
+
+
+def add_subtitle(fig: plt.Figure, axes, text: str) -> None:
+    """Place the description under the title, wrapped to the panels' width,
+    and lay the panels out below it."""
+    rect_top = 0.95
+    fig.tight_layout(rect=(0, 0.035, 1, rect_top), h_pad=2.0)
+    left = 0.01
+    text = wrap_to_width(fig, text, axes_right_in(fig, axes) - left * fig.get_figwidth(), SUBTITLE_SIZE)
+    extra = text.count("\n") * line_height_in(SUBTITLE_SIZE) / fig.get_figheight()
+    fig.text(left, 0.969, text, ha="left", va="top", fontsize=SUBTITLE_SIZE, color="#555555")
+    fig.tight_layout(rect=(0, 0.035, 1, rect_top - extra), h_pad=2.0)
+
+
 def plot_curves(ax: plt.Axes, curves: dict[str, pd.Series]) -> float:
     """Draw each saved curve and return the highest plotted value."""
     peak = 0.0
@@ -312,19 +328,12 @@ def plot_year(
         fontsize=15,
         fontweight="bold",
     )
-    fig.text(
-        0.01,
-        0.969,
-        "Higher values indicate larger forecasting errors; vertical labels show all documented Tier 1 and Tier 2 events.",
-        ha="left",
-        va="top",
-        fontsize=9,
-        color="#555555",
-    )
-
     add_event_legend(fig)
-
-    fig.tight_layout(rect=(0, 0.035, 1, 0.95), h_pad=2.0)
+    add_subtitle(
+        fig,
+        axes,
+        "Higher values indicate larger forecasting errors; vertical labels show all documented Tier 1 and Tier 2 events.",
+    )
     out_path = FIGURE1_DIR / f"f1_degradation_{year}.png"
     fig.savefig(
         out_path,
@@ -405,19 +414,13 @@ def plot_all_years(
         fontsize=15,
         fontweight="bold",
     )
-    fig.text(
-        0.01,
-        0.969,
+    add_event_legend(fig)
+    add_subtitle(
+        fig,
+        axes,
         "All test years joined on one axis; solid grey lines mark year boundaries. "
         "Vertical labels show all documented Tier 1 and Tier 2 events.",
-        ha="left",
-        va="top",
-        fontsize=9,
-        color="#555555",
     )
-    add_event_legend(fig)
-
-    fig.tight_layout(rect=(0, 0.035, 1, 0.95), h_pad=2.0)
     out_path = FIGURE1_DIR / f"f1_degradation_{years[0]}_{years[-1]}.png"
     fig.savefig(
         out_path,
