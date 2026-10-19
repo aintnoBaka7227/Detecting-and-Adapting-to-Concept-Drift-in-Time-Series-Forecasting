@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from experiments import results_io
+from experiments.produce.figure_text import line_height_in, wrap_to_width
 from experiments.produce.table_adaptation_common import (
     D_PREFIX,
     latest_adaptation_rows,
@@ -46,6 +47,7 @@ SURFACE = "#fcfcfb"
 TEXT = "#0b0b0b"
 TEXT_MUTED = "#52514e"
 GRID = "#e4e3df"
+SUBTITLE_SIZE = 10
 
 
 def load_arm(rows: pd.DataFrame, model: str, region: str, arm: str):
@@ -106,14 +108,20 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
 
     spread = " Lines are the mean across seeds; bands are ±1 standard deviation." if n_seeds > 1 else ""
     seeds = f"{n_seeds} seeds" if n_seeds > 1 else "deterministic, one run"
+    # The description is the axes title, wrapped to the axes width; the figure
+    # title moves up by any extra lines.
+    subtitle = wrap_to_width(
+        fig,
+        f"7-day rolling MAE (336 half-hourly observations) over the TEST period; {seeds}.{spread}",
+        ax.get_position().width * fig.get_figwidth(),
+        SUBTITLE_SIZE,
+    )
+    extra = subtitle.count("\n") * line_height_in(SUBTITLE_SIZE) / fig.get_figheight()
     fig.suptitle(
         f"F3 — Four adaptation arms, {MODEL_NAMES.get(model, model)}, {region}",
-        x=0.125, y=0.97, ha="left", fontsize=14, fontweight="bold", color=TEXT,
+        x=0.125, y=0.97 + extra, ha="left", fontsize=14, fontweight="bold", color=TEXT,
     )
-    ax.set_title(
-        f"7-day rolling MAE (336 half-hourly observations) over the TEST period; {seeds}.{spread}",
-        loc="left", fontsize=10, color=TEXT_MUTED,
-    )
+    ax.set_title(subtitle, loc="left", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
     ax.set_ylabel("7-day rolling MAE (MW)", color=TEXT_MUTED)
     ax.set_ylim(0, top * 1.22)  # headroom so the legend never sits on a curve
     ax.legend(loc="upper left", ncol=3, frameon=False, fontsize=9.5, labelcolor=TEXT)
