@@ -13,10 +13,10 @@ import pandas as pd
 
 from experiments.produce.figure_text import line_height_in, wrap_to_width
 
-HEADER_COLOR = "#1464A5"
+HEADER_COLOR = "#0D2C54"
 HEADER_TEXT_COLOR = "white"
 ROW_COLORS = ("white", "#FAFBFC")
-BORDER_COLOR = "#AAB2BD"
+BORDER_COLOR = "#3E5C80"
 TITLE_SIZE = 12
 SUBTITLE_SIZE = 8.5
 
