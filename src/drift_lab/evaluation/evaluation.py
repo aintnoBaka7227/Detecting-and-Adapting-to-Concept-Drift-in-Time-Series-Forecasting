@@ -2236,6 +2236,88 @@ def _escalation_widths(
     return np.round((upper_bound - lower_bound).to_numpy(), decimals)
 
 
+def _escalation_scores(
+    lower_bound,
+    upper_bound,
+    score=None,
+    decimals=ESCALATION_WIDTH_DECIMALS,
+):
+    """
+    The escalation score of every forecast, rounded to `decimals` so tied
+    scores compare equal: the interval width by default, or `score` (one
+    finite value per forecast, e.g. `calculate_nonconformity_score`).
+    """
+    if score is None:
+        return _escalation_widths(lower_bound, upper_bound, decimals)
+
+    score = np.asarray(score, dtype=float)
+    if score.shape != (len(pd.Series(lower_bound)),):
+        raise ValueError("score must have one value per forecast.")
+    if not np.isfinite(score).all():
+        raise ValueError("score must contain only finite values.")
+
+    return np.round(score, decimals)
+
+
+def calculate_nonconformity_score(
+    y_true,
+    y_pred,
+    lookback,
+    history_true=None,
+    history_pred=None,
+):
+    """
+    Escalation score from past nonconformity: the mean absolute error
+    |y - y_hat| over the `lookback` half-hours before each forecast.
+
+    Forecast t only sees errors up to t-1, so the score is known when
+    forecast t is issued (intervals are issued one half-hour ahead and each
+    outcome is observed before the next). `lookback=1` is the previous
+    half-hour's error alone.
+
+    Parameters
+    ----------
+    y_true, y_pred : array-like
+        Observed values and point forecasts of the scored stream.
+
+    lookback : int
+        Number of past half-hours averaged.
+
+    history_true, history_pred : array-like, optional
+        The observations and forecasts immediately before the stream (e.g.
+        the Calibration window), carried in so the first forecasts have a
+        full look-back. Without them, forecasts with fewer than `lookback`
+        past errors get NaN.
+
+    Returns
+    -------
+    numpy.ndarray
+        One score per forecast of the stream.
+    """
+    if isinstance(lookback, bool) or not isinstance(lookback, (int, np.integer)) or lookback < 1:
+        raise ValueError("lookback must be a positive integer.")
+
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    if y_true.shape != y_pred.shape:
+        raise ValueError("y_true and y_pred must have the same length.")
+
+    n_history = 0
+    if history_true is not None or history_pred is not None:
+        history_true = np.asarray(history_true, dtype=float)
+        history_pred = np.asarray(history_pred, dtype=float)
+        if history_true.shape != history_pred.shape:
+            raise ValueError("history_true and history_pred must have the same length.")
+        n_history = len(history_true)
+        y_true = np.r_[history_true, y_true]
+        y_pred = np.r_[history_pred, y_pred]
+
+    errors = pd.Series(np.abs(y_true - y_pred))
+    score = errors.rolling(window=lookback).mean().shift(1)
+
+    return score.to_numpy()[n_history:]
+
+
 def calculate_review_rate(
     lower_bound,
     upper_bound,
@@ -2289,9 +2371,16 @@ def calculate_escalation_curve(
     upper_bound,
     thresholds=None,
     decimals=ESCALATION_WIDTH_DECIMALS,
+    score=None,
 ):
     """
-    Review rate and retained coverage at every width threshold (F5).
+    Review rate and retained coverage at every score threshold (F5).
+
+    A forecast is escalated when its score is strictly greater than the
+    threshold. The score is the interval width by default (the rule the UQ
+    classes apply to their own flag); pass `score` to sweep another signal,
+    e.g. `calculate_nonconformity_score`. Coverage is always judged against
+    the intervals as issued.
 
     Parameters
     ----------
@@ -2299,14 +2388,17 @@ def calculate_escalation_curve(
         Observed values and the intervals as issued.
 
     thresholds : array-like, optional
-        Width thresholds to evaluate. Default: every distinct (rounded)
-        width. -inf (review everything) is always added. The largest width
+        Score thresholds to evaluate. Default: every distinct (rounded)
+        score. -inf (review everything) is always added. The largest score
         is the no-review point. Pass a shared grid to compare regimes at
         the same thresholds.
 
     decimals : int
-        Rounding applied to the widths before ranking; tied widths are
+        Rounding applied to the scores before ranking; tied scores are
         reviewed together.
+
+    score : array-like, optional
+        One finite escalation score per forecast; default the width.
 
     Returns
     -------
@@ -2316,20 +2408,20 @@ def calculate_escalation_curve(
         n_reviewed, n_observations.
     """
     covered = _interval_covered(y_true, lower_bound, upper_bound).to_numpy()
-    width = _escalation_widths(lower_bound, upper_bound, decimals)
+    scores = _escalation_scores(lower_bound, upper_bound, score, decimals)
 
-    # Cumulative counts over the widths in ascending order: `positions[i]`
-    # forecasts have width <= thresholds[i] and are kept.
-    order = np.argsort(width, kind="stable")
-    sorted_width = width[order]
+    # Cumulative counts over the scores in ascending order: `positions[i]`
+    # forecasts have score <= thresholds[i] and are kept.
+    order = np.argsort(scores, kind="stable")
+    sorted_scores = scores[order]
     cumulative_hits = np.r_[0, np.cumsum(covered[order])]
 
     if thresholds is None:
-        thresholds = np.unique(sorted_width)
+        thresholds = np.unique(sorted_scores)
     thresholds = np.unique(np.r_[-np.inf, np.asarray(thresholds, dtype=float)])
-    n_retained = np.searchsorted(sorted_width, thresholds, side="right")
+    n_retained = np.searchsorted(sorted_scores, thresholds, side="right")
 
-    n_observations = len(width)
+    n_observations = len(scores)
     retained_coverage = np.divide(
         cumulative_hits[n_retained],
         n_retained,
@@ -2356,13 +2448,15 @@ def calculate_escalation_curves_by_regime(
     upper_bound,
     regime_labels,
     decimals=ESCALATION_WIDTH_DECIMALS,
+    score=None,
 ):
     """
     Escalation curve within each regime, on one shared threshold grid (F5).
 
-    Pass the full chronological stream. The grid is every distinct width
-    of the full stream plus -inf; each regime's rates use that regime's
-    forecasts only. `regime_labels` follows
+    Pass the full chronological stream (and, with `score`, one score per
+    forecast of it; default the interval width). The grid is every
+    distinct score of the full stream plus -inf; each regime's rates use
+    that regime's forecasts only. `regime_labels` follows
     `calculate_forecast_metrics_by_regime`: "pre_drift" and "pre-drift"
     are both accepted and empty regimes are omitted.
 
@@ -2395,7 +2489,8 @@ def calculate_escalation_curves_by_regime(
             f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
         )
 
-    grid = np.unique(_escalation_widths(lower_bound, upper_bound, decimals))
+    scores = _escalation_scores(lower_bound, upper_bound, score, decimals)
+    grid = np.unique(scores)
     curves = []
     for regime in FORECAST_REGIMES:
         mask = (labels == regime).to_numpy()
@@ -2407,6 +2502,7 @@ def calculate_escalation_curves_by_regime(
             upper_bound[mask],
             thresholds=grid,
             decimals=decimals,
+            score=scores[mask],
         )
         curve.insert(0, "regime", regime)
         curves.append(curve)

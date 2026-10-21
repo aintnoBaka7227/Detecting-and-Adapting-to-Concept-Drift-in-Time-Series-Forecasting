@@ -27,8 +27,12 @@ def uq_split_id(detector: str) -> str:
     return f"aemo_uq_{detector}_half_hourly_v1"
 
 
-def escalation_split_id(detector: str) -> str:
-    return f"aemo_escalation_{detector}_half_hourly_v1"
+def escalation_split_id(detector: str, signal: str = "width") -> str:
+    """Escalation rows of one detector and escalation signal
+    (run_aemo_escalation_sweep.SIGNALS); width keeps its original id."""
+    if signal == "width":
+        return f"aemo_escalation_{detector}_half_hourly_v1"
+    return f"aemo_escalation_{detector}_{signal}_half_hourly_v1"
 
 
 # ADWIN's UQ and escalation runs were logged before the detector was part of

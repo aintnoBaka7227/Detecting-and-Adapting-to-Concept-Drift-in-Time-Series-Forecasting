@@ -12,6 +12,7 @@ from drift_lab.evaluation import (
     calculate_escalation_curve,
     calculate_escalation_curves_by_regime,
     calculate_escalation_operating_points,
+    calculate_nonconformity_score,
     calculate_retained_coverage,
     calculate_review_rate,
     calculate_review_rate_for_coverage,
@@ -196,3 +197,70 @@ def test_operating_points_keys():
     assert points["coverage_at_review_0.20"] == pytest.approx(3 / 4)
     assert points["actual_review_at_0.05"] == 0.0
     assert points["n_operating_points"] == 5
+
+
+# --- nonconformity score ---------------------------------------------------------
+
+
+def test_nonconformity_score_uses_only_past_errors():
+    y = np.array([10.0, 12.0, 9.0, 15.0])
+    pred = np.array([11.0, 10.0, 10.0, 10.0])  # |errors| = 1, 2, 1, 5
+    score = calculate_nonconformity_score(y, pred, lookback=1)
+    assert math.isnan(score[0])
+    np.testing.assert_allclose(score[1:], [1.0, 2.0, 1.0])  # forecast t sees error t-1 only
+    np.testing.assert_allclose(calculate_nonconformity_score(y, pred, lookback=2)[2:], [1.5, 1.5])
+
+
+def test_nonconformity_score_does_not_move_with_the_current_outcome():
+    y = np.array([10.0, 12.0, 9.0, 15.0])
+    pred = np.array([11.0, 10.0, 10.0, 10.0])
+    changed = y.copy()
+    changed[3] = 1e6  # the outcome of the scored forecast itself
+    np.testing.assert_array_equal(
+        calculate_nonconformity_score(y, pred, lookback=2),
+        calculate_nonconformity_score(changed, pred, lookback=2),
+    )
+
+
+def test_nonconformity_score_carries_in_history():
+    score = calculate_nonconformity_score(
+        [10.0, 12.0], [11.0, 10.0], lookback=2, history_true=[5.0, 7.0], history_pred=[2.0, 7.0]
+    )
+    # history |errors| 3, 0; stream |errors| 1, 2
+    np.testing.assert_allclose(score, [1.5, 0.5])
+
+
+def test_nonconformity_score_rejects_bad_lookback():
+    with pytest.raises(ValueError, match="lookback"):
+        calculate_nonconformity_score([1.0], [1.0], lookback=0)
+
+
+def test_curve_sweeps_any_score_against_the_issued_intervals():
+    # Score ranks the two misses highest, unlike width.
+    score = np.array([1.0, 1.0, 1.0, 9.0, 8.0])
+    curve = calculate_escalation_curve(ACTUAL, LOWER, UPPER, score=score)
+    assert curve["threshold"].tolist() == [-math.inf, 1.0, 8.0, 9.0]
+    assert _row(curve, 1.0)["review_rate"] == 0.4
+    assert _row(curve, 1.0)["retained_coverage"] == 1.0  # both misses reviewed
+
+
+def test_constant_width_intervals_get_a_full_curve_from_a_varying_score():
+    centre = np.arange(6, dtype=float)
+    lower, upper = centre - 1, centre + 1
+    curve = calculate_escalation_curve(centre, lower, upper, score=[1, 2, 3, 4, 5, 6])
+    assert curve["review_rate"].nunique() == 7
+
+
+def test_score_must_be_finite_and_aligned():
+    with pytest.raises(ValueError, match="one value per forecast"):
+        calculate_escalation_curve(ACTUAL, LOWER, UPPER, score=[1.0, 2.0])
+    with pytest.raises(ValueError, match="finite"):
+        calculate_escalation_curve(ACTUAL, LOWER, UPPER, score=[1.0, np.nan, 1.0, 1.0, 1.0])
+
+
+def test_regimes_share_the_score_grid():
+    labels = ["pre-drift", "drift", "drift", "post-drift", "post-drift"]
+    score = np.array([5.0, 1.0, 2.0, 3.0, 4.0])
+    curves = calculate_escalation_curves_by_regime(ACTUAL, LOWER, UPPER, labels, score=score)
+    grids = curves.groupby("regime", sort=False)["threshold"].apply(list)
+    assert all(grid == [-math.inf, 1.0, 2.0, 3.0, 4.0, 5.0] for grid in grids)
