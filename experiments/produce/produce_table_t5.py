@@ -32,7 +32,7 @@ import pandas as pd
 
 from experiments.produce.table_adaptation_common import REGIMES, arm_sort_key, mean_sd
 from experiments.produce.table_image import save_table_image
-from experiments.results_io import RUNS_CSV, TABLE5_DIR
+from experiments.results_io import RUNS_CSV, TABLE5_DIR, output_path
 from experiments.run.uncertainty.run_aemo_uq_replay import AGACI, FIXED
 from experiments.trigger_detectors import (
     CONTROL_DETECTOR,
@@ -122,7 +122,7 @@ def main() -> None:
 def write_tables(detector: str) -> None:
     table, scales = build_table(detector)
     denominators = ", ".join(f"{region} {scale:,.1f} MW" for region, scale in scales.items()) or "n/a"
-    out = TABLE5_DIR / f"table_t5_coverage_and_width_{detector}.csv"
+    out = output_path(TABLE5_DIR, detector, name=f"table_t5_coverage_and_width_{detector}.csv")
     table.to_csv(out, index=False)
     print(table.to_string(index=False))
     print(f"\nnormalised width denominators (mean TRAIN demand): {denominators}")
@@ -130,7 +130,7 @@ def write_tables(detector: str) -> None:
     for model, rows in table.groupby("model"):
         image = save_table_image(
             rows.reset_index(drop=True),
-            TABLE5_DIR / f"table_t5_coverage_and_width_{detector}_{model}.png",
+            output_path(TABLE5_DIR, detector, model, name=f"table_t5_coverage_and_width_{detector}_{model}.png"),
             title=f"T5 — Coverage and interval width by regime, {model}, {DETECTOR_LABELS[detector]} trigger",
             subtitle=(
                 "90% intervals issued one half-hour ahead; global regimes; coverage and width "

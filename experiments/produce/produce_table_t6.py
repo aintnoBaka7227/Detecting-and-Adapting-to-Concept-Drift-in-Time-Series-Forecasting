@@ -42,7 +42,7 @@ import pandas as pd
 from experiments.produce.produce_figure_f5 import latest_escalation_rows
 from experiments.produce.table_adaptation_common import REGIMES, arm_sort_key
 from experiments.produce.table_image import save_table_image
-from experiments.results_io import TABLE6_DIR
+from experiments.results_io import TABLE6_DIR, output_path
 from experiments.run.uncertainty.run_aemo_escalation_sweep import (
     MIN_RETAINED,
     SIGNAL_RULES,
@@ -127,14 +127,14 @@ def main() -> None:
 def write_tables(detector: str, signal: str) -> None:
     table = build_table(detector, signal)
     stem = f"table_t6_escalation_operating_points_{detector}_{signal}"
-    out = TABLE6_DIR / f"{stem}.csv"
+    out = output_path(TABLE6_DIR, detector, name=f"{stem}.csv")
     table.to_csv(out, index=False)
     print(table.to_string(index=False))
     print(f"wrote {out}")
     for model, rows in table.groupby("model"):
         image = save_table_image(
             rows.reset_index(drop=True),
-            TABLE6_DIR / f"{stem}_{model}.png",
+            output_path(TABLE6_DIR, detector, model, signal, name=f"{stem}_{model}.png"),
             title=(
                 f"T6 — Escalation operating points, {model}, {DETECTOR_LABELS[detector]} trigger, "
                 f"{signal.replace('_', ' ')}"

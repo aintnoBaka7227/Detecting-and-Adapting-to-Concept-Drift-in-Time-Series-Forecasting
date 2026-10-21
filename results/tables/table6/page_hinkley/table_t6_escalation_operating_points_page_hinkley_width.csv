@@ -1,0 +1,145 @@
+model,arm,region,UQ method,regime,review rate for 0.90,review rate for 0.95,coverage @ 5%,coverage @ 10%,coverage @ 20%,seeds
+dhr_arima,A_never_retrain,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,1
+dhr_arima,A_never_retrain,NSW1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,A_never_retrain,NSW1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,A_never_retrain,NSW1,AgACI,pre-drift,0%,88.6%,0.923,0.926,0.920,1
+dhr_arima,A_never_retrain,NSW1,AgACI,drift,0%,99.7%,0.930,0.931,0.931,1
+dhr_arima,A_never_retrain,NSW1,AgACI,post-drift,0%,99.8%,0.923,0.923,0.924,1
+dhr_arima,B_every_30_days,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,1
+dhr_arima,B_every_30_days,NSW1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,B_every_30_days,NSW1,fixed split conformal,post-drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,B_every_30_days,NSW1,AgACI,pre-drift,0%,88.6%,0.923,0.926,0.920,1
+dhr_arima,B_every_30_days,NSW1,AgACI,drift,0%,100%,0.931,0.930,0.930,1
+dhr_arima,B_every_30_days,NSW1,AgACI,post-drift,0%,unreachable,0.927,0.927,0.926,1
+dhr_arima,C_drift_full_history,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,1
+dhr_arima,C_drift_full_history,NSW1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,C_drift_full_history,NSW1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,C_drift_full_history,NSW1,AgACI,pre-drift,0%,88.6%,0.923,0.926,0.920,1
+dhr_arima,C_drift_full_history,NSW1,AgACI,drift,0%,99.8%,0.929,0.929,0.929,1
+dhr_arima,C_drift_full_history,NSW1,AgACI,post-drift,0%,100%,0.924,0.924,0.924,1
+dhr_arima,D_drift_recent_180d,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,1
+dhr_arima,D_drift_recent_180d,NSW1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,D_drift_recent_180d,NSW1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,D_drift_recent_180d,NSW1,AgACI,pre-drift,0%,88.6%,0.923,0.926,0.920,1
+dhr_arima,D_drift_recent_180d,NSW1,AgACI,drift,0%,99%,0.927,0.927,0.927,1
+dhr_arima,D_drift_recent_180d,NSW1,AgACI,post-drift,0%,100%,0.925,0.924,0.924,1
+dhr_arima,A_never_retrain,SA1,fixed split conformal,pre-drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,A_never_retrain,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,A_never_retrain,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,A_never_retrain,SA1,AgACI,pre-drift,0%,unreachable,0.931,0.931,0.941,1
+dhr_arima,A_never_retrain,SA1,AgACI,drift,0%,99.9%,0.926,0.927,0.929,1
+dhr_arima,A_never_retrain,SA1,AgACI,post-drift,0%,unreachable,0.919,0.920,0.920,1
+dhr_arima,B_every_30_days,SA1,fixed split conformal,pre-drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,B_every_30_days,SA1,fixed split conformal,drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,B_every_30_days,SA1,fixed split conformal,post-drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,B_every_30_days,SA1,AgACI,pre-drift,0%,unreachable,0.931,0.931,0.941,1
+dhr_arima,B_every_30_days,SA1,AgACI,drift,0%,unreachable,0.927,0.926,0.925,1
+dhr_arima,B_every_30_days,SA1,AgACI,post-drift,0%,100%,0.923,0.923,0.922,1
+dhr_arima,C_drift_full_history,SA1,fixed split conformal,pre-drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,C_drift_full_history,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,C_drift_full_history,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,C_drift_full_history,SA1,AgACI,pre-drift,0%,unreachable,0.931,0.931,0.941,1
+dhr_arima,C_drift_full_history,SA1,AgACI,drift,0%,100%,0.926,0.927,0.928,1
+dhr_arima,C_drift_full_history,SA1,AgACI,post-drift,0%,unreachable,0.921,0.921,0.921,1
+dhr_arima,D_drift_recent_180d,SA1,fixed split conformal,pre-drift,0%,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,D_drift_recent_180d,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,D_drift_recent_180d,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,1
+dhr_arima,D_drift_recent_180d,SA1,AgACI,pre-drift,0%,unreachable,0.931,0.931,0.941,1
+dhr_arima,D_drift_recent_180d,SA1,AgACI,drift,0%,unreachable,0.922,0.922,0.922,1
+dhr_arima,D_drift_recent_180d,SA1,AgACI,post-drift,0%,100%,0.921,0.920,0.920,1
+nhits,A_never_retrain,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,A_never_retrain,NSW1,fixed split conformal,drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,A_never_retrain,NSW1,fixed split conformal,post-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,A_never_retrain,NSW1,AgACI,pre-drift,0%,unreachable,0.931 ± 0.008,0.931 ± 0.008,0.929 ± 0.010,5
+nhits,A_never_retrain,NSW1,AgACI,drift,0%,"99.8% ± 0.2% in 3/5 seeds, else unreachable",0.932 ± 0.003,0.933 ± 0.003,0.933 ± 0.003,5
+nhits,A_never_retrain,NSW1,AgACI,post-drift,0%,"100% in 2/5 seeds, else unreachable",0.928 ± 0.002,0.928 ± 0.002,0.928 ± 0.002,5
+nhits,B_every_30_days,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,B_every_30_days,NSW1,fixed split conformal,drift,0%,unreachable,not attainable,not attainable,not attainable,5
+nhits,B_every_30_days,NSW1,fixed split conformal,post-drift,0%,unreachable,not attainable,not attainable,not attainable,5
+nhits,B_every_30_days,NSW1,AgACI,pre-drift,0%,unreachable,0.931 ± 0.008,0.931 ± 0.008,0.929 ± 0.010,5
+nhits,B_every_30_days,NSW1,AgACI,drift,0%,"99.8% ± 0.1% in 4/5 seeds, else unreachable",0.926 ± 0.003,0.926 ± 0.003,0.926 ± 0.002,5
+nhits,B_every_30_days,NSW1,AgACI,post-drift,0%,"99.9% ± 0.1% in 4/5 seeds, else unreachable",0.922 ± 0.003,0.922 ± 0.003,0.921 ± 0.003,5
+nhits,C_drift_full_history,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,C_drift_full_history,NSW1,fixed split conformal,drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,C_drift_full_history,NSW1,fixed split conformal,post-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,C_drift_full_history,NSW1,AgACI,pre-drift,0%,unreachable,0.931 ± 0.008,0.931 ± 0.008,0.929 ± 0.010,5
+nhits,C_drift_full_history,NSW1,AgACI,drift,0%,"99.7% ± 0.2% in 4/5 seeds, else unreachable",0.933 ± 0.003,0.933 ± 0.003,0.934 ± 0.003,5
+nhits,C_drift_full_history,NSW1,AgACI,post-drift,0%,"100% in 2/5 seeds, else unreachable",0.930 ± 0.002,0.930 ± 0.003,0.930 ± 0.003,5
+nhits,D_drift_recent_180d,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,D_drift_recent_180d,NSW1,fixed split conformal,drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,D_drift_recent_180d,NSW1,fixed split conformal,post-drift,0%,"0% in 4/5 seeds, else unreachable",not attainable,not attainable,not attainable,5
+nhits,D_drift_recent_180d,NSW1,AgACI,pre-drift,0%,unreachable,0.931 ± 0.008,0.931 ± 0.008,0.929 ± 0.010,5
+nhits,D_drift_recent_180d,NSW1,AgACI,drift,0%,"99.7% ± 0.1% in 3/5 seeds, else unreachable",0.929 ± 0.002,0.929 ± 0.002,0.930 ± 0.002,5
+nhits,D_drift_recent_180d,NSW1,AgACI,post-drift,0%,"100% in 1/5 seeds, else unreachable",0.926 ± 0.002,0.926 ± 0.002,0.925 ± 0.002,5
+nhits,A_never_retrain,SA1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,A_never_retrain,SA1,fixed split conformal,drift,"0% in 4/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+nhits,A_never_retrain,SA1,fixed split conformal,post-drift,0%,unreachable,not attainable,not attainable,not attainable,5
+nhits,A_never_retrain,SA1,AgACI,pre-drift,0%,"94.4% in 1/5 seeds, else unreachable",0.909 ± 0.006,0.910 ± 0.008,0.905 ± 0.009,5
+nhits,A_never_retrain,SA1,AgACI,drift,0%,"99.7% ± 0.2% in 4/5 seeds, else unreachable",0.935 ± 0.001,0.936 ± 0.001,0.937 ± 0.001,5
+nhits,A_never_retrain,SA1,AgACI,post-drift,0%,"100% in 2/5 seeds, else unreachable",0.933 ± 0.001,0.933 ± 0.001,0.933 ± 0.002,5
+nhits,B_every_30_days,SA1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,B_every_30_days,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+nhits,B_every_30_days,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+nhits,B_every_30_days,SA1,AgACI,pre-drift,0%,"94.4% in 1/5 seeds, else unreachable",0.909 ± 0.006,0.910 ± 0.008,0.905 ± 0.009,5
+nhits,B_every_30_days,SA1,AgACI,drift,0%,99.9% ± 0.1%,0.932 ± 0.001,0.932 ± 0.001,0.933 ± 0.002,5
+nhits,B_every_30_days,SA1,AgACI,post-drift,0%,"99.9% ± 0.1% in 3/5 seeds, else unreachable",0.929 ± 0.001,0.929 ± 0.001,0.928 ± 0.001,5
+nhits,C_drift_full_history,SA1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,C_drift_full_history,SA1,fixed split conformal,drift,0%,unreachable,not attainable,not attainable,not attainable,5
+nhits,C_drift_full_history,SA1,fixed split conformal,post-drift,0%,"0% in 2/5 seeds, else unreachable",not attainable,not attainable,not attainable,5
+nhits,C_drift_full_history,SA1,AgACI,pre-drift,0%,"94.4% in 1/5 seeds, else unreachable",0.909 ± 0.006,0.910 ± 0.008,0.905 ± 0.009,5
+nhits,C_drift_full_history,SA1,AgACI,drift,0%,98.3% ± 2.2%,0.937 ± 0.002,0.937 ± 0.002,0.938 ± 0.002,5
+nhits,C_drift_full_history,SA1,AgACI,post-drift,0%,"100% in 3/5 seeds, else unreachable",0.933 ± 0.001,0.933 ± 0.001,0.934 ± 0.001,5
+nhits,D_drift_recent_180d,SA1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+nhits,D_drift_recent_180d,SA1,fixed split conformal,drift,"0% in 1/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+nhits,D_drift_recent_180d,SA1,fixed split conformal,post-drift,0%,unreachable,not attainable,not attainable,not attainable,5
+nhits,D_drift_recent_180d,SA1,AgACI,pre-drift,0%,"94.4% in 1/5 seeds, else unreachable",0.909 ± 0.006,0.910 ± 0.008,0.905 ± 0.009,5
+nhits,D_drift_recent_180d,SA1,AgACI,drift,0%,"98.2% ± 2.8% in 3/5 seeds, else unreachable",0.936 ± 0.002,0.937 ± 0.002,0.938 ± 0.002,5
+nhits,D_drift_recent_180d,SA1,AgACI,post-drift,0%,"100% in 3/5 seeds, else unreachable",0.931 ± 0.001,0.932 ± 0.001,0.932 ± 0.001,5
+xgboost,A_never_retrain,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+xgboost,A_never_retrain,NSW1,fixed split conformal,drift,"0% in 1/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+xgboost,A_never_retrain,NSW1,fixed split conformal,post-drift,"0% in 1/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+xgboost,A_never_retrain,NSW1,AgACI,pre-drift,0%,"35% ± 26% in 3/5 seeds, else unreachable",0.935 ± 0.006,0.937 ± 0.006,0.942 ± 0.008,5
+xgboost,A_never_retrain,NSW1,AgACI,drift,0%,"100% in 2/5 seeds, else unreachable",0.927 ± 0.001,0.927 ± 0.001,0.927 ± 0.001,5
+xgboost,A_never_retrain,NSW1,AgACI,post-drift,0%,"99.9% ± 0.1% in 4/5 seeds, else unreachable",0.924 ± 0.001,0.924 ± 0.001,0.924 ± 0.001,5
+xgboost,B_every_30_days,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+xgboost,B_every_30_days,NSW1,fixed split conformal,drift,"0% in 1/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+xgboost,B_every_30_days,NSW1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,B_every_30_days,NSW1,AgACI,pre-drift,0%,"35% ± 26% in 3/5 seeds, else unreachable",0.935 ± 0.006,0.937 ± 0.006,0.942 ± 0.008,5
+xgboost,B_every_30_days,NSW1,AgACI,drift,0%,"99.5% in 1/5 seeds, else unreachable",0.927 ± 0.002,0.927 ± 0.002,0.927 ± 0.002,5
+xgboost,B_every_30_days,NSW1,AgACI,post-drift,0%,99.8% ± 0.2%,0.922 ± 0.001,0.921 ± 0.001,0.920 ± 0.002,5
+xgboost,C_drift_full_history,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+xgboost,C_drift_full_history,NSW1,fixed split conformal,drift,0%,unreachable,not attainable,not attainable,not attainable,5
+xgboost,C_drift_full_history,NSW1,fixed split conformal,post-drift,"0% in 4/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+xgboost,C_drift_full_history,NSW1,AgACI,pre-drift,0%,"35% ± 26% in 3/5 seeds, else unreachable",0.935 ± 0.006,0.937 ± 0.006,0.942 ± 0.008,5
+xgboost,C_drift_full_history,NSW1,AgACI,drift,0%,"99.9% ± 0.2% in 3/5 seeds, else unreachable",0.927 ± 0.001,0.928 ± 0.002,0.929 ± 0.002,5
+xgboost,C_drift_full_history,NSW1,AgACI,post-drift,0%,"99.9% ± 0.1% in 4/5 seeds, else unreachable",0.925 ± 0.001,0.926 ± 0.001,0.926 ± 0.001,5
+xgboost,D_drift_recent_180d,NSW1,fixed split conformal,pre-drift,0%,0%,not attainable,not attainable,not attainable,5
+xgboost,D_drift_recent_180d,NSW1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,D_drift_recent_180d,NSW1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,D_drift_recent_180d,NSW1,AgACI,pre-drift,0%,"35% ± 26% in 3/5 seeds, else unreachable",0.935 ± 0.006,0.937 ± 0.006,0.942 ± 0.008,5
+xgboost,D_drift_recent_180d,NSW1,AgACI,drift,0%,99.5% ± 0.6%,0.924 ± 0.002,0.925 ± 0.002,0.925 ± 0.002,5
+xgboost,D_drift_recent_180d,NSW1,AgACI,post-drift,0%,"100% in 2/5 seeds, else unreachable",0.921 ± 0.001,0.921 ± 0.001,0.921 ± 0.001,5
+xgboost,A_never_retrain,SA1,fixed split conformal,pre-drift,0%,"0% in 1/5 seeds, else unreachable",not attainable,not attainable,not attainable,5
+xgboost,A_never_retrain,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,A_never_retrain,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,A_never_retrain,SA1,AgACI,pre-drift,0%,"99% in 1/5 seeds, else unreachable",0.913 ± 0.007,0.914 ± 0.006,0.917 ± 0.003,5
+xgboost,A_never_retrain,SA1,AgACI,drift,0%,"99.9% ± 0.1% in 3/5 seeds, else unreachable",0.927 ± 0.003,0.928 ± 0.003,0.930 ± 0.002,5
+xgboost,A_never_retrain,SA1,AgACI,post-drift,0%,"99.9% in 2/5 seeds, else unreachable",0.922 ± 0.001,0.922 ± 0.001,0.922 ± 0.001,5
+xgboost,B_every_30_days,SA1,fixed split conformal,pre-drift,0%,"0% in 1/5 seeds, else unreachable",not attainable,not attainable,not attainable,5
+xgboost,B_every_30_days,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,B_every_30_days,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,B_every_30_days,SA1,AgACI,pre-drift,0%,"99% in 1/5 seeds, else unreachable",0.913 ± 0.007,0.914 ± 0.006,0.917 ± 0.003,5
+xgboost,B_every_30_days,SA1,AgACI,drift,0%,unreachable,0.922 ± 0.002,0.921 ± 0.002,0.921 ± 0.002,5
+xgboost,B_every_30_days,SA1,AgACI,post-drift,0%,"99.9% ± 0.1% in 3/5 seeds, else unreachable",0.919 ± 0.001,0.918 ± 0.001,0.918 ± 0.002,5
+xgboost,C_drift_full_history,SA1,fixed split conformal,pre-drift,0%,"0% in 1/5 seeds, else unreachable",not attainable,not attainable,not attainable,5
+xgboost,C_drift_full_history,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,C_drift_full_history,SA1,fixed split conformal,post-drift,"0% in 2/5 seeds, else unreachable",unreachable,not attainable,not attainable,not attainable,5
+xgboost,C_drift_full_history,SA1,AgACI,pre-drift,0%,"99% in 1/5 seeds, else unreachable",0.913 ± 0.007,0.914 ± 0.006,0.917 ± 0.003,5
+xgboost,C_drift_full_history,SA1,AgACI,drift,0%,"99.9% ± 0.1% in 4/5 seeds, else unreachable",0.928 ± 0.002,0.929 ± 0.002,0.931 ± 0.002,5
+xgboost,C_drift_full_history,SA1,AgACI,post-drift,0%,unreachable,0.924 ± 0.002,0.924 ± 0.002,0.924 ± 0.002,5
+xgboost,D_drift_recent_180d,SA1,fixed split conformal,pre-drift,0%,"0% in 1/5 seeds, else unreachable",not attainable,not attainable,not attainable,5
+xgboost,D_drift_recent_180d,SA1,fixed split conformal,drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,D_drift_recent_180d,SA1,fixed split conformal,post-drift,unreachable,unreachable,not attainable,not attainable,not attainable,5
+xgboost,D_drift_recent_180d,SA1,AgACI,pre-drift,0%,"99% in 1/5 seeds, else unreachable",0.913 ± 0.007,0.914 ± 0.006,0.917 ± 0.003,5
+xgboost,D_drift_recent_180d,SA1,AgACI,drift,0%,100%,0.920 ± 0.002,0.920 ± 0.002,0.920 ± 0.002,5
+xgboost,D_drift_recent_180d,SA1,AgACI,post-drift,0%,"100% in 3/5 seeds, else unreachable",0.919 ± 0.001,0.918 ± 0.002,0.917 ± 0.002,5
