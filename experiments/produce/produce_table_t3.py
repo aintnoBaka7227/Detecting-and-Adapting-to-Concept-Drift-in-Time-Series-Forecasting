@@ -38,7 +38,7 @@ from experiments.produce.table_adaptation_common import (
     pinball_by_run,
 )
 from experiments.produce.table_image import save_table_image
-from experiments.results_io import TABLE3_DIR
+from experiments.results_io import TABLE3_DIR, output_path
 from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 VERSIONS = {
@@ -80,11 +80,11 @@ def main() -> None:
     for detector, (regimes, (stem, regime_note)) in product(TRIGGER_DETECTORS, VERSIONS.items()):
         stem = f"{stem}_{detector}"
         table = build_table(detector, regimes)
-        out = TABLE3_DIR / f"{stem}.csv"
+        out = output_path(TABLE3_DIR, detector, name=f"{stem}.csv")
         table.to_csv(out, index=False)
         image = save_table_image(
             table,
-            TABLE3_DIR / f"{stem}.png",
+            output_path(TABLE3_DIR, detector, name=f"{stem}.png"),
             title=f"T3 — Forecast accuracy by regime ({regimes.replace('_', '-')}), four adaptation arms, {DETECTOR_LABELS[detector]} trigger",
             subtitle=(
                 f"{regime_note}; pinball loss of the 90% fixed split conformal interval "

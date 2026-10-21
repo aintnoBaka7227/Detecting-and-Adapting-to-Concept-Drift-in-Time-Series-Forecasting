@@ -50,6 +50,16 @@ RUN_COLUMNS = [
 ]
 
 
+def output_path(base_dir: Path, *subdirs: str, name: str) -> Path:
+    """`base_dir/<subdirs...>/name`, creating the folders. Report outputs are
+    grouped by trigger detector, then forecast model, then escalation
+    signal, wherever the output varies by them (e.g. figure5/adwin/nhits/
+    nonconformity_1d/...)."""
+    folder = base_dir.joinpath(*subdirs)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / name
+
+
 def config_hash(config: dict) -> str:
     blob = json.dumps(config, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]

@@ -32,7 +32,7 @@ from experiments.produce.table_adaptation_common import (
     mean_sd,
 )
 from experiments.produce.table_image import save_table_image
-from experiments.results_io import TABLE4_DIR
+from experiments.results_io import TABLE4_DIR, output_path
 from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A
 from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
@@ -85,11 +85,11 @@ def main() -> None:
     for detector, (regimes, (stem, regime_note)) in product(TRIGGER_DETECTORS, VERSIONS.items()):
         stem = f"{stem}_{detector}"
         table = build_table(detector, regimes)
-        out = TABLE4_DIR / f"{stem}.csv"
+        out = output_path(TABLE4_DIR, detector, name=f"{stem}.csv")
         table.to_csv(out, index=False)
         image = save_table_image(
             table,
-            TABLE4_DIR / f"{stem}.png",
+            output_path(TABLE4_DIR, detector, name=f"{stem}.png"),
             title=f"T4 — Adaptation cost ({regimes.replace('_', '-')}), four adaptation arms, {DETECTOR_LABELS[detector]} trigger",
             subtitle=(
                 f"Gain = MAE(arm) − MAE(arm A) over the {regime_note}, paired by region and "

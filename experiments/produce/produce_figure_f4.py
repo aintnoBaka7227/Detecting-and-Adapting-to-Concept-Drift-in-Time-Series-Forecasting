@@ -230,7 +230,9 @@ def plot_figure(rows: pd.DataFrame, events: pd.DataFrame, model: str, region: st
     fig.text(HEADER_LEFT, from_top(0.30), subtitle, ha="left", va="top", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
     fig.tight_layout(rect=(0.04, 0, 1, from_top(HEADER_IN + extra_in)))
 
-    out = results_io.FIGURE4_DIR / f"f4_coverage_trajectory_{detector}_{model}_{region}.png"
+    out = results_io.output_path(
+        results_io.FIGURE4_DIR, detector, model, name=f"f4_coverage_trajectory_{detector}_{model}_{region}.png"
+    )
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out

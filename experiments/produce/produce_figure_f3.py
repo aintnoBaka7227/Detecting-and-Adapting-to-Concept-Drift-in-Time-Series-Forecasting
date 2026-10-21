@@ -151,7 +151,9 @@ def plot_figure(
     ax.spines["bottom"].set_visible(False)
     ax.margins(x=0.005)
 
-    out = results_io.FIGURE3_DIR / f"f3_four_arm_comparison_{detector}_{model}_{region}.png"
+    out = results_io.output_path(
+        results_io.FIGURE3_DIR, detector, model, name=f"f3_four_arm_comparison_{detector}_{model}_{region}.png"
+    )
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out
