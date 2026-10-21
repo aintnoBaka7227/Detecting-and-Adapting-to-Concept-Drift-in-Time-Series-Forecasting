@@ -11,7 +11,7 @@ SIGNALS (the brief: "the interval width, or the nonconformity score"):
                           their own flag;
     nonconformity_<L>     mean |actual - forecast| over the previous L
                           half-hours (evaluation.calculate_nonconformity_
-                          score): 30min = 1. Forecast t
+                          score): 30min = 1, 1d = 48. Forecast t
                           sees errors up to t-1 only; the first TEST
                           forecasts carry in the end of the Calibration
                           window's errors (the same model, before any
@@ -78,11 +78,12 @@ from experiments.trigger_detectors import (
 
 RULE = "escalate when upper - lower > threshold (MW)"
 # Escalation signal -> look-back in half-hours (None: the interval width).
-SIGNALS = {"width": None, "nonconformity_30min": 1}
+SIGNALS = {"width": None, "nonconformity_30min": 1, "nonconformity_1d": 48}
 # How each signal's rule reads in a caption.
 SIGNAL_RULES = {
     "width": "Escalate when the 90% interval is wider than τ",
     "nonconformity_30min": "Escalate when the previous half-hour's |actual − forecast| exceeds τ",
+    "nonconformity_1d": "Escalate when the mean |actual − forecast| over the previous day (48 half-hours) exceeds τ",
 }
 MIN_RETAINED = 1  # provisional: any non-empty retained set
 
