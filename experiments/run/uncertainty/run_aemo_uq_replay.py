@@ -23,8 +23,12 @@ calibration file is skipped.
 Outputs per run:
 
     results/runs/<adaptation hash>/intervals_aemo_<region>_<seed>.csv
-        timestamp, regime, actual, forecast and both methods' bounds;
-    runs.csv rows under group "uncertainty", split_id SPLIT_ID, method
+        timestamp, regime, actual, forecast, both methods' bounds and
+        rolling_coverage_7d_<uq method>: each method's coverage over the
+        last 7 days (336 half-hours, the window of F1's rolling MAE), read
+        by F4 (NaN for the first 335 half-hours);
+    runs.csv rows under group "uncertainty", split_id
+        "aemo_uq_<detector>_half_hourly_v1", method
         "<model>/<arm>/<uq method>": coverage, mean_interval_width,
         normalised_interval_width, worst_24h_coverage and
         n_complete_windows per regime (evaluation.
@@ -65,11 +69,17 @@ from experiments import results_io
 from experiments.produce.table_adaptation_common import D_PREFIX, latest_adaptation_rows
 from experiments.run.adaptation.run_aemo_adaptation_arms import arm_d
 from experiments.run_harness import build_row
+from experiments.trigger_detectors import (
+    CONTROL_ARMS,
+    CONTROL_DETECTOR,
+    TRIGGER_DETECTORS,
+    uq_split_id,
+)
 
-SPLIT_ID = "aemo_uq_half_hourly_v1"
 TARGET_ALPHA = 0.10
 ISSUANCE_STEP = 1  # forecasts per issuance: one half-hour, feedback after each
 WORST_COVERAGE_WINDOW = 48  # 24 hours
+ROLLING_COVERAGE_WINDOW = 336  # 7 days, F1's rolling-MAE window; F4 plots it
 REPORTED_D_ARM = arm_d(180)
 FIXED, AGACI = "fixed_split_conformal", "agaci"
 
@@ -86,6 +96,19 @@ def replay(
         lower[block], upper[block] = issued.lower, issued.upper
         uq.observe(actual[block])
     return lower, upper
+
+
+def add_rolling_coverage(intervals: pd.DataFrame) -> pd.DataFrame:
+    """Add each UQ method's rolling_coverage_7d_<method> column, in place,
+    over the full chronological stream (evaluation.calculate_rolling_coverage)."""
+    for uq_method in (FIXED, AGACI):
+        intervals[f"rolling_coverage_7d_{uq_method}"] = evaluation.calculate_rolling_coverage(
+            intervals["actual"],
+            intervals[f"lower_{uq_method}"],
+            intervals[f"upper_{uq_method}"],
+            window=ROLLING_COVERAGE_WINDOW,
+        ).to_numpy()
+    return intervals
 
 
 def width_scale(region: str) -> float:
@@ -153,7 +176,7 @@ def metric_rows(
 
 
 def replay_one(
-    method: str, region: str, seed: int | None, source_hash: str, scale: float
+    method: str, region: str, seed: int | None, source_hash: str, scale: float, split_id: str
 ) -> tuple[str, list[dict]]:
     """Replay one adaptation run; returns a progress note and its runs.csv rows."""
     model = method.split("/", 1)[0]
@@ -179,6 +202,7 @@ def replay_one(
     intervals = curve[["timestamp", "regime", "actual", "forecast"]].copy()
     intervals[f"lower_{FIXED}"], intervals[f"upper_{FIXED}"] = fixed_lower, fixed_upper
     intervals[f"lower_{AGACI}"], intervals[f"upper_{AGACI}"] = agaci_lower, agaci_upper
+    add_rolling_coverage(intervals)
     intervals.to_csv(results_io.intervals_path(source_hash, "aemo", region, seed), index=False)
 
     methods = {
@@ -202,7 +226,7 @@ def replay_one(
             "region": region,
             "seed": seed,
             "config_hash": chash,
-            "split_id": SPLIT_ID,
+            "split_id": split_id,
             "n_retrains": 0,
             "train_samples": 0,
             "wall_clock_s": seconds,
@@ -220,10 +244,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--model")
     parser.add_argument("--region")
+    parser.add_argument("--detector", choices=TRIGGER_DETECTORS, default=None, help="default: all")
     parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
-    runs = latest_adaptation_rows().drop_duplicates(["method", "region", "seed_key"])
+    runs = []
+    for detector in [args.detector] if args.detector else TRIGGER_DETECTORS:
+        rows = latest_adaptation_rows(detector).drop_duplicates(["method", "region", "seed_key"])
+        if detector != CONTROL_DETECTOR:  # the shared controls are replayed in the control batch
+            rows = rows[~rows["arm"].isin(CONTROL_ARMS)]
+        runs.append(rows.assign(split_id=uq_split_id(detector)))
+    runs = pd.concat(runs)
     other_windows = runs["arm"].str.startswith(D_PREFIX) & (runs["arm"] != REPORTED_D_ARM)
     runs = runs[~other_windows]
     if args.model:
@@ -238,6 +269,7 @@ def main() -> None:
             None if run.seed_key == -1 else int(run.seed_key),
             run.config_hash,
             scales[run.region],
+            run.split_id,
         )
         for run in runs.itertuples()
     ]

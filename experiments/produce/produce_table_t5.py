@@ -20,6 +20,10 @@ region logged by the replay as width_scale; both denominators are stated in
 the table subtitle.
 
 Writes one CSV with every row and one table image per model.
+
+Every output is written once per trigger detector (experiments.trigger_detectors:
+ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
+shared controls, arms C and D are that detector's runs.
 """
 
 from __future__ import annotations
@@ -29,7 +33,14 @@ import pandas as pd
 from experiments.produce.table_adaptation_common import REGIMES, arm_sort_key, mean_sd
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import RUNS_CSV, TABLE5_DIR
-from experiments.run.uncertainty.run_aemo_uq_replay import AGACI, FIXED, SPLIT_ID
+from experiments.run.uncertainty.run_aemo_uq_replay import AGACI, FIXED
+from experiments.trigger_detectors import (
+    CONTROL_DETECTOR,
+    DETECTOR_LABELS,
+    TRIGGER_DETECTORS,
+    detector_rows,
+    uq_split_id,
+)
 
 UQ_LABELS = {FIXED: "fixed split conformal", AGACI: "AgACI"}
 METRICS = (
@@ -42,16 +53,16 @@ METRICS = (
 RUN_KEYS = ["model", "arm", "region", "uq", "seed_key"]
 
 
-def latest_uq_rows() -> pd.DataFrame:
+def latest_uq_rows(detector: str = CONTROL_DETECTOR) -> pd.DataFrame:
     """runs.csv rows of the latest replay of every (model, arm, region, UQ
-    method, seed); method is "<model>/<arm>/<uq method>"."""
+    method, seed) for one trigger detector (its arms C and D plus the
+    shared controls A and B); method is "<model>/<arm>/<uq method>"."""
     hint = "run run_aemo_uq_replay.py first"
     if not RUNS_CSV.exists():
         raise SystemExit(f"{RUNS_CSV} not found -- {hint}")
-    runs = pd.read_csv(RUNS_CSV)
-    rows = runs[(runs["split_id"] == SPLIT_ID) & (runs["group"] == "uncertainty")].copy()
+    rows = detector_rows(pd.read_csv(RUNS_CSV), "uncertainty", uq_split_id, detector).copy()
     if rows.empty:
-        raise SystemExit(f"no rows for split_id={SPLIT_ID!r} -- {hint}")
+        raise SystemExit(f"no uncertainty rows for detector {detector!r} -- {hint}")
     parts = rows["method"].str.split("/", n=2, expand=True)
     rows["model"], rows["arm"], rows["uq"] = parts[0], parts[1], parts[2]
     rows["seed_key"] = rows["seed"].fillna(-1)
@@ -67,8 +78,8 @@ def width_scales(rows: pd.DataFrame) -> dict[str, float]:
     return scales.first().to_dict()
 
 
-def build_table() -> tuple[pd.DataFrame, dict[str, float]]:
-    rows = latest_uq_rows()
+def build_table(detector: str) -> tuple[pd.DataFrame, dict[str, float]]:
+    rows = latest_uq_rows(detector)
     scales = width_scales(rows)
     rows = rows[rows["metric_name"].isin(METRICS) & rows["regime"].isin(REGIMES)]
     per_run = (
@@ -104,9 +115,14 @@ def build_table() -> tuple[pd.DataFrame, dict[str, float]]:
 
 def main() -> None:
     TABLE5_DIR.mkdir(parents=True, exist_ok=True)
-    table, scales = build_table()
+    for detector in TRIGGER_DETECTORS:
+        write_tables(detector)
+
+
+def write_tables(detector: str) -> None:
+    table, scales = build_table(detector)
     denominators = ", ".join(f"{region} {scale:,.1f} MW" for region, scale in scales.items()) or "n/a"
-    out = TABLE5_DIR / "table_t5_coverage_and_width.csv"
+    out = TABLE5_DIR / f"table_t5_coverage_and_width_{detector}.csv"
     table.to_csv(out, index=False)
     print(table.to_string(index=False))
     print(f"\nnormalised width denominators (mean TRAIN demand): {denominators}")
@@ -114,8 +130,8 @@ def main() -> None:
     for model, rows in table.groupby("model"):
         image = save_table_image(
             rows.reset_index(drop=True),
-            TABLE5_DIR / f"table_t5_coverage_and_width_{model}.png",
-            title=f"T5 — Coverage and interval width by regime, {model}",
+            TABLE5_DIR / f"table_t5_coverage_and_width_{detector}_{model}.png",
+            title=f"T5 — Coverage and interval width by regime, {model}, {DETECTOR_LABELS[detector]} trigger",
             subtitle=(
                 "90% intervals issued one half-hour ahead; global regimes; coverage and width "
                 "pooled within each regime; worst 24h = lowest window of 48 consecutive "
