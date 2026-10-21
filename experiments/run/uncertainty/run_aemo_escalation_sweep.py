@@ -19,7 +19,8 @@ Outputs per UQ run:
         regime (full / pre_drift / drift / post_drift), threshold,
         review_rate, retained_coverage, n_retained, n_reviewed,
         n_observations. Regimes share the full stream's threshold grid;
-    runs.csv rows under group "escalation", split_id SPLIT_ID, method
+    runs.csv rows under group "escalation", split_id
+        "aemo_escalation_<detector>_half_hourly_v1", method
         "<model>/<arm>/<uq method>", config_hash = the escalation hash
         above (so producers can find the curve file):
         review_rate_for_coverage_0.90 / _0.95 (NaN = unreachable),
@@ -55,8 +56,13 @@ from drift_lab.evaluation.evaluation import (
 from experiments import results_io
 from experiments.produce.produce_table_t5 import latest_uq_rows
 from experiments.run_harness import build_row
+from experiments.trigger_detectors import (
+    CONTROL_ARMS,
+    CONTROL_DETECTOR,
+    TRIGGER_DETECTORS,
+    escalation_split_id,
+)
 
-SPLIT_ID = "aemo_escalation_half_hourly_v1"
 RULE = "escalate when upper - lower > threshold (MW)"
 MIN_RETAINED = 1  # provisional: any non-empty retained set
 
@@ -102,7 +108,7 @@ def sweep_one(run) -> list[dict]:
         "region": run.region,
         "seed": seed,
         "config_hash": chash,
-        "split_id": SPLIT_ID,
+        "split_id": run.split_id,
         "n_retrains": 0,
         "train_samples": 0,
         "wall_clock_s": 0.0,
@@ -121,9 +127,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--model")
     parser.add_argument("--region")
+    parser.add_argument("--detector", choices=TRIGGER_DETECTORS, default=None, help="default: all")
     args = parser.parse_args()
 
-    runs = latest_uq_rows().drop_duplicates(["method", "region", "seed_key"])
+    runs = []
+    for detector in [args.detector] if args.detector else TRIGGER_DETECTORS:
+        rows = latest_uq_rows(detector).drop_duplicates(["method", "region", "seed_key"])
+        if detector != CONTROL_DETECTOR:  # the shared controls are swept in the control batch
+            rows = rows[~rows["arm"].isin(CONTROL_ARMS)]
+        runs.append(rows.assign(split_id=escalation_split_id(detector)))
+    runs = pd.concat(runs)
     if args.model:
         runs = runs[runs["model"] == args.model]
     if args.region:

@@ -22,6 +22,10 @@ Reads the escalation runs.csv rows and, through their config_hash, the
 curve files written by run_aemo_escalation_sweep.py; no metric is
 recalculated here.
 
+Every output is written once per trigger detector (experiments.trigger_detectors:
+ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
+shared controls, arms C and D are that detector's runs.
+
 Usage:
     python -m experiments.produce.produce_figure_f5
 """
@@ -38,7 +42,13 @@ import pandas as pd
 from experiments import results_io
 from experiments.produce.figure_text import axes_right_in, line_height_in, wrap_to_width
 from experiments.produce.table_adaptation_common import arm_sort_key
-from experiments.run.uncertainty.run_aemo_escalation_sweep import SPLIT_ID
+from experiments.trigger_detectors import (
+    CONTROL_DETECTOR,
+    DETECTOR_LABELS,
+    TRIGGER_DETECTORS,
+    detector_rows,
+    escalation_split_id,
+)
 
 MODEL_NAMES = {"nhits": "NHITS", "xgboost": "XGBoost", "dhr_arima": "DHR + ARIMA"}
 UQ_ORDER = {"agaci": "AgACI"}  # add "fixed_split_conformal" for a second row
@@ -68,16 +78,16 @@ GRID = "#e4e3df"
 RUN_KEYS = ["model", "arm", "region", "uq", "seed_key"]
 
 
-def latest_escalation_rows() -> pd.DataFrame:
+def latest_escalation_rows(detector: str = CONTROL_DETECTOR) -> pd.DataFrame:
     """runs.csv rows of the latest sweep of every (model, arm, region, UQ
-    method, seed); method is "<model>/<arm>/<uq method>"."""
+    method, seed) for one trigger detector (its arms C and D plus the
+    shared controls A and B); method is "<model>/<arm>/<uq method>"."""
     hint = "run run_aemo_escalation_sweep.py first"
     if not results_io.RUNS_CSV.exists():
         raise SystemExit(f"{results_io.RUNS_CSV} not found -- {hint}")
-    runs = pd.read_csv(results_io.RUNS_CSV)
-    rows = runs[(runs["split_id"] == SPLIT_ID) & (runs["group"] == "escalation")].copy()
+    rows = detector_rows(pd.read_csv(results_io.RUNS_CSV), "escalation", escalation_split_id, detector).copy()
     if rows.empty:
-        raise SystemExit(f"no rows for split_id={SPLIT_ID!r} -- {hint}")
+        raise SystemExit(f"no escalation rows for detector {detector!r} -- {hint}")
     parts = rows["method"].str.split("/", n=2, expand=True)
     rows["model"], rows["arm"], rows["uq"] = parts[0], parts[1], parts[2]
     rows["seed_key"] = rows["seed"].fillna(-1)
@@ -154,7 +164,7 @@ def style_axis(ax) -> None:
     ax.set_xlim(0, 1)
 
 
-def plot_figure(rows: pd.DataFrame, model: str, region: str):
+def plot_figure(rows: pd.DataFrame, model: str, region: str, detector: str):
     subset = rows[(rows["model"] == model) & (rows["region"] == region)]
     arms = sorted(subset["arm"].unique(), key=arm_sort_key)
     uqs = [uq for uq in UQ_ORDER if uq in set(subset["uq"])]
@@ -238,13 +248,14 @@ def plot_figure(rows: pd.DataFrame, model: str, region: str):
     fig.legend(handles, labels, loc="upper left", bbox_to_anchor=(HEADER_LEFT, from_top(0.62 + extra_in)),
                ncol=5, frameon=False, fontsize=9, labelcolor=TEXT)
     fig.suptitle(
-        f"F5 — Escalation curve, {MODEL_NAMES.get(model, model)}, {region}",
+        f"F5 — Escalation curve, {MODEL_NAMES.get(model, model)}, {region}, "
+        f"{DETECTOR_LABELS[detector]} trigger",
         x=HEADER_LEFT, y=from_top(0.08), ha="left", fontsize=14, fontweight="bold", color=TEXT,
     )
     fig.text(HEADER_LEFT, from_top(0.30), subtitle, ha="left", va="top", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
     fig.tight_layout(rect=(0.04, 0, 1, from_top(HEADER_IN + extra_in)))
 
-    out = results_io.FIGURE5_DIR / f"f5_escalation_curve_{model}_{region}.png"
+    out = results_io.FIGURE5_DIR / f"f5_escalation_curve_{detector}_{model}_{region}.png"
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out
@@ -252,9 +263,10 @@ def plot_figure(rows: pd.DataFrame, model: str, region: str):
 
 def main() -> None:
     results_io.FIGURE5_DIR.mkdir(parents=True, exist_ok=True)
-    rows = latest_escalation_rows()
-    for (model, region), _ in rows.groupby(["model", "region"]):
-        print(f"wrote {plot_figure(rows, model, region)}")
+    for detector in TRIGGER_DETECTORS:
+        rows = latest_escalation_rows(detector)
+        for (model, region), _ in rows.groupby(["model", "region"]):
+            print(f"wrote {plot_figure(rows, model, region, detector)}")
 
 
 if __name__ == "__main__":
