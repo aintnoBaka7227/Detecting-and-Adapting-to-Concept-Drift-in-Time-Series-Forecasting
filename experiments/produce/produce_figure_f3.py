@@ -11,6 +11,10 @@ curves, one rug row per arm marks every retrain.
 Reads the saved curve and retrain files of the latest adaptation runs; no
 metric is recalculated here.
 
+Every output is written once per trigger detector (experiments.trigger_detectors:
+ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
+shared controls, arms C and D are that detector's runs.
+
 Usage:
     python -m experiments.produce.produce_figure_f3
 """
@@ -33,6 +37,7 @@ from experiments.produce.table_adaptation_common import (
     official_d_arms,
 )
 from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, ARM_B, ARM_C
+from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 MODEL_NAMES = {"nhits": "NHITS", "xgboost": "XGBoost", "dhr_arima": "DHR + ARIMA"}
 
@@ -71,7 +76,9 @@ def load_arm(rows: pd.DataFrame, model: str, region: str, arm: str):
     return index, np.vstack(curves), retrains
 
 
-def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model: str, region: str):
+def plot_figure(
+    rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model: str, region: str, detector: str
+):
     d_arm = official[(model, region)]
     days = d_arm.removeprefix(D_PREFIX).removesuffix("d")
     arms = {"A": ARM_A, "B": ARM_B, "C": ARM_C, "D": d_arm}
@@ -118,7 +125,8 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
     )
     extra = subtitle.count("\n") * line_height_in(SUBTITLE_SIZE) / fig.get_figheight()
     fig.suptitle(
-        f"F3 — Four adaptation arms, {MODEL_NAMES.get(model, model)}, {region}",
+        f"F3 — Four adaptation arms, {MODEL_NAMES.get(model, model)}, {region}, "
+        f"{DETECTOR_LABELS[detector]} trigger",
         x=0.125, y=0.97 + extra, ha="left", fontsize=14, fontweight="bold", color=TEXT,
     )
     ax.set_title(subtitle, loc="left", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
@@ -143,7 +151,7 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
     ax.spines["bottom"].set_visible(False)
     ax.margins(x=0.005)
 
-    out = results_io.FIGURE3_DIR / f"f3_four_arm_comparison_{model}_{region}.png"
+    out = results_io.FIGURE3_DIR / f"f3_four_arm_comparison_{detector}_{model}_{region}.png"
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out
@@ -151,11 +159,12 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
 
 def main() -> None:
     results_io.FIGURE3_DIR.mkdir(parents=True, exist_ok=True)
-    rows = latest_adaptation_rows()
-    per_run = mae_by_run(rows)
-    official = official_d_arms(per_run)
-    for model, region in sorted(official):
-        print(f"wrote {plot_figure(rows, per_run, official, model, region)}")
+    for detector in TRIGGER_DETECTORS:
+        rows = latest_adaptation_rows(detector)
+        per_run = mae_by_run(rows)
+        official = official_d_arms(per_run)
+        for model, region in sorted(official):
+            print(f"wrote {plot_figure(rows, per_run, official, model, region, detector)}")
 
 
 if __name__ == "__main__":

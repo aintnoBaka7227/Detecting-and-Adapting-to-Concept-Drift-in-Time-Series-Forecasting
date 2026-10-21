@@ -24,10 +24,12 @@ run is scored the same way.
 
 Usage:
     python -m experiments.run.adaptation.rescore_adaptation_runs
+    python -m experiments.run.adaptation.rescore_adaptation_runs --detector page_hinkley
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 
 import pandas as pd
@@ -35,8 +37,14 @@ import pandas as pd
 from drift_lab.uncertainty import FixedSplitConformal
 from experiments import results_io
 from experiments.produce.table_adaptation_common import latest_adaptation_rows
-from experiments.run.adaptation.run_aemo_adaptation_arms import SPLIT_ID, regime_labels
+from experiments.run.adaptation.run_aemo_adaptation_arms import regime_labels
 from experiments.run_harness import record_run
+from experiments.trigger_detectors import (
+    CONTROL_ARMS,
+    CONTROL_DETECTOR,
+    TRIGGER_DETECTORS,
+    adaptation_split_id,
+)
 
 INTERVAL_ALPHA = 0.10
 
@@ -52,7 +60,18 @@ def fixed_radius(model: str, region: str, seed: int | None) -> float | None:
 
 
 def main() -> None:
-    rows = latest_adaptation_rows()
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--detector", choices=TRIGGER_DETECTORS, default=None, help="default: all")
+    args = parser.parse_args()
+
+    for detector in [args.detector] if args.detector else TRIGGER_DETECTORS:
+        rows = latest_adaptation_rows(detector)
+        if detector != CONTROL_DETECTOR:  # the shared controls are re-scored with the control batch
+            rows = rows[~rows["arm"].isin(CONTROL_ARMS)]
+        rescore(rows, adaptation_split_id(detector))
+
+
+def rescore(rows: pd.DataFrame, split_id: str) -> None:
     labels_by_region: dict[str, pd.Series] = {}
     radius_by_stream: dict[tuple, float | None] = {}
 
@@ -91,7 +110,7 @@ def main() -> None:
             seed=seed,
             config=config,
             wall_clock_s=float(first["wall_clock_s"]),
-            split_id=SPLIT_ID,
+            split_id=split_id,
             train_samples=int(first["train_samples"]),
             n_retrains=int(first["n_retrains"]),
             forecast=(curve["actual"].to_numpy(), curve["forecast"].to_numpy(), index),

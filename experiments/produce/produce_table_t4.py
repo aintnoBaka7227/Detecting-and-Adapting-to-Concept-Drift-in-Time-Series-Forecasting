@@ -10,9 +10,15 @@ T3 and T5.
 Two versions are written, differing only in which drift regime the gain
 uses (TEAM_DECISIONS.md 5.3): global (official) and event-local
 (comparison). Retrains and cost are the same in both.
+
+Every output is written once per trigger detector (experiments.trigger_detectors:
+ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
+shared controls, arms C and D are that detector's runs.
 """
 
 from __future__ import annotations
+
+from itertools import product
 
 import pandas as pd
 
@@ -28,6 +34,7 @@ from experiments.produce.table_adaptation_common import (
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE4_DIR
 from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A
+from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 VERSIONS = {
     "global": ("table_t4_adaptation_cost", "global drift regime"),
@@ -35,8 +42,8 @@ VERSIONS = {
 }
 
 
-def build_table(regimes: str = "global") -> pd.DataFrame:
-    latest = drop_unreported_d_arms(latest_adaptation_rows())
+def build_table(detector: str, regimes: str = "global") -> pd.DataFrame:
+    latest = drop_unreported_d_arms(latest_adaptation_rows(detector))
     by_run = mae_by_run if regimes == "global" else mae_by_run_event_local
     per_run = by_run(latest)
     arm_a = per_run[per_run["arm"] == ARM_A].set_index(["model", "region", "seed_key"])["drift"]
@@ -75,20 +82,21 @@ def build_table(regimes: str = "global") -> pd.DataFrame:
 
 def main() -> None:
     TABLE4_DIR.mkdir(parents=True, exist_ok=True)
-    for regimes, (stem, regime_note) in VERSIONS.items():
-        table = build_table(regimes)
+    for detector, (regimes, (stem, regime_note)) in product(TRIGGER_DETECTORS, VERSIONS.items()):
+        stem = f"{stem}_{detector}"
+        table = build_table(detector, regimes)
         out = TABLE4_DIR / f"{stem}.csv"
         table.to_csv(out, index=False)
         image = save_table_image(
             table,
             TABLE4_DIR / f"{stem}.png",
-            title=f"T4 — Adaptation cost ({regimes.replace('_', '-')}), four adaptation arms",
+            title=f"T4 — Adaptation cost ({regimes.replace('_', '-')}), four adaptation arms, {DETECTOR_LABELS[detector]} trigger",
             subtitle=(
                 f"Gain = MAE(arm) − MAE(arm A) over the {regime_note}, paired by region and "
                 "seed; negative is better."
             ),
         )
-        print(f"\n[{regimes}]\n{table.to_string(index=False)}")
+        print(f"\n[{detector} {regimes}]\n{table.to_string(index=False)}")
         print(f"wrote {out}\nwrote {image}")
 
 
