@@ -26,17 +26,21 @@ import json
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
+from drift_lab.uncertainty import AgACI
+from drift_lab.uncertainty.agaci import PROVISIONAL_WINDOW_SIZE
 from experiments import results_io
 from experiments.produce.figure_text import axes_right_in, line_height_in, wrap_to_width
 from experiments.produce.produce_table_t5 import latest_uq_rows
 from experiments.run.uncertainty.run_aemo_uq_replay import AGACI, FIXED
+from experiments.trigger_detectors import CONTROL_DETECTOR
 
 MODEL_NAMES = {"dhr_arima": "DHR + ARIMA", "nhits": "NHITS", "xgboost": "XGBoost"}
 ARM = "A_never_retrain"
 SEED = 1
-BUFFER = 336  # AgACI's provisional 7-day error buffer
+BUFFER = PROVISIONAL_WINDOW_SIZE  # AgACI's 7-day error buffer, as replayed
 AGACI_COLOUR = "#2a78d6"
 FIXED_COLOUR = "#eb6834"
 CAP_COLOUR = "#7a7974"
@@ -48,19 +52,30 @@ GRID = "#e4e3df"
 SUBTITLE_SIZE = 9.5
 
 
+def replacement_cap(forecast: np.ndarray, actual: np.ndarray, calibration_residuals) -> np.ndarray:
+    """2 x M_t before each half-hour, read from AgACI itself: one candidate
+    (no R needed) fed the same outcomes, whose threshold_radius is
+    max(|calibration errors|, |errors| in the buffer) -- uncertainty/agaci.py."""
+    uq = AgACI(gammas=(0.0,), window_size=BUFFER).calibrate(calibration_residuals)
+    caps = np.empty(len(actual))
+    for t in range(len(actual)):
+        caps[t] = 2 * uq.threshold_radius
+        uq.observe(actual[t : t + 1], uq.predict(forecast[t : t + 1]))
+    return caps
+
+
 def load_run(run) -> pd.DataFrame:
     """Half-hourly widths, the replacement cap 2 x M_t and the regime."""
     seed = None if run.seed_key == -1 else int(run.seed_key)
     source = json.loads((results_io.RUNS_DIR / run.config_hash / "config.json").read_text())["source_config_hash"]
     d = pd.read_csv(results_io.intervals_path(source, "aemo", run.region, seed), parse_dates=["timestamp"])
-    calibration_max = pd.read_csv(results_io.calibration_path(run.model, run.region, seed))["residual"].abs().max()
-    # M_t uses only outcomes before t: the buffer holds the latest BUFFER errors.
-    buffer_max = (d["actual"] - d["forecast"]).abs().rolling(BUFFER, min_periods=1).max().shift(1)
+    residuals = pd.read_csv(results_io.calibration_path(run.model, run.region, seed))["residual"]
+    cap = replacement_cap(d["forecast"].to_numpy(), d["actual"].to_numpy(), residuals)
     return pd.DataFrame(
         {
             "agaci": d[f"upper_{AGACI}"] - d[f"lower_{AGACI}"],
             "fixed": d[f"upper_{FIXED}"] - d[f"lower_{FIXED}"],
-            "cap": 2 * buffer_max.fillna(0).clip(lower=calibration_max),
+            "cap": cap,
             "drift": d["regime"] == "drift",
         }
     ).set_index(d["timestamp"])
@@ -139,7 +154,8 @@ def plot_region(runs: pd.DataFrame, region: str):
 
 
 def main() -> None:
-    rows = latest_uq_rows().drop_duplicates(["method", "region", "seed_key"])
+    # Arm A is a shared control (no trigger detector): read it from the control batch.
+    rows = latest_uq_rows(CONTROL_DETECTOR).drop_duplicates(["method", "region", "seed_key"])
     rows = rows[(rows["uq"] == AGACI) & (rows["arm"] == ARM) & rows["seed_key"].isin([SEED, -1])]
     for region, runs in rows.groupby("region"):
         print(f"wrote {plot_region(runs, region)}")

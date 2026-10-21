@@ -10,15 +10,21 @@ gap is filled in that method's colour, so the figure shows when
 calibration failed. The global drift regime is shaded and Tier 1
 documented events are thin vertical lines.
 
-Seeds: each seed's rolling coverage is computed on its own full
-chronological stream (evaluation.calculate_rolling_coverage, never on one
-regime's rows), and the line is the mean across seeds with a ±1 sd band.
+Seeds: each seed's rolling coverage is read from its interval file
+(rolling_coverage_7d_<uq method>, computed at the run stage by
+run_aemo_uq_replay.add_rolling_coverage over the full chronological
+stream, never on one regime's rows; nothing is recalculated here), and the
+line is the mean across seeds with a ±1 sd band.
 The first 335 values of every stream have no full window and are left
 blank.
 
 Reads the uncertainty runs.csv rows and, through each UQ run's
 source_config_hash, the interval files written by run_aemo_uq_replay.py.
 Both UQ methods share one interval file per adaptation run.
+
+Every output is written once per trigger detector (experiments.trigger_detectors:
+ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
+shared controls, arms C and D are that detector's runs.
 
 Usage:
     python -m experiments.produce.produce_figure_f4
@@ -35,13 +41,17 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 
-from drift_lab.evaluation import calculate_rolling_coverage
 from experiments import results_io
 from experiments.produce.figure_text import axes_right_in, line_height_in, wrap_to_width
 from experiments.produce.produce_figure_f1 import events_in_window, load_events
 from experiments.produce.produce_table_t5 import latest_uq_rows
 from experiments.produce.table_adaptation_common import arm_sort_key
-from experiments.run.uncertainty.run_aemo_uq_replay import AGACI, FIXED
+from experiments.run.uncertainty.run_aemo_uq_replay import (
+    AGACI,
+    FIXED,
+    ROLLING_COVERAGE_WINDOW,
+)
+from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 MODEL_NAMES = {"nhits": "NHITS", "xgboost": "XGBoost", "dhr_arima": "DHR + ARIMA"}
 ARM_LABELS = {
@@ -55,7 +65,6 @@ UQ_STYLE = {
     FIXED: ("fixed split conformal", "#eb6834"),
     AGACI: ("AgACI", "#2a78d6"),
 }
-WINDOW = 336  # 7 days of half-hours, the window of F1's rolling MAE
 TARGET = 0.90
 DRIFT_SHADE = ("#c9b8a6", 0.22)  # (colour, alpha) of the global drift regime
 EVENT_COLOUR = "#7a7974"
@@ -86,13 +95,17 @@ def load_arm(runs: pd.DataFrame, region: str):
         intervals = pd.read_csv(
             results_io.intervals_path(uq_config["source_config_hash"], "aemo", region, seed),
             parse_dates=["timestamp"],
+            float_precision="round_trip",
         )
         index, regimes = pd.DatetimeIndex(intervals["timestamp"]), intervals["regime"]
         for uq in UQ_STYLE:
-            rolling = calculate_rolling_coverage(
-                intervals["actual"], intervals[f"lower_{uq}"], intervals[f"upper_{uq}"], window=WINDOW
-            )
-            coverage[uq].append(rolling.to_numpy())
+            column = f"rolling_coverage_7d_{uq}"
+            if column not in intervals:
+                raise SystemExit(
+                    f"{column} missing from {run.config_hash}'s interval file -- "
+                    "run experiments.run.uncertainty.add_rolling_coverage first"
+                )
+            coverage[uq].append(intervals[column].to_numpy())
     return index, regimes, {uq: np.vstack(curves) for uq, curves in coverage.items()}
 
 
@@ -118,7 +131,7 @@ def style_axis(ax) -> None:
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
 
 
-def plot_figure(rows: pd.DataFrame, events: pd.DataFrame, model: str, region: str):
+def plot_figure(rows: pd.DataFrame, events: pd.DataFrame, model: str, region: str, detector: str):
     subset = rows[(rows["model"] == model) & (rows["region"] == region)]
     arms = sorted(
         (arm for arm in subset["arm"].unique() if not arm.startswith("D_") or arm == OFFICIAL_D),
@@ -188,7 +201,7 @@ def plot_figure(rows: pd.DataFrame, events: pd.DataFrame, model: str, region: st
 
     seeds = f"mean ± sd across {n_seeds} seeds" if n_seeds > 1 else "deterministic, one run"
     subtitle = (
-        f"Empirical coverage of the 90% intervals over a 7-day rolling window ({WINDOW} half-hourly "
+        f"Empirical coverage of the 90% intervals over a 7-day rolling window ({ROLLING_COVERAGE_WINDOW} half-hourly "
         f"observations) through the TEST period; {seeds}. Dashed line = 0.90 target; filled dips "
         "are periods below target. Global drift regime shaded. The first 7 days are blank (window "
         f"warm-up). Tier 1 documented events (thin lines): {event_names}."
@@ -210,13 +223,14 @@ def plot_figure(rows: pd.DataFrame, events: pd.DataFrame, model: str, region: st
     fig.legend(handles, labels, loc="upper left", bbox_to_anchor=(HEADER_LEFT, from_top(0.62 + extra_in)),
                ncol=5, frameon=False, fontsize=9, labelcolor=TEXT)
     fig.suptitle(
-        f"F4 — Coverage trajectory, {MODEL_NAMES.get(model, model)}, {region}",
+        f"F4 — Coverage trajectory, {MODEL_NAMES.get(model, model)}, {region}, "
+        f"{DETECTOR_LABELS[detector]} trigger",
         x=HEADER_LEFT, y=from_top(0.08), ha="left", fontsize=14, fontweight="bold", color=TEXT,
     )
     fig.text(HEADER_LEFT, from_top(0.30), subtitle, ha="left", va="top", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
     fig.tight_layout(rect=(0.04, 0, 1, from_top(HEADER_IN + extra_in)))
 
-    out = results_io.FIGURE4_DIR / f"f4_coverage_trajectory_{model}_{region}.png"
+    out = results_io.FIGURE4_DIR / f"f4_coverage_trajectory_{detector}_{model}_{region}.png"
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out
@@ -224,10 +238,11 @@ def plot_figure(rows: pd.DataFrame, events: pd.DataFrame, model: str, region: st
 
 def main() -> None:
     results_io.FIGURE4_DIR.mkdir(parents=True, exist_ok=True)
-    rows = latest_uq_rows()
     events = load_events()
-    for (model, region), _ in rows.groupby(["model", "region"]):
-        print(f"wrote {plot_figure(rows, events, model, region)}")
+    for detector in TRIGGER_DETECTORS:
+        rows = latest_uq_rows(detector)
+        for (model, region), _ in rows.groupby(["model", "region"]):
+            print(f"wrote {plot_figure(rows, events, model, region, detector)}")
 
 
 if __name__ == "__main__":
