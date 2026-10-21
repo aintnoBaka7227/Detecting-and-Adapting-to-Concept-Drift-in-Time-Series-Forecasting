@@ -1,6 +1,8 @@
-"""ADWIN change points for the adaptation arms -- detect once, reuse everywhere.
+"""Trigger-detector change points for the adaptation arms -- detect once, reuse everywhere.
 
-Runs the frozen post-tuning ADWIN a single time per region on the
+For each trigger detector (experiments.trigger_detectors.TRIGGER_DETECTORS:
+ADWIN and Page-Hinkley), runs its frozen post-tuning configuration a single
+time per region on the
 standard-half-hourly stream (TRAIN-fitted seasonal residual, z-scored on
 TRAIN), warmed up over TRAIN + Calibration exactly like
 run_aemo_detectors_standard_half_hourly_post_tune.py, keeps TEST-period
@@ -8,7 +10,7 @@ alarms only, and applies the 14-day refractory filter through the shared
 `evaluation.match_unmatch` (SHARED_DECISIONS.md 6-7: only accepted alarms
 may trigger retraining). The accepted change points are written to
 
-    results/runs/changepoints/adwin_standard_half_hourly_post_tune_<region>.csv
+    results/runs/changepoints/<detector>_standard_half_hourly_post_tune_<region>.csv
         timestamp   accepted alarm timestamp
         day         its calendar day (the retraining boundary is day 23:30)
         label       Match / Unmatch against the documented events (info only;
@@ -18,11 +20,13 @@ plus `..._config.json` with the detector settings. Adaptation arms C and D
 read these files; nothing downstream re-runs the detector.
 
 Usage:
-    python -m experiments.run.detection.run_adwin_changepoints
+    python -m experiments.run.detection.run_detector_changepoints
+    python -m experiments.run.detection.run_detector_changepoints --detector page_hinkley
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 
 import pandas as pd
@@ -38,29 +42,32 @@ from experiments.run.detection.standard_stream_common import (
     build_standard_stream,
 )
 from experiments.run_harness import config_of
+from experiments.trigger_detectors import TRIGGER_DETECTORS
 
-DETECTOR = "adwin"
 STREAM_CADENCE = "half_hourly"
 CHANGEPOINTS_DIR = RUNS_DIR / "changepoints"
 
 
-def changepoints_path(region: str):
-    return CHANGEPOINTS_DIR / f"{DETECTOR}_standard_half_hourly_post_tune_{region}.csv"
+def changepoints_path(detector_name: str, region: str):
+    return CHANGEPOINTS_DIR / f"{detector_name}_standard_half_hourly_post_tune_{region}.csv"
 
 
-def load_changepoints(region: str) -> pd.DataFrame:
-    """The accepted ADWIN change points for `region`, as written by main()."""
-    path = changepoints_path(region)
+def load_changepoints(detector_name: str, region: str) -> pd.DataFrame:
+    """The accepted change points of `detector_name` for `region`, as
+    written by main()."""
+    path = changepoints_path(detector_name, region)
     if not path.exists():
-        raise FileNotFoundError(f"{path} not found -- run run_adwin_changepoints.py first")
+        raise FileNotFoundError(
+            f"{path} not found -- run run_detector_changepoints.py --detector {detector_name} first"
+        )
     return pd.read_csv(path, parse_dates=["timestamp", "day"])
 
 
-def make_detector():
+def make_detector(detector_name: str):
     for detector in make_post_tune_detectors():
-        if detector.name == DETECTOR:
+        if detector.name == detector_name:
             return detector
-    raise RuntimeError(f"no post-tuning {DETECTOR} configuration")
+    raise RuntimeError(f"no post-tuning {detector_name} configuration")
 
 
 def region_events(region: str) -> pd.DataFrame:
@@ -68,12 +75,10 @@ def region_events(region: str) -> pd.DataFrame:
     return events[events["region"].isin([region, "NEM"])].reset_index(drop=True)
 
 
-def main() -> None:
-    CHANGEPOINTS_DIR.mkdir(parents=True, exist_ok=True)
-
+def write_changepoints(detector_name: str) -> None:
     for region in REGIONS:
         series, _ = build_standard_stream(region, STREAM_CADENCE)
-        detector = make_detector()
+        detector = make_detector(detector_name)
 
         flagged = detector.detect(series.to_numpy())
         timestamps = series.index[flagged]
@@ -87,23 +92,35 @@ def main() -> None:
             .reset_index(drop=True)
         )
         accepted.insert(1, "day", pd.DatetimeIndex(accepted["timestamp"]).normalize())
-        accepted.to_csv(changepoints_path(region), index=False)
+        accepted.to_csv(changepoints_path(detector_name, region), index=False)
 
         config = {
             **config_of(detector),
-            "detector": DETECTOR,
+            "detector": detector_name,
             "input_stream": "standard_half_hourly",
             "preprocessing": "seasonal_profile_half_hourly_v1",
             "refractory_period_days": REFRACTORY_PERIOD.days,
         }
-        changepoints_path(region).with_name(
-            f"{DETECTOR}_standard_half_hourly_post_tune_{region}_config.json"
+        changepoints_path(detector_name, region).with_name(
+            f"{detector_name}_standard_half_hourly_post_tune_{region}_config.json"
         ).write_text(json.dumps(config, sort_keys=True, default=str, indent=2))
 
         print(
-            f"{region}: {len(test_alarms)} raw TEST alarms -> {len(accepted)} accepted "
-            f"change points -- {changepoints_path(region)}"
+            f"{detector_name} {region}: {len(test_alarms)} raw TEST alarms -> {len(accepted)} accepted "
+            f"change points -- {changepoints_path(detector_name, region)}"
         )
+
+
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Accepted trigger-detector change points.")
+    parser.add_argument("--detector", choices=TRIGGER_DETECTORS, default=None, help="default: all")
+    args = parser.parse_args()
+
+    CHANGEPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    for detector_name in [args.detector] if args.detector else TRIGGER_DETECTORS:
+        write_changepoints(detector_name)
 
 
 if __name__ == "__main__":

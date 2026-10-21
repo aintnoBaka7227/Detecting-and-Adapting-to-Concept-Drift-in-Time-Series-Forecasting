@@ -14,9 +14,15 @@ Two versions are written (TEAM_DECISIONS.md 5.3):
     event-local  comparison -- only timestamps in the 7 days before, during
                  and 7 days after an event; the rest are left out.
 Pinball loss is over every TEST timestamp in both.
+
+Every output is written once per trigger detector (experiments.trigger_detectors:
+ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
+shared controls, arms C and D are that detector's runs.
 """
 
 from __future__ import annotations
+
+from itertools import product
 
 import pandas as pd
 
@@ -33,6 +39,7 @@ from experiments.produce.table_adaptation_common import (
 )
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE3_DIR
+from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 VERSIONS = {
     "global": ("table_t3_forecast_accuracy", "MAE pooled within each global regime"),
@@ -46,8 +53,8 @@ VERSIONS = {
 }
 
 
-def build_table(regimes: str = "global") -> pd.DataFrame:
-    latest = drop_unreported_d_arms(latest_adaptation_rows())
+def build_table(detector: str, regimes: str = "global") -> pd.DataFrame:
+    latest = drop_unreported_d_arms(latest_adaptation_rows(detector))
     by_run = mae_by_run if regimes == "global" else mae_by_run_event_local
     per_run = by_run(latest).merge(pinball_by_run(latest), on=RUN_KEYS, how="left")
     rows = []
@@ -70,20 +77,21 @@ def build_table(regimes: str = "global") -> pd.DataFrame:
 
 def main() -> None:
     TABLE3_DIR.mkdir(parents=True, exist_ok=True)
-    for regimes, (stem, regime_note) in VERSIONS.items():
-        table = build_table(regimes)
+    for detector, (regimes, (stem, regime_note)) in product(TRIGGER_DETECTORS, VERSIONS.items()):
+        stem = f"{stem}_{detector}"
+        table = build_table(detector, regimes)
         out = TABLE3_DIR / f"{stem}.csv"
         table.to_csv(out, index=False)
         image = save_table_image(
             table,
             TABLE3_DIR / f"{stem}.png",
-            title=f"T3 — Forecast accuracy by regime ({regimes.replace('_', '-')}), four adaptation arms",
+            title=f"T3 — Forecast accuracy by regime ({regimes.replace('_', '-')}), four adaptation arms, {DETECTOR_LABELS[detector]} trigger",
             subtitle=(
                 f"{regime_note}; pinball loss of the 90% fixed split conformal interval "
                 "over all TEST timestamps; mean ± sd across seeds."
             ),
         )
-        print(f"\n[{regimes}]\n{table.to_string(index=False)}")
+        print(f"\n[{detector} {regimes}]\n{table.to_string(index=False)}")
         print(f"wrote {out}\nwrote {image}")
 
 

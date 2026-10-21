@@ -22,10 +22,10 @@ from experiments import results_io
 from experiments.results_io import RUNS_CSV
 from experiments.run.adaptation.run_aemo_adaptation_arms import (
     ARM_A,
-    SPLIT_ID,
     arm_d,
     event_local_regime_labels,
 )
+from experiments.trigger_detectors import CONTROL_DETECTOR, adaptation_split_id, detector_rows
 
 REGIMES = ("pre-drift", "drift", "post-drift")
 D_PREFIX = "D_drift_recent_"
@@ -33,13 +33,15 @@ REPORTED_D_ARM = arm_d(180)
 RUN_KEYS = ["model", "arm", "region", "seed_key"]
 
 
-def latest_adaptation_rows() -> pd.DataFrame:
+def latest_adaptation_rows(detector: str = CONTROL_DETECTOR) -> pd.DataFrame:
+    """runs.csv rows of the latest run of every (model, arm, region, seed)
+    for one trigger detector: its arms C and D plus the shared controls A
+    and B (experiments.trigger_detectors.detector_rows)."""
     if not RUNS_CSV.exists():
         raise SystemExit(f"{RUNS_CSV} not found -- run run_aemo_adaptation_arms.py first")
-    runs = pd.read_csv(RUNS_CSV)
-    rows = runs[(runs["split_id"] == SPLIT_ID) & (runs["group"] == "adaptation")].copy()
+    rows = detector_rows(pd.read_csv(RUNS_CSV), "adaptation", adaptation_split_id, detector).copy()
     if rows.empty:
-        raise SystemExit(f"no rows for split_id={SPLIT_ID!r} -- run run_aemo_adaptation_arms.py first")
+        raise SystemExit(f"no adaptation rows for detector {detector!r} -- run run_aemo_adaptation_arms.py first")
     parts = rows["method"].str.split("/", n=1, expand=True)
     rows["model"], rows["arm"] = parts[0], parts[1]
     rows["seed_key"] = rows["seed"].fillna(-1)
