@@ -35,13 +35,19 @@ shared controls, arms C and D are that detector's runs.
 
 from __future__ import annotations
 
+from itertools import product
+
 import pandas as pd
 
 from experiments.produce.produce_figure_f5 import latest_escalation_rows
 from experiments.produce.table_adaptation_common import REGIMES, arm_sort_key
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLE6_DIR
-from experiments.run.uncertainty.run_aemo_escalation_sweep import MIN_RETAINED
+from experiments.run.uncertainty.run_aemo_escalation_sweep import (
+    MIN_RETAINED,
+    SIGNAL_RULES,
+    SIGNALS,
+)
 from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 UQ_LABELS = {"fixed_split_conformal": "fixed split conformal", "agaci": "AgACI"}
@@ -88,8 +94,8 @@ def coverage_cell(coverage: pd.Series, attained: pd.Series, budget: float) -> st
     return cell
 
 
-def build_table(detector: str) -> pd.DataFrame:
-    rows = latest_escalation_rows(detector)
+def build_table(detector: str, signal: str) -> pd.DataFrame:
+    rows = latest_escalation_rows(detector, signal)
     rows = rows[rows["regime"].isin(REGIMES)]
     # One row per run x regime; NaN review rates (unreachable) must survive.
     per_run = rows.set_index([*RUN_KEYS, "regime", "metric_name"])["metric_value"].unstack().reset_index()
@@ -114,28 +120,32 @@ def build_table(detector: str) -> pd.DataFrame:
 
 def main() -> None:
     TABLE6_DIR.mkdir(parents=True, exist_ok=True)
-    for detector in TRIGGER_DETECTORS:
-        write_tables(detector)
+    for detector, signal in product(TRIGGER_DETECTORS, SIGNALS):
+        write_tables(detector, signal)
 
 
-def write_tables(detector: str) -> None:
-    table = build_table(detector)
-    out = TABLE6_DIR / f"table_t6_escalation_operating_points_{detector}.csv"
+def write_tables(detector: str, signal: str) -> None:
+    table = build_table(detector, signal)
+    stem = f"table_t6_escalation_operating_points_{detector}_{signal}"
+    out = TABLE6_DIR / f"{stem}.csv"
     table.to_csv(out, index=False)
     print(table.to_string(index=False))
     print(f"wrote {out}")
     for model, rows in table.groupby("model"):
         image = save_table_image(
             rows.reset_index(drop=True),
-            TABLE6_DIR / f"table_t6_escalation_operating_points_{detector}_{model}.png",
-            title=f"T6 — Escalation operating points, {model}, {DETECTOR_LABELS[detector]} trigger",
+            TABLE6_DIR / f"{stem}_{model}.png",
+            title=(
+                f"T6 — Escalation operating points, {model}, {DETECTOR_LABELS[detector]} trigger, "
+                f"{signal.replace('_', ' ')}"
+            ),
             subtitle=(
-                "Escalate when the 90% interval is wider than τ (τ swept over every issued width); "
+                f"{SIGNAL_RULES[signal]} (τ swept over every observed value); "
                 "coverage of the forecasts kept, per global regime. Review rate for a target: smallest "
                 f"review rate reaching it with ≥{MIN_RETAINED} forecast kept; \"unreachable\" when no "
                 "review rate does. Coverage @ b: coverage of the forecasts kept when b of them are "
-                "reviewed; \"not attainable\" when no threshold reviews that share (fixed split "
-                "conformal gives every interval the same width, so it can review only 0% or 100%). "
+                "reviewed; \"not attainable\" when no threshold reviews that share (e.g. width for "
+                "fixed split conformal: every interval has the same width, so only 0% or 100%). "
                 "Values are the mean across seeds, ± sd when the seeds differ; \"in k/n seeds\" when "
                 "only some seeds reach or attain it. dhr_arima is deterministic: 1 run."
             ),

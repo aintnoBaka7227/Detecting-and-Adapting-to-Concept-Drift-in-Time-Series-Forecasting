@@ -33,6 +33,8 @@ Usage:
 from __future__ import annotations
 
 import warnings
+from functools import partial
+from itertools import product
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -42,6 +44,7 @@ import pandas as pd
 from experiments import results_io
 from experiments.produce.figure_text import axes_right_in, line_height_in, wrap_to_width
 from experiments.produce.table_adaptation_common import arm_sort_key
+from experiments.run.uncertainty.run_aemo_escalation_sweep import SIGNAL_RULES, SIGNALS
 from experiments.trigger_detectors import (
     CONTROL_DETECTOR,
     DETECTOR_LABELS,
@@ -51,7 +54,10 @@ from experiments.trigger_detectors import (
 )
 
 MODEL_NAMES = {"nhits": "NHITS", "xgboost": "XGBoost", "dhr_arima": "DHR + ARIMA"}
-UQ_ORDER = {"agaci": "AgACI"}  # add "fixed_split_conformal" for a second row
+UQ_ORDER = {"agaci": "AgACI", "fixed_split_conformal": "Fixed split conformal"}
+# Width gives fixed split conformal only its 0% and 100% points, so its width
+# figure shows AgACI alone; every nonconformity signal shows both methods.
+WIDTH_UQS = ("agaci",)
 ARM_LABELS = {
     "A_never_retrain": "A  never retrain",
     "B_every_30_days": "B  every 30 days",
@@ -78,14 +84,16 @@ GRID = "#e4e3df"
 RUN_KEYS = ["model", "arm", "region", "uq", "seed_key"]
 
 
-def latest_escalation_rows(detector: str = CONTROL_DETECTOR) -> pd.DataFrame:
+def latest_escalation_rows(detector: str = CONTROL_DETECTOR, signal: str = "width") -> pd.DataFrame:
     """runs.csv rows of the latest sweep of every (model, arm, region, UQ
     method, seed) for one trigger detector (its arms C and D plus the
     shared controls A and B); method is "<model>/<arm>/<uq method>"."""
     hint = "run run_aemo_escalation_sweep.py first"
     if not results_io.RUNS_CSV.exists():
         raise SystemExit(f"{results_io.RUNS_CSV} not found -- {hint}")
-    rows = detector_rows(pd.read_csv(results_io.RUNS_CSV), "escalation", escalation_split_id, detector).copy()
+    rows = detector_rows(
+        pd.read_csv(results_io.RUNS_CSV), "escalation", partial(escalation_split_id, signal=signal), detector
+    ).copy()
     if rows.empty:
         raise SystemExit(f"no escalation rows for detector {detector!r} -- {hint}")
     parts = rows["method"].str.split("/", n=2, expand=True)
@@ -164,10 +172,11 @@ def style_axis(ax) -> None:
     ax.set_xlim(0, 1)
 
 
-def plot_figure(rows: pd.DataFrame, model: str, region: str, detector: str):
+def plot_figure(rows: pd.DataFrame, model: str, region: str, detector: str, signal: str):
     subset = rows[(rows["model"] == model) & (rows["region"] == region)]
     arms = sorted(subset["arm"].unique(), key=arm_sort_key)
-    uqs = [uq for uq in UQ_ORDER if uq in set(subset["uq"])]
+    shown = WIDTH_UQS if signal == "width" else tuple(UQ_ORDER)
+    uqs = [uq for uq in UQ_ORDER if uq in shown and uq in set(subset["uq"])]
 
     fig, axes = plt.subplots(
         len(uqs), len(arms), figsize=(4.1 * len(arms), 3.5 * len(uqs) + HEADER_IN),
@@ -227,7 +236,7 @@ def plot_figure(rows: pd.DataFrame, model: str, region: str, detector: str):
         ax.set_ylim(max(0.0, bottom - 0.12), 1.005)
     seeds = f"mean ± sd across {n_seeds} seeds" if n_seeds > 1 else "deterministic, one run"
     subtitle = (
-        "Escalate when the 90% interval is wider than τ; τ swept over every issued width. "
+        f"{SIGNAL_RULES[signal]}; τ swept over every observed value. "
         f"Coverage of the forecasts kept, per global regime; {seeds}. "
         "Review rates for 0.90 coverage are stated in each panel. "
         f"Curves stop once fewer than {DISPLAY_MIN_RETAINED} forecasts (one day) are kept."
@@ -249,13 +258,13 @@ def plot_figure(rows: pd.DataFrame, model: str, region: str, detector: str):
                ncol=5, frameon=False, fontsize=9, labelcolor=TEXT)
     fig.suptitle(
         f"F5 — Escalation curve, {MODEL_NAMES.get(model, model)}, {region}, "
-        f"{DETECTOR_LABELS[detector]} trigger",
+        f"{DETECTOR_LABELS[detector]} trigger, {signal.replace('_', ' ')}",
         x=HEADER_LEFT, y=from_top(0.08), ha="left", fontsize=14, fontweight="bold", color=TEXT,
     )
     fig.text(HEADER_LEFT, from_top(0.30), subtitle, ha="left", va="top", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
     fig.tight_layout(rect=(0.04, 0, 1, from_top(HEADER_IN + extra_in)))
 
-    out = results_io.FIGURE5_DIR / f"f5_escalation_curve_{detector}_{model}_{region}.png"
+    out = results_io.FIGURE5_DIR / f"f5_escalation_curve_{detector}_{signal}_{model}_{region}.png"
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out
@@ -263,10 +272,10 @@ def plot_figure(rows: pd.DataFrame, model: str, region: str, detector: str):
 
 def main() -> None:
     results_io.FIGURE5_DIR.mkdir(parents=True, exist_ok=True)
-    for detector in TRIGGER_DETECTORS:
-        rows = latest_escalation_rows(detector)
+    for detector, signal in product(TRIGGER_DETECTORS, SIGNALS):
+        rows = latest_escalation_rows(detector, signal)
         for (model, region), _ in rows.groupby(["model", "region"]):
-            print(f"wrote {plot_figure(rows, model, region, detector)}")
+            print(f"wrote {plot_figure(rows, model, region, detector, signal)}")
 
 
 if __name__ == "__main__":
