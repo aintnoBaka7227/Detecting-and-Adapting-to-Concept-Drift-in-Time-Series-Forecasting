@@ -57,7 +57,7 @@ tables and figures.
 | 8 | Forecasting | `experiments.run.forecasting.run_aemo_baselines`, `experiments.run.forecasting.run_aemo_nhits` | `produce_figure_f1` | **F1** |
 | 9 | Forecasting | `experiments.run.forecasting.run_aemo_calibration_forecasts` | `produce_table_forecaster_selection` | forecaster-selection table; `calibration_forecast_aemo_<region>_<seed>.csv` residuals |
 | 10 | Adaptation | `experiments.run.adaptation.run_aemo_adaptation_arms` (once per detector × model × region × seed) | — | adaptation forecasts per run |
-| 11 | Adaptation | `experiments.run.adaptation.rescore_adaptation_runs` | `produce_table_t3`, `produce_table_t4`, `produce_figure_f3` | **T3**, **T4**, **F3** |
+| 11 | Adaptation | `experiments.run.adaptation.rescore_adaptation_runs` | `produce_table_t3`, `produce_table_t4`, `produce_figure_f3`, `produce_table_arm_d_sweep` | **T3**, **T4**, **F3**, arm D sweep table (all four windows, winner per model × region) |
 | 12 | Uncertainty | `experiments.run.uncertainty.run_aemo_uq_replay` | `produce_table_t5`, `produce_figure_f4` | **T5**, **F4** |
 | 13 | Escalation | `experiments.run.uncertainty.run_aemo_escalation_sweep` | `produce_table_t6`, `produce_figure_f5` | **T6**, **F5** |
 | 14 | Comparison | — | `produce_table_t7`, `produce_figure_f6` | **T7**, **F6** |
@@ -109,6 +109,7 @@ python -m experiments.run.adaptation.rescore_adaptation_runs
 python -m experiments.produce.produce_table_t3
 python -m experiments.produce.produce_table_t4
 python -m experiments.produce.produce_figure_f3
+python -m experiments.produce.produce_table_arm_d_sweep
 
 # 5. Uncertainty (needs R + opera, see Setup)
 python -m experiments.run.uncertainty.run_aemo_uq_replay
