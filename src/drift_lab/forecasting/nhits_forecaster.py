@@ -1,36 +1,23 @@
-"""NHITS baseline (Nixtla `neuralforecast`) behind the Forecaster interface.
+"""NHITS (Nixtla neuralforecast) behind the Forecaster interface.
 
-Direct multi-step neural forecaster: a stack of MLP blocks at different
-pooling resolutions, each backcasting-and-subtracting what it explains
-before passing the residual to the next block, with per-block forecasts
-summed at the end. Trained once by gradient descent on the frozen training
-window, then rolled forward through calibration/test in `horizon`-sized
-chunks with no further weight updates — see
-`forecasting/nixtla_common.py::roll_forecast` for the chunking adapter this
-class is built on.
+A direct multi-step neural forecaster: MLP blocks at several pooling rates,
+each removing what it explains before the next. Trained once on TRAIN, then
+rolled forward in `horizon`-sized chunks with frozen weights
+(nixtla_common.roll_forecast). Training is stochastic, so `random_seed` is a
+real seed; log it as the run's seed.
 
-Unlike the other three baselines, training here is stochastic (random
-weight init + minibatch order), so `random_seed` is a real, meaningful
-hyperparameter — record it as the run's `seed`, don't fabricate NaN.
-
-`observe()` and the real-values-as-context path in `predict()` are frozen
-and causal: the weights never change after `fit()`, and a real value only
-ever becomes context for a *later* forecast, after the current one is
-issued. That's a rolling forecast, not leakage. It only becomes leakage if
-a value from inside a forecast block is used to change that same block's
-predictions.
+Real values passed to `predict` / `observe` only become context for later
+forecasts, never for a block already issued, so the rolling forecast is
+causal (no leakage).
 """
 
 from __future__ import annotations
 
 import os
 
-# XGBoost and PyTorch each bring their own OpenMP runtime; sharing a process
-# with XGBoostForecaster (e.g. the test suite, or a future run_*.py that
-# uses both) deadlocks — sometimes segfaults — once both actually run
-# parallel regions. Must be set before numpy/torch/xgboost do any real work,
-# which import order guarantees here (both direct scripts and pytest
-# collection import this module before any model's fit() executes).
+# XGBoost and PyTorch each ship an OpenMP runtime; in one process they can
+# deadlock or segfault. Set before either does real work (import order
+# guarantees it).
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import numpy as np
@@ -66,13 +53,8 @@ class NHITSForecaster(Forecaster):
 
     def __init__(
         self,
-        # 7-day horizon: matches config.ROLLING_WINDOW_DAYS / the 7-day rolling
-        # MAE used everywhere else, so every F1 curve point is a rolling mean
-        # over forecasts that are all <= 1 week ahead, re-anchored weekly. Long
-        # enough to expose a stale learned relationship, short enough to stay a
-        # real forecast (not a climatology) and learnable from ~2 years of one
-        # series. h=720 (the paper's number) would be 15 days here and would
-        # underfit -> a separate long-horizon variant, not the default.
+        # Default 7-day horizon, F1's rolling window: forecasts <= 1 week ahead,
+        # re-anchored weekly. The adaptation arms override it to 48 (1 day).
         horizon: int = SEASON_LENGTH * 7,
         input_size: int = SEASON_LENGTH * 14,  # 2x horizon -> context spans 2 weekly cycles
         # Multi-rate stacks, scaled for a ~1-week horizon on half-hourly data

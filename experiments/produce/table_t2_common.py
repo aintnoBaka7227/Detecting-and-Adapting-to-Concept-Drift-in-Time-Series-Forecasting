@@ -1,23 +1,12 @@
 """Shared build logic for Table T2 (AEMO detection vs. documented events).
 
-Three single-stream, post-tuning producers read this module, plus two
-combined producers that call build_table() once per stream and
-concatenate (the standalone pre-tuning tables were retired; the
-all-tuning view still includes the pre-tuning runs):
-
-- produce_table_t2_raw_post_tune.py
-    raw 30-minute demand              (run_aemo_detectors_raw_post_tune.py)
-- produce_table_t2_standard_daily_post_tune.py
-    standard-daily (deseasonalised + standardised, daily-aggregated)
-                                       (run_aemo_detectors_standard_daily_post_tune.py)
-- produce_table_t2_standard_half_hourly_post_tune.py
-    standard-half-hourly (deseasonalised + standardised, native resolution)
-                                       (run_aemo_detectors_standard_half_hourly_post_tune.py)
-- produce_table_t2_all_streams_post_tune.py / _all_tuning.py
-    combined views across the above (_all_tuning adds the pre-tuning runs)
-
-All share the same columns, Tier 1 event ordering, and disclaimer; they
-differ only in which run's `split_id` they pin.
+Read by produce_table_t2_standard_half_hourly_post_tune.py: the
+standard-half-hourly stream (deseasonalised + standardised, native
+resolution; run_aemo_detectors_standard_half_hourly_post_tune.py), the
+stream the adaptation arms use. The T2 tables for the other input streams
+(raw 30-minute, standard-daily, and every pre-tuning run) were retired to
+keep the report to the half-hourly stream; their detection runs and
+runs.csv rows remain, and build_table() still accepts their split_ids.
 """
 
 from __future__ import annotations
@@ -25,6 +14,7 @@ from __future__ import annotations
 import pandas as pd
 
 from drift_lab.config import AEMO_5MIN_END, DOCUMENTED_EVENTS_CSV, SPLIT
+from drift_lab.evaluation import calculate_match_window
 from experiments.produce.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUNS_CSV
 
@@ -53,8 +43,18 @@ def tier1_events() -> pd.DataFrame:
     """Every Tier 1 event, in date order -- the master column order for
     every region (all five are tagged region='NEM', so the same columns
     apply everywhere)."""
-    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date"])
+    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
     return events.loc[events["tier"] == 1].sort_values("start_date")
+
+
+def match_window_days(events: pd.DataFrame) -> list[float]:
+    """Length in days of each event's match window, from the same rule
+    match_unmatch uses (evaluation.calculate_match_window)."""
+    lengths = []
+    for event in events.itertuples(index=False):
+        start, end = calculate_match_window(event.start_date, event.end_date, event.date_precision)
+        lengths.append((end - start) / pd.Timedelta(days=1))
+    return lengths
 
 
 def latest_detection_metrics(split_id: str) -> pd.DataFrame:
@@ -85,13 +85,14 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
     separately (never combined into one value -- see
     drift_lab.evaluation.calculate_event_metrics), alongside raw vs.
     post-refractory detection counts and, unless disabled, the
-    Tier-1-only chance-matching baseline: `K * (1 - (1 - w/T)^N)` with
-    K = number of Tier 1 events, for each row's own post-refractory
-    detection count. Any result not clearly above that line is not a
+    Tier-1-only chance-matching baseline: `sum_k (1 - (1 - w_k/T)^N)` over
+    the Tier 1 events, w_k each event's own match window, for each row's
+    own post-refractory detection count. Any result not clearly above that line is not a
     result -- but note this baseline is Tier-1-scoped only; `tier2_matched`
     has no chance baseline to compare against."""
     metrics = latest_detection_metrics(split_id)
     tier1 = tier1_events()
+    tier1_window_days = match_window_days(tier1)
 
     # One row per (method, region), one column per metric_name -- the only
     # reshape step, and it's a pure groupby: no manual per-(method, region)
@@ -133,10 +134,9 @@ def build_table(split_id: str, include_chance_baseline: bool = True) -> pd.DataF
         row["post_refractory_detection_count"] = accepted_count
 
         if include_chance_baseline:
-            k_tier1 = len(tier1)
             test_days = (TEST_END - TEST_START) / pd.Timedelta(days=1)
             row["chance_tier1"] = round(
-                expected_matches_closed_form(k_tier1, test_days, accepted_count), 2
+                expected_matches_closed_form(test_days, accepted_count, tier1_window_days), 2
             )
 
         rows.append(row)

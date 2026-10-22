@@ -1,33 +1,21 @@
 """Re-score logged adaptation runs from their saved forecasts.
 
-No model is refitted. For the latest logged run of every (model, arm,
-region, seed) this reads the saved per-timestamp curve (actual, forecast)
-and logs the run again through `record_run`, with its original config and
-cost fields, after recomputing:
-
-    regimes     the documented-event regime of every TEST timestamp, from
-                the current `evaluation.assign_regime`;
-    intervals   90% fixed split conformal bounds (`FixedSplitConformal`),
-                calibrated once on that model x region x seed's
-                Calibration-window residuals from
-                run_aemo_calibration_forecasts.py. Every arm of a stream
-                shares the one radius, and it is never updated from TEST
-                outcomes or at a retrain. A run with no calibration file
-                is re-scored without intervals (no pinball loss).
-
-The new rows carry a later timestamp, so the T3 / T4 producers pick them
-up; the curve file is rewritten in place with the new `regime`, `lower`
-and `upper` columns.
-
-Run after a change to the regime rules or the interval method, so every
-run is scored the same way.
+No model is refitted. Each latest run is logged again (same config and cost
+fields, a later timestamp) after recomputing its global regimes and its 90%
+fixed split conformal bounds, calibrated once on that model x region x
+seed's Calibration residuals (no pinball loss without a calibration file).
+The curve file is rewritten with the new regime, lower and upper columns.
+Run it after a regime-rule or interval change, and after new adaptation runs
+(T3's pinball loss comes from here).
 
 Usage:
     python -m experiments.run.adaptation.rescore_adaptation_runs
+    python -m experiments.run.adaptation.rescore_adaptation_runs --detector page_hinkley
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 
 import pandas as pd
@@ -35,8 +23,14 @@ import pandas as pd
 from drift_lab.uncertainty import FixedSplitConformal
 from experiments import results_io
 from experiments.produce.table_adaptation_common import latest_adaptation_rows
-from experiments.run.adaptation.run_aemo_adaptation_arms import SPLIT_ID, regime_labels
+from experiments.run.adaptation.run_aemo_adaptation_arms import regime_labels
 from experiments.run_harness import record_run
+from experiments.trigger_detectors import (
+    CONTROL_ARMS,
+    CONTROL_DETECTOR,
+    TRIGGER_DETECTORS,
+    adaptation_split_id,
+)
 
 INTERVAL_ALPHA = 0.10
 
@@ -52,7 +46,18 @@ def fixed_radius(model: str, region: str, seed: int | None) -> float | None:
 
 
 def main() -> None:
-    rows = latest_adaptation_rows()
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--detector", choices=TRIGGER_DETECTORS, default=None, help="default: all")
+    args = parser.parse_args()
+
+    for detector in [args.detector] if args.detector else TRIGGER_DETECTORS:
+        rows = latest_adaptation_rows(detector)
+        if detector != CONTROL_DETECTOR:  # the shared controls are re-scored with the control batch
+            rows = rows[~rows["arm"].isin(CONTROL_ARMS)]
+        rescore(rows, adaptation_split_id(detector))
+
+
+def rescore(rows: pd.DataFrame, split_id: str) -> None:
     labels_by_region: dict[str, pd.Series] = {}
     radius_by_stream: dict[tuple, float | None] = {}
 
@@ -91,7 +96,7 @@ def main() -> None:
             seed=seed,
             config=config,
             wall_clock_s=float(first["wall_clock_s"]),
-            split_id=SPLIT_ID,
+            split_id=split_id,
             train_samples=int(first["train_samples"]),
             n_retrains=int(first["n_retrains"]),
             forecast=(curve["actual"].to_numpy(), curve["forecast"].to_numpy(), index),

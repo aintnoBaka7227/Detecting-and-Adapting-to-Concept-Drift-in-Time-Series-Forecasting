@@ -5,10 +5,11 @@ calibration residuals |actual - issued forecast|. It is set by the first
 calibration and never moves afterwards -- test outcomes are not an input
 to this class. Every interval is `point forecast ± radius`.
 
-Lifecycle (the frozen `quantify` contract passes residuals on every call):
+Lifecycle (the shared `quantify` / `observe` loop, see base.py):
 
     uq = FixedSplitConformal()
     uq.quantify(forecasts, calibration_residuals)   # first call calibrates
+    uq.observe(actuals)                             # ignored: radius is fixed
     uq.quantify(more_forecasts, anything)           # radius unchanged
 
 `quantify` calibrates only while the instance is uncalibrated; later calls

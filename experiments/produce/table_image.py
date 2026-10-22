@@ -1,7 +1,7 @@
 """Render a results DataFrame as a styled table PNG, alongside its CSV twin.
 
-Shared by every produce_table_t1*.py and produce_table_t2*.py script so all
-report tables get the same look without duplicating matplotlib table styling.
+Shared by every produce_table_t*.py script so all report tables get the same
+look without duplicating matplotlib table styling.
 """
 
 from __future__ import annotations
@@ -11,10 +11,14 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-HEADER_COLOR = "#1464A5"
+from experiments.produce.figure_text import line_height_in, wrap_to_width
+
+HEADER_COLOR = "#0D2C54"
 HEADER_TEXT_COLOR = "white"
 ROW_COLORS = ("white", "#FAFBFC")
-BORDER_COLOR = "#AAB2BD"
+BORDER_COLOR = "#3E5C80"
+TITLE_SIZE = 12
+SUBTITLE_SIZE = 8.5
 
 
 def _cell_text(value: object) -> str:
@@ -35,7 +39,8 @@ def save_table_image(
 
     `subtitle`, if given, is a smaller note printed under the title -- e.g.
     to record a processing step or caveat that isn't obvious from the
-    column names alone.
+    column names alone. Title and subtitle are wrapped to the table's
+    rendered width, so they never make the image wider than the table.
     """
     n_rows = len(df)
     col_labels = [str(c) for c in df.columns]
@@ -47,27 +52,10 @@ def save_table_image(
     ]
     fig_width = max(6.0, sum(col_chars) * 0.13)
     row_height = 0.34
-    title_height = 0.1
-    if title:
-        title_height += 0.32
-    if subtitle:
-        title_height += 0.34
     table_height = row_height * (n_rows + 1)
-    fig_height = table_height + title_height
 
-    fig = plt.figure(figsize=(fig_width, fig_height))
-
-    if title:
-        fig.text(0.01, 1 - (0.28 / fig_height), title, fontsize=12, fontweight="bold", va="top")
-    if subtitle:
-        subtitle_y = 1 - ((0.64 if title else 0.28) / fig_height)
-        fig.text(0.01, subtitle_y, subtitle, fontsize=8.5, color="#555555", va="top")
-
-    # Axes fills the whole figure except the reserved title strip; giving the
-    # table an explicit bbox=[0, 0, 1, 1] within it means the figure height
-    # computed above is exactly what gets rendered -- no auto-centred table
-    # leaving blank space above/below once bbox_inches="tight" crops the rest.
-    ax = fig.add_axes((0.0, 0.0, 1.0, table_height / fig_height))
+    fig = plt.figure(figsize=(fig_width, table_height))
+    ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
     ax.axis("off")
 
     table = ax.table(
@@ -90,6 +78,35 @@ def save_table_image(
             cell.get_text().set_fontweight("bold")
         else:
             cell.set_facecolor(ROW_COLORS[row % 2])
+
+    # The auto-sized columns decide the table's real width; measure it, then
+    # wrap the title and subtitle to it.
+    fig.canvas.draw()
+    extent = table.get_window_extent(fig.canvas.get_renderer())
+    left_in, width_in = extent.x0 / fig.dpi, extent.width / fig.dpi
+
+    header = []  # (text, fontsize, extra kwargs)
+    if title:
+        header.append((wrap_to_width(fig, title, width_in, TITLE_SIZE, fontweight="bold"),
+                       TITLE_SIZE, {"fontweight": "bold"}))
+    if subtitle:
+        header.append((wrap_to_width(fig, subtitle, width_in, SUBTITLE_SIZE),
+                       SUBTITLE_SIZE, {"color": "#555555"}))
+
+    gap = 0.12  # inches above, between and below the header lines
+    title_height = gap + sum(
+        (text.count("\n") + 1) * line_height_in(size) + gap for text, size, _ in header
+    )
+    fig_height = table_height + title_height
+    fig.set_size_inches(fig_width, fig_height)
+    # The table keeps exactly its computed height under the header strip, so
+    # bbox_inches="tight" leaves no blank space above or below it.
+    ax.set_position((0.0, 0.0, 1.0, table_height / fig_height))
+
+    top = gap
+    for text, size, kwargs in header:
+        fig.text(left_in / fig_width, 1 - top / fig_height, text, fontsize=size, va="top", **kwargs)
+        top += (text.count("\n") + 1) * line_height_in(size) + gap
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=200, bbox_inches="tight", facecolor="white")

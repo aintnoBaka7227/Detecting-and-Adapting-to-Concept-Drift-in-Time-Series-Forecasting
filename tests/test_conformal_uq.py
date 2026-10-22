@@ -1,4 +1,4 @@
-"""Fixed split conformal and adaptive conformal inference (Step 6)."""
+"""Fixed split conformal and the interval metrics (Step 6). AgACI: test_agaci.py."""
 
 from __future__ import annotations
 
@@ -9,15 +9,18 @@ import pandas as pd
 import pytest
 
 from drift_lab.evaluation import (
+    calculate_complete_window_count,
     calculate_empirical_coverage,
     calculate_interval_pinball_loss,
     calculate_mean_interval_width,
+    calculate_normalised_interval_width,
     calculate_pinball_loss,
     calculate_rolling_coverage,
+    calculate_uq_metrics_by_regime,
+    calculate_width_scale,
     calculate_worst_rolling_coverage,
 )
 from drift_lab.uncertainty import (
-    AdaptiveConformalInference,
     FixedSplitConformal,
     UncertaintyQuantifier,
 )
@@ -52,7 +55,6 @@ def test_conformal_radius_extreme_levels_are_not_clipped():
 
 def test_fixed_is_an_uncertainty_quantifier():
     assert isinstance(FixedSplitConformal(), UncertaintyQuantifier)
-    assert isinstance(AdaptiveConformalInference(gamma=0.01, window_size=5), UncertaintyQuantifier)
 
 
 def test_fixed_radius_matches_the_hand_computed_order_statistic():
@@ -124,160 +126,6 @@ def test_fixed_escalation_threshold_flags_all_or_none():
     assert not narrow.escalate.any()  # width 36 <= 40
 
 
-# --- AdaptiveConformalInference ---------------------------------------------
-
-
-def _aci(**kwargs):
-    params = {"gamma": 0.01, "window_size": 19}
-    params.update(kwargs)
-    return AdaptiveConformalInference(**params).calibrate(RESIDUALS_19)
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"gamma": 0.0, "window_size": 10},
-        {"gamma": -0.01, "window_size": 10},
-        {"gamma": math.inf, "window_size": 10},
-        {"gamma": 0.01, "window_size": 0},
-        {"gamma": 0.01, "window_size": 2.5},
-        {"gamma": 0.01, "window_size": 10, "target_alpha": 1.0},
-    ],
-)
-def test_aci_rejects_invalid_parameters(kwargs):
-    with pytest.raises(ValueError):
-        AdaptiveConformalInference(**kwargs)
-
-
-def test_aci_seeds_the_buffer_with_the_latest_scores_in_order():
-    uq = AdaptiveConformalInference(gamma=0.01, window_size=4).calibrate(RESIDUALS_19)
-    np.testing.assert_array_equal(uq.buffer, [16.0, 17.0, 18.0, 19.0])
-    assert uq.alpha_current == 0.10
-
-
-def test_aci_first_radius_equals_fixed_when_the_window_holds_all_scores():
-    assert _aci().radius == FixedSplitConformal().calibrate(RESIDUALS_19).radius == 18.0
-
-
-def test_aci_miss_lowers_alpha_and_cover_raises_it():
-    missed = _aci()
-    missed.observe([200.0], [100.0], [82.0], [118.0])
-    assert missed.alpha_current == pytest.approx(0.10 + 0.01 * (0.10 - 1))  # 0.091
-
-    covered = _aci()
-    covered.observe([105.0], [100.0], [82.0], [118.0])
-    assert covered.alpha_current == pytest.approx(0.10 + 0.01 * (0.10 - 0))  # 0.101
-
-
-def test_aci_outcome_on_a_bound_counts_as_covered():
-    uq = _aci()
-    misses = uq.observe([82.0, 118.0], [100.0, 100.0], [82.0, 82.0], [118.0, 118.0])
-    assert misses.tolist() == [0, 0]
-
-
-def test_aci_prediction_does_not_change_state():
-    uq = _aci()
-    before = (uq.alpha_current, uq.buffer.tolist())
-    first = uq.quantify([100.0, 200.0], RESIDUALS_19)
-    second = uq.quantify([100.0, 200.0], RESIDUALS_19 * 5)  # must not re-seed
-    assert (uq.alpha_current, uq.buffer.tolist()) == before
-    np.testing.assert_array_equal(first.lower, second.lower)
-    np.testing.assert_array_equal(first.upper, second.upper)
-
-
-def test_aci_feedback_uses_the_issued_bounds_not_recomputed_ones():
-    uq = _aci()
-    issued = uq.predict([100.0])
-    # The outcome sits outside the issued interval [82, 118]. Its own error
-    # (60) enters the buffer afterwards, but must not rescue the miss.
-    misses = uq.observe([160.0], [100.0], issued.lower, issued.upper)
-    assert misses.tolist() == [1]
-    assert uq.buffer[-1] == 60.0
-
-
-def test_aci_buffer_rolls_and_keeps_issued_errors():
-    uq = AdaptiveConformalInference(gamma=0.01, window_size=3).calibrate([1.0, 2.0, 3.0])
-    uq.observe([10.0, 20.0], [6.0, 27.0], [0.0, 0.0], [50.0, 50.0])
-    np.testing.assert_array_equal(uq.buffer, [3.0, 4.0, 7.0])
-
-
-def test_aci_each_outcome_updates_once_and_is_logged():
-    uq = _aci()
-    uq.observe([105.0, 300.0], [100.0, 100.0], [82.0, 82.0], [118.0, 118.0], timestamps=["t1", "t2"])
-    assert uq.alpha_current == pytest.approx(0.10 + 0.01 * 0.10 + 0.01 * (0.10 - 1))
-    log = uq.feedback_log
-    assert [r["miss"] for r in log] == [0, 1]
-    assert [r["timestamp"] for r in log] == ["t1", "t2"]
-    assert log[0]["alpha_current"] == pytest.approx(0.101)
-    assert log[0]["buffer_size"] == 19 and log[0]["issued_lower"] == 82.0
-    assert uq.describe()["n_feedback"] == 2
-
-
-def test_aci_extreme_levels_follow_the_conventions():
-    # Repeated misses with a large gamma drive alpha_current below zero.
-    low = AdaptiveConformalInference(gamma=0.5, window_size=19).calibrate(RESIDUALS_19)
-    low.observe([999.0], [0.0], [-1.0], [1.0])
-    assert low.alpha_current < 0
-    assert low.radius == math.inf
-    assert np.isinf(low.predict([5.0]).upper).all()
-
-    # Repeated covers drive it above one: zero-radius interval.
-    high = AdaptiveConformalInference(gamma=5.0, window_size=19).calibrate(RESIDUALS_19)
-    high.observe([0.0, 0.0], [0.0, 0.0], [-1.0, -1.0], [1.0, 1.0])
-    assert high.alpha_current >= 1
-    result = high.predict([5.0])
-    assert result.lower[0] == result.upper[0] == 5.0
-
-
-def test_aci_rank_overflow_gives_an_infinite_radius():
-    uq = AdaptiveConformalInference(gamma=0.01, window_size=5).calibrate(RESIDUALS_19)
-    assert uq.radius == math.inf  # rank = ceil(6 * 0.9) = 6 > 5 buffered scores
-
-
-def test_aci_observe_accepts_infinite_issued_bounds():
-    uq = _aci()
-    assert uq.observe([1e9], [0.0], [-math.inf], [math.inf]).tolist() == [0]
-
-
-def test_aci_observe_rejects_bad_feedback():
-    uq = _aci()
-    with pytest.raises(ValueError):
-        uq.observe([1.0, 2.0], [1.0], [0.0], [2.0])
-    with pytest.raises(ValueError):
-        uq.observe([np.nan], [1.0], [0.0], [2.0])
-    with pytest.raises(ValueError):
-        uq.observe([1.0], [1.0], [3.0], [2.0])
-    with pytest.raises(RuntimeError):
-        AdaptiveConformalInference(gamma=0.01, window_size=5).observe([1.0], [1.0], [0.0], [2.0])
-
-
-def test_aci_reinitialising_resets_all_state():
-    uq = _aci()
-    uq.observe([300.0], [100.0], [82.0], [118.0])
-    uq.calibrate(RESIDUALS_19)
-    assert uq.alpha_current == 0.10
-    assert uq.feedback_log == []
-    np.testing.assert_array_equal(uq.buffer, np.abs(RESIDUALS_19))
-
-    uq.reset()
-    assert not uq.is_calibrated
-
-
-def test_aci_instances_do_not_share_state():
-    a, b = _aci(), _aci()
-    a.observe([300.0], [100.0], [82.0], [118.0])
-    assert b.alpha_current == 0.10
-    assert len(b.feedback_log) == 0
-    np.testing.assert_array_equal(b.buffer, np.abs(RESIDUALS_19))
-
-
-def test_aci_escalation_follows_the_current_width():
-    uq = _aci(escalate_threshold=30.0)
-    assert uq.predict([1.0, 2.0]).escalate.all()  # width 36 > 30
-    assert not _aci(escalate_threshold=40.0).predict([1.0]).escalate.any()
-    assert not _aci().predict([1.0]).escalate.any()  # disabled
-
-
 # --- pinball loss with infinite bounds --------------------------------------
 
 
@@ -325,3 +173,68 @@ def test_worst_rolling_coverage_only_counts_windows_inside_the_regime():
     # one post-drift row cannot hold a 2-observation window
     assert math.isnan(calculate_worst_rolling_coverage(*args, 2, labels, "post_drift"))
     assert math.isnan(calculate_worst_rolling_coverage(*args, window=48))
+
+
+def test_uq_metrics_by_regime_pool_within_the_regime():
+    y = [0.0, 0.0, 5.0, 5.0, 0.0, 0.0]  # covered: T T F F T T
+    labels = ["pre-drift", "pre-drift", "drift", "drift", "drift", "post-drift"]
+    metrics = calculate_uq_metrics_by_regime(y, [-1.0] * 6, [1.0] * 6, labels, window=2)
+    assert metrics["drift"] == {
+        "coverage": pytest.approx(1 / 3),
+        "mean_interval_width": 2.0,
+        "worst_rolling_coverage": 0.0,
+        "n_complete_windows": 2,
+        "n_observations": 3,
+    }
+    assert metrics["pre_drift"]["coverage"] == 1.0
+    assert math.isnan(metrics["post_drift"]["worst_rolling_coverage"])  # one row, no window
+
+
+
+def test_normalised_interval_width_divides_by_the_fixed_scale():
+    assert calculate_width_scale([8.0, float("nan"), 12.0]) == 10.0
+    assert calculate_normalised_interval_width([-1.0, -3.0], [1.0, 3.0], 10.0) == pytest.approx(0.4)
+    labels = ["pre-drift", "drift", "drift"]
+    metrics = calculate_uq_metrics_by_regime([0.0] * 3, [-1.0, -2.0, -4.0], [1.0, 2.0, 4.0], labels, 2, 10.0)
+    assert metrics["drift"]["normalised_interval_width"] == pytest.approx(0.6)
+    with pytest.raises(ValueError):
+        calculate_normalised_interval_width([0.0], [1.0], 0.0)
+    with pytest.raises(ValueError):
+        calculate_width_scale([float("nan")])
+
+
+@pytest.mark.parametrize(("n", "expected"), [(30, 0), (48, 1), (60, 13), (336, 289)])
+def test_complete_window_count_one_segment(n, expected):
+    stamps = pd.date_range("2020-03-01", periods=n, freq="30min")
+    assert calculate_complete_window_count(n, 48, ["drift"] * n, "drift", stamps) == expected
+
+
+def test_complete_window_count_sums_separate_segments_of_a_regime():
+    # drift 60, post 10, drift 50 -> 13 + 3 windows; none crosses post_drift.
+    labels = ["drift"] * 60 + ["post_drift"] * 10 + ["drift"] * 50
+    assert calculate_complete_window_count(len(labels), 48, labels, "drift") == 16
+
+
+def test_windows_spanning_a_timestamp_gap_are_not_eligible():
+    # 100 half-hours with the 31st missing: 30 rows before the gap, 69 after.
+    stamps = pd.date_range("2020-03-01", periods=100, freq="30min").delete(30)
+    labels = ["drift"] * 99
+
+    assert calculate_complete_window_count(99, 48, labels, "drift") == 99 - 48 + 1
+    assert calculate_complete_window_count(99, 48, labels, "drift", stamps) == 69 - 48 + 1
+
+    # The only miss sits just before the gap: every window holding it spans
+    # the gap, so with timestamps no eligible window sees it.
+    y = [0.0] * 99
+    y[29] = 5.0
+    lower, upper = [-1.0] * 99, [1.0] * 99
+    assert calculate_worst_rolling_coverage(y, lower, upper, 48) < 1.0
+    assert calculate_worst_rolling_coverage(y, lower, upper, 48, timestamps=stamps) == 1.0
+
+
+def test_fixed_interface_observe_is_ignored():
+    uq = FixedSplitConformal()
+    first = uq.quantify([1.0], RESIDUALS_19)
+    assert uq.observe([1000.0]) is None  # static: outcomes never move the radius
+    again = uq.quantify([1.0], RESIDUALS_19)
+    assert (first.lower, first.upper) == (again.lower, again.upper)
