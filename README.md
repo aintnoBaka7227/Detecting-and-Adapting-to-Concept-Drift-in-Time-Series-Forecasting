@@ -244,7 +244,7 @@ there is no download step.
 │
 ├── tests/                            # pytest
 ├── data/raw/{SA1,NSW1}/              # committed source CSVs
-├── notebooks/                        # exploration / research scratch, not imported anywhere
+├── notebooks/                        # research scratch, not imported anywhere
 ├── TEAM_DECISIONS.md, SHARED_DECISIONS.md   # recorded decisions (team / shared with Team 42)
 └── pyproject.toml
 ```
