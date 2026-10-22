@@ -1,26 +1,52 @@
 """T5 -- coverage and interval width by regime, for split conformal.
 
 Reads the per-timestamp curve of the latest logged run of every (model,
-arm, region, seed) -- actual, regime, lower, upper, written by
-rescore_adaptation_runs.py -- and scores the 90% split conformal
-interval with the shared `drift_lab.evaluation.calculate_uq_metrics_by_regime`.
+arm, region, seed) -- actual, lower, upper, written by
+rescore_adaptation_runs.py -- and scores the 90% split conformal interval
+with the shared `drift_lab.evaluation.calculate_uq_metrics_by_regime`.
 Nothing is refitted. Runs whose curve has no interval columns are skipped
 and counted.
 
+Regimes are recomputed here from the curve timestamps, not read from the
+curve file, under two rules:
+
+    global       (default, the official table) `assign_timestamp_global_regime`:
+                 every TEST timestamp gets exactly one regime -- pre-drift
+                 before the first event, drift inside an event's drift window
+                 plus the 7-day end buffer, post-drift afterwards.
+    event_local  (comparison) `assign_event_local_regime`: only timestamps
+                 inside an event's 7-day pre-drift / drift / post-drift
+                 windows are labelled; the rest are "unassigned" and belong
+                 to no regime.
+
 Columns (required-outputs T5): UQ method, regime, coverage, mean width,
-normalised width (mean width / mean TRAIN demand of the region), worst 24h
-coverage, as mean ± sd across seeds. Worst 24h coverage is the lowest
-48-step rolling coverage among windows lying wholly inside the regime on
-consecutive half-hours; `complete 24h windows` is how many such windows
-exist (they overlap, so it is not a count of independent days).
+normalised width (mean width / mean TRAIN demand of the region), complete
+24h windows, worst 24h coverage, as mean ± sd across seeds.
+
+"complete 24h windows" sits immediately before "worst 24h coverage" on
+purpose: it is the number of 48-step windows that lie wholly inside the
+regime on consecutive half-hours, and the worst coverage is the minimum
+over exactly those windows. Windows overlap, so the count is not a number
+of independent days. A regime with fewer than --min-windows complete
+windows has too few to compare across 2020-2023; its worst 24h coverage is
+shown as "n/a" and the regime is listed in a warning.
 """
 
 from __future__ import annotations
 
+import argparse
+
 import pandas as pd
 
 from drift_lab.aemo import loader
+from drift_lab.config import DOCUMENTED_EVENTS_CSV
 from drift_lab.evaluation import calculate_uq_metrics_by_regime, calculate_width_scale
+from drift_lab.evaluation.evaluation import (
+    UNASSIGNED_REGIME,
+    assign_event_local_regime,
+    assign_timestamp_global_regime,
+    build_event_windows,
+)
 from experiments import results_io
 from experiments.produce.table_adaptation_common import (
     arm_label,
@@ -36,6 +62,7 @@ from experiments.run.adaptation.run_aemo_adaptation_arms import TARGET_COLUMN
 UQ_METHOD = "split conformal (90%)"
 REGIME_ORDER = ("pre_drift", "drift", "post_drift")
 WINDOW = 48  # 24 hours of half-hours
+REGIME_RULES = ("global", "event_local")
 
 
 def _train_width_scale(region: str) -> float:
@@ -43,7 +70,24 @@ def _train_width_scale(region: str) -> float:
     return calculate_width_scale(train[TARGET_COLUMN])
 
 
-def uq_by_run(latest: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+def regime_labels(timestamps: pd.Series, region: str, rule: str) -> pd.Series:
+    """Regime of every curve timestamp under `rule` ("global" or "event_local").
+
+    Under the event-local rule a timestamp outside every event window is
+    "unassigned": it stays in the stream (so a 24h window never jumps over
+    it) but belongs to no regime.
+    """
+    if rule not in REGIME_RULES:
+        raise ValueError(f"regimes must be one of {REGIME_RULES}")
+    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
+    windows = build_event_windows(events, region)
+    assign = assign_timestamp_global_regime if rule == "global" else assign_event_local_regime
+    labelled = assign(timestamps, windows).set_index("timestamp")["regime"]
+    stamps = pd.DatetimeIndex(timestamps)
+    return pd.Series(labelled.reindex(stamps).fillna(UNASSIGNED_REGIME).to_numpy())
+
+
+def uq_by_run(latest: pd.DataFrame, rule: str = "global") -> tuple[pd.DataFrame, int]:
     """One row per (model, arm, region, seed, regime); also the number of
     runs skipped for lacking interval columns."""
     scales: dict[str, float] = {}
@@ -62,7 +106,7 @@ def uq_by_run(latest: pd.DataFrame) -> tuple[pd.DataFrame, int]:
             curve["actual"],
             curve["lower"],
             curve["upper"],
-            curve["regime"],
+            regime_labels(curve["timestamp"], region, rule),
             window=WINDOW,
             width_scale=scales[region],
             timestamps=curve["timestamp"],
@@ -73,14 +117,18 @@ def uq_by_run(latest: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return pd.DataFrame(rows), skipped
 
 
-def build_table(latest: pd.DataFrame | None = None) -> tuple[pd.DataFrame, int]:
+def build_table(
+    latest: pd.DataFrame | None = None, rule: str = "global", min_windows: int = 1
+) -> tuple[pd.DataFrame, int]:
     latest = latest_adaptation_rows() if latest is None else latest
-    per_run, skipped = uq_by_run(latest)
+    per_run, skipped = uq_by_run(latest, rule)
     if per_run.empty:
         return per_run, skipped
     official = official_d_arms(mae_by_run(latest))
     rows = []
     for (model, arm, region, regime), g in per_run.groupby(["model", "arm", "region", "regime"]):
+        n_windows = int(g["n_complete_windows"].min())
+        enough = n_windows >= min_windows
         rows.append(
             {
                 "model": model,
@@ -91,8 +139,10 @@ def build_table(latest: pd.DataFrame | None = None) -> tuple[pd.DataFrame, int]:
                 "coverage": mean_sd(g["coverage"], 3),
                 "mean width (MW)": mean_sd(g["mean_interval_width"], 1),
                 "normalised width": mean_sd(g["normalised_interval_width"], 3),
-                "worst 24h coverage": mean_sd(g["worst_rolling_coverage"], 3),
-                "complete 24h windows": int(g["n_complete_windows"].iloc[0]),
+                "complete 24h windows": n_windows,
+                "worst 24h coverage": (
+                    mean_sd(g["worst_rolling_coverage"], 3) if enough else "n/a"
+                ),
                 "seeds": int(g["seed_key"].nunique()),
                 "_order": (arm_sort_key(arm), REGIME_ORDER.index(regime)),
             }
@@ -103,25 +153,52 @@ def build_table(latest: pd.DataFrame | None = None) -> tuple[pd.DataFrame, int]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Produce T5 (coverage and width by regime).")
+    parser.add_argument(
+        "--regimes",
+        choices=REGIME_RULES,
+        default="global",
+        help="global: every TEST timestamp gets a regime (official, default); "
+        "event_local: only timestamps in an event's 7-day windows (comparison)",
+    )
+    parser.add_argument(
+        "--min-windows",
+        type=int,
+        default=1,
+        help="fewest complete 24h windows a regime needs to report a worst 24h coverage",
+    )
+    args = parser.parse_args()
+
     results_io.TABLE5_DIR.mkdir(parents=True, exist_ok=True)
-    table, skipped = build_table()
+    table, skipped = build_table(rule=args.regimes, min_windows=args.min_windows)
     if table.empty:
         raise SystemExit(
             "no run has interval columns -- run run_aemo_calibration_forecasts.py "
             "then rescore_adaptation_runs.py first"
         )
-    out = results_io.TABLE5_DIR / "table_t5_coverage_width.csv"
+    stem = "table_t5_coverage_width" + ("_event_local" if args.regimes == "event_local" else "")
+    out = results_io.TABLE5_DIR / f"{stem}.csv"
     table.to_csv(out, index=False)
+    scope = (
+        "every TEST timestamp has a regime"
+        if args.regimes == "global"
+        else "regimes cover only timestamps in an event's 7-day windows"
+    )
     image = save_table_image(
         table,
-        results_io.TABLE5_DIR / "table_t5_coverage_width.png",
-        title="T5 — Coverage and interval width by regime, split conformal",
+        results_io.TABLE5_DIR / f"{stem}.png",
+        title=f"T5 — Coverage and interval width by regime ({args.regimes.replace('_', '-')}), split conformal",
         subtitle=(
-            "Nominal coverage 0.90; normalised width = mean width / mean TRAIN demand; "
-            "worst 24h = lowest 48-step rolling coverage inside the regime; mean ± sd across seeds."
+            f"Nominal coverage 0.90; {scope}; normalised width = mean width / mean TRAIN demand; "
+            "worst 24h = lowest 48-step rolling coverage over the complete windows shown; "
+            "mean ± sd across seeds."
         ),
     )
     print(table.to_string(index=False))
+    thin = table[table["complete 24h windows"] < args.min_windows]
+    if not thin.empty:
+        print(f"\nWARNING: {len(thin)} row(s) have fewer than {args.min_windows} complete 24h windows:")
+        print(thin[["model", "arm", "region", "regime", "complete 24h windows"]].to_string(index=False))
     if skipped:
         print(f"\n{skipped} run(s) skipped: curve has no interval columns")
     print(f"\nwrote {out}\nwrote {image}")
