@@ -708,6 +708,11 @@ REGIME_POST_DRIFT_DAYS = 7
 # valid -- they are kept in the labelled output and in whole-run metrics --
 # but they belong to no regime, so per-regime metrics leave them out.
 UNASSIGNED_REGIME = "unassigned"
+
+# Global regime only: added to the end of each event's drift window, so
+# the week after an event still counts as drift before post_drift begins.
+DRIFT_END_BUFFER = pd.Timedelta(days=7)
+
 POINT_WINDOW = pd.Timedelta(days=7)
 INTERVAL_GRACE = pd.Timedelta(days=7)
 
@@ -904,6 +909,237 @@ def assign_regime(detected_timestamps, event_windows):
 
     return pd.DataFrame(
         records,
+        columns=["timestamp", "regime", "event_id"],
+    )
+
+
+
+def assign_timestamp_global_regime(
+    timestamps,
+    event_windows,
+    drift_end_buffer=DRIFT_END_BUFFER,
+):
+    """
+    Assign one global regime to every test-split timestamp.
+
+    The formal regime rule for T3 onwards. Only each event's drift window
+    from `build_event_windows` is used, extended at the end by
+    `drift_end_buffer`: `drift_start` to `drift_end + drift_end_buffer`.
+    The pre-drift and post-drift buffers are not used.
+
+    Rules:
+        - pre_drift: before the first event in the test split;
+        - drift: inside an event's drift window;
+        - post_drift: after an event's drift window ends, until the next
+          event starts.
+
+    Every timestamp gets exactly one regime and one event; none is left
+    unassigned.
+
+    Attribution:
+        - pre_drift: the first event in the test split;
+        - drift: the earliest event (by drift_start, event_id) whose
+          drift window contains the timestamp;
+        - post_drift: the most recently started event whose drift window
+          has ended.
+
+    Parameters
+    ----------
+    timestamps : array-like of datetime-like
+        Test-split timestamps to label.
+    event_windows : pandas.DataFrame
+        Output from build_event_windows().
+    drift_end_buffer : pandas.Timedelta
+        Added to the end of every drift window. Default is 7 days.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per unique timestamp, sorted, with columns: timestamp,
+        regime, event_id.
+    """
+    required_columns = {"event_id", "drift_start", "drift_end"}
+
+    missing_columns = required_columns - set(event_windows.columns)
+    if missing_columns:
+        raise ValueError(
+            "event_windows is missing columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    timestamps = (
+        pd.DatetimeIndex(
+            pd.to_datetime(list(timestamps))
+        )
+        .unique()
+        .sort_values()
+    )
+
+    windows = event_windows.copy()
+
+    for column in ("drift_start", "drift_end"):
+        windows[column] = pd.to_datetime(windows[column])
+
+    windows["drift_end"] = windows["drift_end"] + pd.Timedelta(drift_end_buffer)
+
+    windows = (
+        windows
+        .sort_values(["drift_start", "event_id"])
+        .reset_index(drop=True)
+    )
+
+    if len(timestamps) == 0:
+        return pd.DataFrame(columns=["timestamp", "regime", "event_id"])
+
+    # Global rule for the test split: only events whose drift window
+    # overlaps the supplied timestamps count. Events wholly before or
+    # after the split are ignored.
+    windows = windows[
+        (windows["drift_end"] > timestamps[0])
+        & (windows["drift_start"] <= timestamps[-1])
+    ]
+
+    if windows.empty:
+        raise ValueError(
+            "no event's drift window overlaps the timestamps; "
+            "every timestamp needs a regime and an event."
+        )
+
+    # pre_drift: everything before the first event in the split.
+    regime = np.full(len(timestamps), "pre_drift", dtype=object)
+    event_id = np.full(len(timestamps), windows.iloc[0]["event_id"], dtype=object)
+
+    # post_drift: in start order, so the most recently started event
+    # whose drift window has ended is written last.
+    for window in windows.itertuples():
+        ended = timestamps >= window.drift_end
+        regime[ended] = "post_drift"
+        event_id[ended] = window.event_id
+
+    # drift outranks post_drift; in reverse start order, so the earliest
+    # event is written last.
+    for window in windows.iloc[::-1].itertuples():
+        inside = (
+            (timestamps >= window.drift_start)
+            & (timestamps < window.drift_end)
+        )
+        regime[inside] = "drift"
+        event_id[inside] = window.event_id
+
+    return pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "regime": regime,
+            "event_id": event_id,
+        },
+        columns=["timestamp", "regime", "event_id"],
+    )
+
+
+def assign_event_local_regime(timestamps, event_windows):
+    """
+    Assign an event-local regime to test-split timestamps near an event.
+
+    For the event-local variant of T3 / T4, compared against the global
+    rule (`assign_timestamp_global_regime`). Uses all three windows from
+    `build_event_windows`, each left inclusive, right exclusive, with no
+    drift-end buffer:
+        - pre_drift: [pre_drift_start, drift_start);
+        - drift: [drift_start, drift_end);
+        - post_drift: [drift_end, post_drift_end).
+
+    Only timestamps inside some event's window are labelled; every other
+    timestamp is left out of the result.
+
+    Overlapping windows follow the same rules as the global regime:
+        - priority: drift > pre_drift > post_drift;
+        - drift and pre_drift: the earliest event (by drift_start,
+          event_id) wins;
+        - post_drift: the most recently started event wins.
+
+    Like the global rule, only events whose drift window overlaps the
+    supplied timestamps (the test split) count.
+
+    Parameters
+    ----------
+    timestamps : array-like of datetime-like
+        Test-split timestamps to label.
+    event_windows : pandas.DataFrame
+        Output from build_event_windows().
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per labelled timestamp, sorted, with columns: timestamp,
+        regime, event_id. Timestamps outside every window are absent.
+    """
+    required_columns = {
+        "event_id",
+        "pre_drift_start",
+        "drift_start",
+        "drift_end",
+        "post_drift_end",
+    }
+
+    missing_columns = required_columns - set(event_windows.columns)
+    if missing_columns:
+        raise ValueError(
+            "event_windows is missing columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    timestamps = (
+        pd.DatetimeIndex(
+            pd.to_datetime(list(timestamps))
+        )
+        .unique()
+        .sort_values()
+    )
+
+    windows = event_windows.copy()
+
+    for column in ("pre_drift_start", "drift_start", "drift_end", "post_drift_end"):
+        windows[column] = pd.to_datetime(windows[column])
+
+    windows = (
+        windows
+        .sort_values(["drift_start", "event_id"])
+        .reset_index(drop=True)
+    )
+
+    if len(timestamps) > 0:
+        # Only events in the test split count, as in the global rule.
+        windows = windows[
+            (windows["drift_end"] > timestamps[0])
+            & (windows["drift_start"] <= timestamps[-1])
+        ]
+
+    regime = np.full(len(timestamps), None, dtype=object)
+    event_id = np.full(len(timestamps), None, dtype=object)
+
+    def label(name, start_column, end_column, frame):
+        for window in frame.itertuples():
+            inside = (
+                (timestamps >= getattr(window, start_column))
+                & (timestamps < getattr(window, end_column))
+            )
+            regime[inside] = name
+            event_id[inside] = window.event_id
+
+    # Lowest priority first, so higher priorities overwrite. Within a
+    # regime the winning event is written last.
+    label("post_drift", "drift_end", "post_drift_end", windows)
+    label("pre_drift", "pre_drift_start", "drift_start", windows.iloc[::-1])
+    label("drift", "drift_start", "drift_end", windows.iloc[::-1])
+
+    labelled = pd.notna(regime)
+
+    return pd.DataFrame(
+        {
+            "timestamp": timestamps[labelled],
+            "regime": regime[labelled],
+            "event_id": event_id[labelled],
+        },
         columns=["timestamp", "regime", "event_id"],
     )
 
