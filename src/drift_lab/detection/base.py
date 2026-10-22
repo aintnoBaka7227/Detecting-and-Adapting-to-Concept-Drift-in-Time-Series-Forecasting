@@ -1,31 +1,11 @@
-"""FROZEN CONTRACT (Sprint 1 — do not change the shape after Checkpoint 1):
+"""Detection contract, frozen in Sprint 1:
 
     detector(stream) -> changepoint indices
 
-See docs/interfaces.md for the full rationale.
-
-How to implement a detector (Sprint 3, Step 4)
------------------------------------------------
-Add a new file next to this one, e.g. `adwin.py`, and subclass
-`DriftDetector`:
-
-    import numpy as np
-    from drift_lab.detection.base import DriftDetector
-
-    class ADWINDetector(DriftDetector):
-        def __init__(self, delta: float = 0.002):
-            self.delta = delta
-
-        def detect(self, stream: np.ndarray) -> list[int]:
-            # e.g. feed `stream` through river.drift.ADWIN one value at a
-            # time and collect the indices where it flags a change.
-            ...
-            return changepoint_indices
-
-Wrapping an online/streaming detector (river's ADWIN, Page-Hinkley,
-KSWIN, ...) is fine internally — the class just has to expose this one
-batch-style method so every detector can be run and scored the same way
-against the synthetic benchmark (Step 4) before ever touching AEMO.
+Each detector subclasses DriftDetector (e.g. adwin.py). Wrapping an online
+detector (river's ADWIN, Page-Hinkley, KSWIN) is fine; the class only has to
+expose one batch `detect`, so every detector is scored the same way on the
+synthetic benchmark before AEMO.
 """
 
 from abc import ABC, abstractmethod

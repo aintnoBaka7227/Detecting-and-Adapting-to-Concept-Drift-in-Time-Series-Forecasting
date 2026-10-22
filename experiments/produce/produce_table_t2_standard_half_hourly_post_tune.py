@@ -1,18 +1,12 @@
 """Table T2 (post-tuning, standard-half-hourly) -- AEMO detection vs
 documented events.
 
-Sibling of produce_table_t2_standard_daily_post_tune.py: identical
-columns and aggregation rules (see table_t2_common.py), pinned instead to
-run_aemo_detectors_standard_half_hourly_post_tune.py's rows --
-half-hourly AEMO demand, deseasonalised (TRAIN-fitted profile removed)
-and standardised (z-scored on TRAIN residual stats), using the frozen
-winners from run_fine_tune_on_synthetic.py (shared across every input
-stream).
-
-Comparing this table to produce_table_t2_standard_daily_post_tune.py's
-output isolates cadence (daily aggregation vs. native half-hourly
-resolution) as the difference between two otherwise-identical
-deseasonalise-then-standardise pipelines.
+Columns and aggregation rules live in table_t2_common.py. Pinned to
+run_aemo_detectors_standard_half_hourly_post_tune.py's rows -- half-hourly
+AEMO demand, deseasonalised (TRAIN-fitted profile removed) and
+standardised (z-scored on TRAIN residual stats), using the frozen winners
+from run_fine_tune_on_synthetic.py. This is the only T2: the project
+reports the half-hourly stream, the one the adaptation arms use.
 """
 
 from __future__ import annotations

@@ -12,8 +12,9 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-
 Frequency = Literal["daily", "30min"]
+
+HALF_HOURS_PER_DAY = 48
 
 
 @dataclass(frozen=True)
@@ -26,10 +27,37 @@ class SeasonalProfile:
     weekly_factor: pd.Series
 
 
-def aggregate_daily_demand(series: pd.Series) -> pd.Series:
-    """Aggregate half-hourly demand into daily means."""
+def _validate_datetime_series(series: pd.Series) -> None:
+    """Validate a time-indexed numerical demand series."""
 
-    daily = series.resample("1D").mean()
+    if not isinstance(series, pd.Series):
+        raise TypeError("Demand input must be a pandas Series.")
+
+    if not isinstance(series.index, pd.DatetimeIndex):
+        raise TypeError("Demand series must use a pandas DatetimeIndex.")
+
+    if series.empty:
+        raise ValueError("Demand series must not be empty.")
+
+    if series.isna().any():
+        raise ValueError("Demand series contains missing values.")
+
+
+def aggregate_daily_demand(series: pd.Series) -> pd.Series:
+    """Aggregate half-hourly demand into complete daily means.
+
+    A day is [D 00:00, D+1 00:00) and is kept only with all 48 half-hourly
+    observations; incomplete days are dropped, not imputed.
+    """
+
+    _validate_datetime_series(series)
+
+    grouped = series.resample("1D")
+    daily = grouped.mean()[grouped.count() == HALF_HOURS_PER_DAY]
+
+    if daily.empty:
+        raise ValueError("Daily aggregation produced no complete days.")
+
     daily.name = series.name
     return daily
 
@@ -89,6 +117,8 @@ def fit_seasonal_profile(
     Use a half-hourly training series with ``frequency="30min"``. This fits
     day-of-year x combined weekday/half-hour factors.
     """
+
+    _validate_datetime_series(reference)
 
     reference = reference.astype(float)
     base_demand = float(reference.mean())
@@ -159,6 +189,8 @@ def apply_seasonal_profile(
 ) -> pd.Series:
     """Subtract a frozen multiplicative profile from a demand series."""
 
+    _validate_datetime_series(series)
+
     annual = _annual_values(series.index, profile.annual_factor)
 
     if profile.frequency == "daily":
@@ -171,6 +203,12 @@ def apply_seasonal_profile(
             names=["weekday", "half_hour"],
         )
         weekly = profile.weekly_factor.reindex(keys).to_numpy()
+
+    if np.isnan(weekly).any():
+        raise ValueError(
+            "The fitted profile is missing a weekday/half-hour combination "
+            "present in the series; fit it on a longer reference."
+        )
 
     expected = profile.base_demand * annual * weekly
 

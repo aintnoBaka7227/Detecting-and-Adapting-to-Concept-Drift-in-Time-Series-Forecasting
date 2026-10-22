@@ -1,15 +1,13 @@
 """F3 -- four-arm comparison: 7-day rolling MAE through the TEST period.
 
-One figure per model x region (the MW scales differ by region and by
-model). Each shows exactly four lines -- arms A, B, C and the official
-arm D window -- as the mean 7-day (336-observation) rolling MAE across
-seeds, with a ±1 standard-deviation band when the model has more than one
-seed. Controls A and B are grey; the drift-triggered arms C and D are in
-colour. The dashed horizontal line is arm A's pre-drift MAE. Below the
-curves, one rug row per arm marks every retrain.
+One figure per model x region with four lines -- arms A, B (grey controls),
+C and the arm-D window with the lowest drift MAE (colour) -- as the mean
+336-observation rolling MAE across seeds (± 1 sd band). The dashed line is
+arm A's pre-drift MAE; a rug below marks every retrain. Reads the saved
+curve and retrain files; nothing is recalculated.
 
-Reads the saved curve and retrain files of the latest adaptation runs; no
-metric is recalculated here.
+Outputs go to <table|figure>/<detector>/[<model>/] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 
 Usage:
     python -m experiments.produce.produce_figure_f3
@@ -25,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from experiments import results_io
+from experiments.produce.figure_text import line_height_in, wrap_to_width
 from experiments.produce.table_adaptation_common import (
     D_PREFIX,
     latest_adaptation_rows,
@@ -32,6 +31,7 @@ from experiments.produce.table_adaptation_common import (
     official_d_arms,
 )
 from experiments.run.adaptation.run_aemo_adaptation_arms import ARM_A, ARM_B, ARM_C
+from experiments.trigger_detectors import DETECTOR_LABELS, TRIGGER_DETECTORS
 
 MODEL_NAMES = {"nhits": "NHITS", "xgboost": "XGBoost", "dhr_arima": "DHR + ARIMA"}
 
@@ -46,6 +46,7 @@ SURFACE = "#fcfcfb"
 TEXT = "#0b0b0b"
 TEXT_MUTED = "#52514e"
 GRID = "#e4e3df"
+SUBTITLE_SIZE = 10
 
 
 def load_arm(rows: pd.DataFrame, model: str, region: str, arm: str):
@@ -69,7 +70,9 @@ def load_arm(rows: pd.DataFrame, model: str, region: str, arm: str):
     return index, np.vstack(curves), retrains
 
 
-def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model: str, region: str):
+def plot_figure(
+    rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model: str, region: str, detector: str
+):
     d_arm = official[(model, region)]
     days = d_arm.removeprefix(D_PREFIX).removesuffix("d")
     arms = {"A": ARM_A, "B": ARM_B, "C": ARM_C, "D": d_arm}
@@ -106,14 +109,21 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
 
     spread = " Lines are the mean across seeds; bands are ±1 standard deviation." if n_seeds > 1 else ""
     seeds = f"{n_seeds} seeds" if n_seeds > 1 else "deterministic, one run"
-    fig.suptitle(
-        f"F3 — Four adaptation arms, {MODEL_NAMES.get(model, model)}, {region}",
-        x=0.125, y=0.97, ha="left", fontsize=14, fontweight="bold", color=TEXT,
-    )
-    ax.set_title(
+    # The description is the axes title, wrapped to the axes width; the figure
+    # title moves up by any extra lines.
+    subtitle = wrap_to_width(
+        fig,
         f"7-day rolling MAE (336 half-hourly observations) over the TEST period; {seeds}.{spread}",
-        loc="left", fontsize=10, color=TEXT_MUTED,
+        ax.get_position().width * fig.get_figwidth(),
+        SUBTITLE_SIZE,
     )
+    extra = subtitle.count("\n") * line_height_in(SUBTITLE_SIZE) / fig.get_figheight()
+    fig.suptitle(
+        f"F3 — Four adaptation arms, {MODEL_NAMES.get(model, model)}, {region}, "
+        f"{DETECTOR_LABELS[detector]} trigger",
+        x=0.125, y=0.97 + extra, ha="left", fontsize=14, fontweight="bold", color=TEXT,
+    )
+    ax.set_title(subtitle, loc="left", fontsize=SUBTITLE_SIZE, color=TEXT_MUTED)
     ax.set_ylabel("7-day rolling MAE (MW)", color=TEXT_MUTED)
     ax.set_ylim(0, top * 1.22)  # headroom so the legend never sits on a curve
     ax.legend(loc="upper left", ncol=3, frameon=False, fontsize=9.5, labelcolor=TEXT)
@@ -135,7 +145,9 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
     ax.spines["bottom"].set_visible(False)
     ax.margins(x=0.005)
 
-    out = results_io.FIGURE3_DIR / f"f3_four_arm_comparison_{model}_{region}.png"
+    out = results_io.output_path(
+        results_io.FIGURE3_DIR, detector, model, name=f"f3_four_arm_comparison_{detector}_{model}_{region}.png"
+    )
     fig.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURFACE)
     plt.close(fig)
     return out
@@ -143,11 +155,12 @@ def plot_figure(rows: pd.DataFrame, per_run: pd.DataFrame, official: dict, model
 
 def main() -> None:
     results_io.FIGURE3_DIR.mkdir(parents=True, exist_ok=True)
-    rows = latest_adaptation_rows()
-    per_run = mae_by_run(rows)
-    official = official_d_arms(per_run)
-    for model, region in sorted(official):
-        print(f"wrote {plot_figure(rows, per_run, official, model, region)}")
+    for detector in TRIGGER_DETECTORS:
+        rows = latest_adaptation_rows(detector)
+        per_run = mae_by_run(rows)
+        official = official_d_arms(per_run)
+        for model, region in sorted(official):
+            print(f"wrote {plot_figure(rows, per_run, official, model, region, detector)}")
 
 
 if __name__ == "__main__":

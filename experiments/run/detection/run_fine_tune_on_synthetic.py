@@ -1,30 +1,17 @@
-"""Synthetic-only detector tuning against the false-alarm budget.
+"""Synthetic-only detector tuning against a false-alarm budget.
 
-Constrained grid search: every candidate config runs on the synthetic
-benchmark (N=20,000, noise=1.0, kinds none/sudden/gradual/recurring, the
-shared five seeds). No AEMO data is used. False alarms are annualised at
-48*365 samples/year (the generator is half-hourly).
+Grid search over each detector's configs on the synthetic benchmark
+(N=20,000, noise 1.0, none/sudden/gradual/recurring, the five shared seeds);
+no AEMO data. False alarms are annualised at 48*365 samples/year. A config
+is eligible only if, on every seed, it raises no false alarm on the no-drift
+series, stays at <= 2 false alarms/year on every row and misses no drift.
+Winner: fewest false alarms/year, then shortest mean delay, then parameter
+order ("no_eligible_configuration" if none qualifies).
 
-Eligible configs must, on every seed:
-    - raise zero false alarms on the no-drift series;
-    - stay at <= 2 false alarms/year on every row;
-    - miss no drift.
-Winner per detector: fewest false alarms (mean false alarms/year over all
-rows -- no-drift and every drift scenario), then shortest mean detection
-delay, then parameter order. No eligible config ->
-status "no_eligible_configuration".
-
-Configs run in parallel worker processes; only the parent writes files.
-Per-config checkpoints (results/runs/<config_hash>/) let a re-run skip
-finished configs -- clear them if the eligibility rules change.
-
-Outputs:
-    results/tables/fine_tune_on_synthetic.csv          every row
-    results/tables/fine_tune_on_synthetic_winners.csv  one row per detector
-
-Nothing is logged to runs.csv: the sweep's thousands of candidate configs
-are tuning scaffolding, not reportable runs. Only the frozen winners are
-logged, by run_post_tune_on_synthetic.py and the AEMO post-tune runs.
+Configs run in parallel; per-config checkpoints in results/runs/<config_hash>/
+let a re-run skip finished ones (clear them if the rules change). Writes
+results/tables/fine_tune_on_synthetic.csv and ..._winners.csv; nothing goes
+to runs.csv (the frozen winners are logged by the post-tune runs).
 """
 
 from __future__ import annotations
@@ -71,31 +58,14 @@ KSWIN_ALPHAS = (*(10.0**-k for k in range(4, 10)), 5e-5)  # 1e-4 ... 1e-9, 5e-5
 # sample holds whole days.
 KSWIN_STAT_SIZES = (48, 96, 144, 240, 336, 672)  # 1, 2, 3, 5 days, 1, 2 weeks
 KSWIN_WINDOW_SIZES = (336, 480, 672, 1344)  # 7, 10, 14, 28 days
-# Page-Hinkley: every river hyperparameter except `mode`, fixed at "both"
-# because AEMO demand can shift up or down.
-#
-# alpha (forgetting factor; memory ~ 1 / (1 - alpha) steps): memory must
-# be at least 4 weeks of half-hours (1344 steps, alpha >= ~0.99926) --
-# the same horizon as KSWIN's 28-day reference window, because the demand
-# shifts this study targets build up over weeks, and a detector that
-# forgets faster never accumulates them. 0.9995 (~6 weeks) and river's
-# default 1 - 1e-4 (~7 months) are the values above that floor. Shorter
-# memories win on the synthetic sudden shifts but miss the gradual real
-# shifts: alpha = 0.985 (~1.4 days) gave 1-4 AEMO test-period detections
-# and alpha = 0.999 (~3 weeks) gave 7-8.
-#
-# threshold (lambda): 400 < lambda < 1000. At these memories, lambda <= 400
-# exceeds the false-alarm floor on synthetic data, and the remaining
-# "false alarms" are early alarms on the gradual-drift series (PH fires
-# during the ramp, before the scoring window) -- never on the no-drift,
-# sudden or recurring series. lambda >= 1000 suppresses those
-# early-but-real alarms only by delaying every detection, so it is left
-# out.
-#
-# delta (per-step change tolerated): 0.0001 to 0.001 -- small enough that
-# small sustained shifts still accumulate, but non-zero so the detector
-# keeps a minimum tolerance to noise-level wobble.
-#
+# Page-Hinkley grid; mode fixed at "both" (demand can shift either way).
+# alpha: memory ~ 1 / (1 - alpha) must cover >= 4 weeks of half-hours (as
+#   KSWIN's 28-day window), so 0.9995 (~6 weeks) and river's 1 - 1e-4
+#   (~7 months). Shorter memories caught synthetic sudden shifts but missed
+#   gradual real ones (0.985 gave 1-4 AEMO detections, 0.999 gave 7-8).
+# threshold: 400 < lambda < 1000; <= 400 breaks the synthetic false-alarm
+#   floor (early alarms on gradual ramps), >= 1000 only delays every alarm.
+# delta: 0.0001-0.001, small enough for sustained shifts, non-zero for noise.
 # NOTE: these bounds were set after seeing the AEMO results -- report them
 # alongside any Page-Hinkley result; this is not a synthetic-only choice.
 PAGE_HINKLEY_DELTAS = (0.0001, 0.0005, 0.001)

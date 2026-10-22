@@ -29,6 +29,7 @@ from matplotlib.transforms import blended_transform_factory
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
 from drift_lab.detection.kswin import KSWINDetector
 from drift_lab.detection.page_hinkley import PageHinkleyDetector
+from experiments.produce.figure_text import line_height_in, wrap_to_width
 from experiments.results_io import FIGURE2_DIR, RUNS_CSV
 from experiments.run.detection.detection_artifacts import event_assignments_path
 from experiments.run.detection.post_tune_detector_configs import load_winner_row
@@ -62,6 +63,7 @@ MATCH_COLOR = "#198754"
 FALSE_ALARM_COLOR = "#C62828"
 SUPPRESSED_COLOR = "#B0B6BD"
 GRID_COLOR = "#D9DEE5"
+NOTE_SIZE = 9
 
 
 def tier1_events(region: str) -> pd.DataFrame:
@@ -317,19 +319,25 @@ def plot_one(
             zorder=9,
         )
 
+    # The note is wrapped to the plot's width (after the layout is set) and
+    # the title is lifted above any extra note lines.
+    if stat_ax is None:
+        fig.tight_layout()
+    title_note = wrap_to_width(fig, title_note, ax.get_position().width * fig.get_figwidth(), NOTE_SIZE)
+    extra_pt = title_note.count("\n") * line_height_in(NOTE_SIZE) * 72
     ax.set_title(
         f"F2: {method.replace('_', ' ').title()} detections — {region}",
         loc="right",
         fontsize=14,
         fontweight="bold",
-        pad=14,
+        pad=14 + extra_pt,
     )
     ax.text(
         0,
         1.015,
         title_note,
         transform=ax.transAxes,
-        fontsize=9,
+        fontsize=NOTE_SIZE,
         color="#555555",
         ha="left",
         va="bottom",

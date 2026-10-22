@@ -7,13 +7,13 @@ import pandas as pd
 import pytest
 
 from drift_lab.evaluation import (
-    assign_regime,
+    assign_event_local_regime,
+    assign_timestamp_global_regime,
     build_event_windows,
     calculate_event_metrics,
     calculate_mae,
-    calculate_regime_metrics,
+    calculate_match_window,
     calculate_rolling_mae,
-    evaluate_aemo_detections,
     evaluate_detections,
     match_unmatch,
 )
@@ -180,122 +180,333 @@ def test_build_event_windows_sorted_by_start():
     assert list(windows["event_id"]) == ["E1", "E2"]
 
 
-# --- assign_regime --------------------------------------------------------
+# --- assign_detection_with_regime -----------------------------------------
 
 
-def test_assign_regime_detection_during_drift():
-    events = _aemo_events(
+# Commented out with assign_detection_with_regime (unused).
+# def test_assign_detection_with_regime_detection_during_drift():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime(["2020-03-01"], windows)
+#
+#     assert len(labels) == 1
+#     assert labels.iloc[0]["regime"] == "drift"
+#     assert labels.iloc[0]["event_id"] == "E1"
+#
+#
+# def test_assign_detection_with_regime_detection_in_pre_drift():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime(["2020-02-25"], windows)
+#
+#     assert len(labels) == 1
+#     assert labels.iloc[0]["regime"] == "pre_drift"
+#
+#
+# def test_assign_detection_with_regime_detection_in_post_drift():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime(["2020-03-05"], windows)
+#
+#     assert len(labels) == 1
+#     assert labels.iloc[0]["regime"] == "post_drift"
+#
+#
+# @pytest.mark.xfail(
+#     reason="assign_detection_with_regime's post_drift window is unbounded (accepted gap, "
+#     "team decision) -- a detection this far past the only event still gets "
+#     "labelled post_drift/unassigned instead of falling back to pre_drift",
+# )
+# def test_assign_detection_with_regime_detection_outside_all_windows_is_pre_drift():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime(["2020-06-01"], windows)
+#
+#     assert len(labels) == 1
+#     assert labels.iloc[0]["regime"] == "pre_drift"
+#     assert labels.iloc[0]["event_id"] == "unassigned"
+#
+#
+# def test_assign_detection_with_regime_no_detections():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime([], windows)
+#
+#     assert len(labels) == 0
+#
+#
+# def test_assign_detection_with_regime_overlapping_events():
+#     # 2020-03-05 is simultaneously in E1's post-drift tail and E2's
+#     # pre-drift lead-up (pre_drift_days=7 reaches back to 2020-03-03).
+#     # pre_drift outranks post_drift globally, so E2's pre_drift wins --
+#     # regardless of E1 being the temporally nearer event.
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#             ("E2", "2020-03-10", "2020-03-10", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime(["2020-03-05"], windows)
+#
+#     assert len(labels) == 1
+#     assert labels.iloc[0]["event_id"] == "E2"
+#     assert labels.iloc[0]["regime"] == "pre_drift"
+#
+#
+# def test_assign_detection_with_regime_each_timestamp_at_most_once():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#             ("E2", "2020-03-10", "2020-03-10", "day", "SA1"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "SA1")
+#     labels = assign_detection_with_regime(["2020-03-05", "2020-03-05"], windows)
+#
+#     assert len(labels) == 1
+#
+#
+# def test_assign_detection_with_regime_range_event():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-04-01", "2020-05-17", "date_range", "NEM"),
+#         ]
+#     )
+#     windows = build_event_windows(events, "NEM")
+#     labels = assign_detection_with_regime(["2020-04-15"], windows)
+#
+#     assert len(labels) == 1
+#     assert labels.iloc[0]["regime"] == "drift"
+
+
+
+# --- assign_timestamp_global_regime ---------------------------------------
+
+
+def _global_labels(timestamps, rows):
+    windows = build_event_windows(_aemo_events(rows), "SA1")
+    labels = assign_timestamp_global_regime(timestamps, windows)
+    return labels.set_index("timestamp")
+
+
+def test_global_regime_follows_the_three_rules():
+    # Drift window + 7-day end buffer: E1 [2020-03-10, 2020-03-18),
+    # E2 [2020-04-10, 2020-04-18)
+    labels = _global_labels(
         [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
-    )
-    windows = build_event_windows(events, "SA1")
-    labels = assign_regime(["2020-03-01"], windows)
-
-    assert len(labels) == 1
-    assert labels.iloc[0]["regime"] == "drift"
-    assert labels.iloc[0]["event_id"] == "E1"
-
-
-def test_assign_regime_detection_in_pre_drift():
-    events = _aemo_events(
+            pd.Timestamp(t) for t in (
+                "2020-03-01", "2020-03-09", "2020-03-10", "2020-03-17 23:30",
+                "2020-03-18", "2020-04-09", "2020-04-10", "2020-05-01",
+            )
+        ],
         [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
+            ("E1", "2020-03-10", "2020-03-10", "day", "SA1"),
+            ("E2", "2020-04-10", "2020-04-10", "day", "SA1"),
+        ],
     )
-    windows = build_event_windows(events, "SA1")
-    labels = assign_regime(["2020-02-25"], windows)
 
-    assert len(labels) == 1
-    assert labels.iloc[0]["regime"] == "pre_drift"
+    assert labels["regime"].tolist() == [
+        "pre_drift",   # before the first event
+        "pre_drift",   # no buffer before the event
+        "drift",       # first half-hour of E1
+        "drift",       # last half-hour of E1's end buffer
+        "post_drift",  # E1's drift window and buffer have ended
+        "post_drift",  # until E2 starts
+        "drift",
+        "post_drift",  # after the last event
+    ]
+    assert labels["event_id"].tolist() == [
+        "E1", "E1", "E1", "E1", "E1", "E1", "E2", "E2",
+    ]
 
 
-def test_assign_regime_detection_in_post_drift():
-    events = _aemo_events(
+def test_global_regime_labels_every_timestamp_once():
+    timestamps = pd.date_range("2020-03-01", "2020-06-01", freq="30min")
+    labels = _global_labels(
+        list(timestamps) + [timestamps[0]],
+        [("E1", "2020-03-10", "2020-03-10", "day", "SA1")],
+    )
+
+    assert len(labels) == len(timestamps)
+    assert set(labels["regime"]) == {"pre_drift", "drift", "post_drift"}
+    assert "unassigned" not in set(labels["event_id"])
+
+
+def test_global_regime_overlapping_events_stay_drift():
+    # E2 starts while E1 is still running; E2's buffer ends 2020-03-28.
+    labels = _global_labels(
+        ["2020-03-05", "2020-03-15", "2020-03-28"],
         [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
+            ("E1", "2020-03-01", "2020-03-10", "date_range", "SA1"),
+            ("E2", "2020-03-05", "2020-03-20", "date_range", "SA1"),
+        ],
     )
-    windows = build_event_windows(events, "SA1")
-    labels = assign_regime(["2020-03-05"], windows)
 
-    assert len(labels) == 1
-    assert labels.iloc[0]["regime"] == "post_drift"
+    assert labels["regime"].tolist() == ["drift", "drift", "post_drift"]
+    # 2020-03-15 is inside both windows (E1's buffer runs to 2020-03-18):
+    # the earliest event wins.
+    assert labels["event_id"].tolist() == ["E1", "E1", "E2"]
 
 
-def test_assign_regime_detection_outside_all_windows_is_unassigned():
-    events = _aemo_events(
+def test_global_regime_ignores_events_outside_the_test_split():
+    # E0 ends before the first timestamp and E9 starts after the last, so
+    # the split starts in pre_drift and E1 is its first event.
+    labels = _global_labels(
+        ["2020-03-01", "2020-03-10", "2020-03-20"],
         [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
+            ("E0", "2020-01-04", "2020-01-04", "day", "SA1"),
+            ("E1", "2020-03-10", "2020-03-10", "day", "SA1"),
+            ("E9", "2021-01-01", "2021-01-01", "day", "SA1"),
+        ],
     )
-    windows = build_event_windows(events, "SA1")
-    # One timestamp before E1's pre-drift window, one past its post-drift window.
-    labels = assign_regime(["2020-01-01", "2020-06-01"], windows)
 
-    assert len(labels) == 2
-    assert labels["regime"].tolist() == ["unassigned", "unassigned"]
-    assert labels["event_id"].tolist() == ["unassigned", "unassigned"]
+    assert labels["regime"].tolist() == ["pre_drift", "drift", "post_drift"]
+    assert labels["event_id"].tolist() == ["E1", "E1", "E1"]
 
 
-def test_assign_regime_no_detections():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
+def test_global_regime_drift_end_buffer_is_adjustable():
+    labels = assign_timestamp_global_regime(
+        ["2020-03-10", "2020-03-11"],
+        build_event_windows(_aemo_events([("E1", "2020-03-10", "2020-03-10", "day", "SA1")]), "SA1"),
+        drift_end_buffer=pd.Timedelta(0),
     )
-    windows = build_event_windows(events, "SA1")
-    labels = assign_regime([], windows)
+
+    assert labels["regime"].tolist() == ["drift", "post_drift"]
+
+
+def test_global_regime_requires_an_event_in_the_test_split():
+    with pytest.raises(ValueError):
+        _global_labels(["2020-03-01"], [("E0", "2020-01-04", "2020-01-04", "day", "SA1")])
+
+
+def test_global_regime_no_timestamps():
+    labels = _global_labels([], [("E1", "2020-03-10", "2020-03-10", "day", "SA1")])
 
     assert len(labels) == 0
 
 
-def test_assign_regime_overlapping_events():
-    # 2020-03-05 is simultaneously in E1's post-drift tail and E2's
-    # pre-drift lead-up (pre_drift_days=7 reaches back to 2020-03-03).
-    # pre_drift outranks post_drift globally, so E2's pre_drift wins --
-    # regardless of E1 being the temporally nearer event.
-    events = _aemo_events(
+# --- assign_event_local_regime --------------------------------------------
+
+
+def _local_labels(timestamps, rows):
+    windows = build_event_windows(_aemo_events(rows), "SA1")
+    labels = assign_event_local_regime([pd.Timestamp(t) for t in timestamps], windows)
+    return labels.set_index("timestamp")
+
+
+def test_local_regime_labels_only_the_three_windows():
+    # E1 13-15 June: pre [6 Jun, 13 Jun), drift [13 Jun, 16 Jun),
+    # post [16 Jun, 23 Jun); no drift-end buffer.
+    stamps = [
+        "2020-06-01",        # outside -> dropped
+        "2020-06-05 23:30",  # outside -> dropped
+        "2020-06-06 00:00",  # first stamp of pre_drift
+        "2020-06-12 23:30",  # last stamp of pre_drift
+        "2020-06-13 00:00",  # first stamp of drift
+        "2020-06-15 23:30",  # last stamp of drift
+        "2020-06-16 00:00",  # first stamp of post_drift
+        "2020-06-22 23:30",  # last stamp of post_drift
+        "2020-06-23 00:00",  # outside -> dropped
+    ]
+    labels = _local_labels(stamps, [("E1", "2020-06-13", "2020-06-15", "date_range", "SA1")])
+
+    assert list(labels.index) == [pd.Timestamp(t) for t in stamps[2:8]]
+    assert labels["regime"].tolist() == [
+        "pre_drift", "pre_drift", "drift", "drift", "post_drift", "post_drift",
+    ]
+    assert set(labels["event_id"]) == {"E1"}
+
+
+def test_local_regime_overlap_priority_matches_the_global_rule():
+    # E1 1 Mar: post [2 Mar, 9 Mar). E2 5 Mar: pre [26 Feb, 5 Mar), drift [5 Mar, 6 Mar).
+    # E3 7 Mar: pre [28 Feb, 7 Mar), post [8 Mar, 15 Mar).
+    rows = [
+        ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+        ("E2", "2020-03-05", "2020-03-05", "day", "SA1"),
+        ("E3", "2020-03-07", "2020-03-07", "day", "SA1"),
+    ]
+    labels = _local_labels(["2020-03-03", "2020-03-05 12:00", "2020-03-08 12:00"], rows)
+
+    # 3 Mar: E1 post vs E2/E3 pre -> pre_drift beats post_drift, earliest (E2) wins.
+    # 5 Mar: E2 drift vs E3 pre -> drift wins.
+    # 8 Mar: E1 post vs E2 post vs E3 post -> most recently started (E3) wins.
+    assert labels["regime"].tolist() == ["pre_drift", "drift", "post_drift"]
+    assert labels["event_id"].tolist() == ["E2", "E2", "E3"]
+
+
+def test_local_regime_ignores_events_outside_the_test_split():
+    # E0's post window reaches 1 Mar, but its drift ended before the split.
+    labels = _local_labels(
+        ["2020-03-01", "2020-03-10"],
         [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-            ("E2", "2020-03-10", "2020-03-10", "day", "SA1"),
-        ]
+            ("E0", "2020-02-25", "2020-02-25", "day", "SA1"),
+            ("E1", "2020-03-10", "2020-03-10", "day", "SA1"),
+        ],
     )
-    windows = build_event_windows(events, "SA1")
-    labels = assign_regime(["2020-03-05"], windows)
 
-    assert len(labels) == 1
-    assert labels.iloc[0]["event_id"] == "E2"
-    assert labels.iloc[0]["regime"] == "pre_drift"
-
-
-def test_assign_regime_each_timestamp_at_most_once():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-            ("E2", "2020-03-10", "2020-03-10", "day", "SA1"),
-        ]
-    )
-    windows = build_event_windows(events, "SA1")
-    labels = assign_regime(["2020-03-05", "2020-03-05"], windows)
-
-    assert len(labels) == 1
-
-
-def test_assign_regime_range_event():
-    events = _aemo_events(
-        [
-            ("E1", "2020-04-01", "2020-05-17", "date_range", "NEM"),
-        ]
-    )
-    windows = build_event_windows(events, "NEM")
-    labels = assign_regime(["2020-04-15"], windows)
-
-    assert len(labels) == 1
+    assert list(labels.index) == [pd.Timestamp("2020-03-10")]
     assert labels.iloc[0]["regime"] == "drift"
 
 
+def test_local_regime_empty_when_nothing_falls_in_a_window():
+    labels = _local_labels(["2020-08-01"], [("E1", "2020-03-10", "2020-03-10", "day", "SA1")])
+
+    assert len(labels) == 0
+
+
 # --- match_unmatch --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("alarm", "label"),
+    [
+        ("2020-06-12 23:30", "Unmatch"),  # before the event
+        ("2020-06-13 00:00", "Match"),    # first stamp of the event
+        ("2020-06-22 23:30", "Match"),    # last stamp of the 7-day grace
+        ("2020-06-23 00:00", "Unmatch"),  # (15 + 1) June 00:00 + 7d, exclusive
+    ],
+)
+def test_match_unmatch_range_window_is_left_inclusive_right_exclusive(alarm, label):
+    # Event 13-15 June inclusive: [13 June 00:00, 16 June 00:00) + 7-day grace.
+    events = _aemo_events([("E1", "2020-06-13", "2020-06-15", "date_range", "SA1")])
+    result = match_unmatch([pd.Timestamp(alarm)], events, "SA1")
+
+    assert result.iloc[0]["label"] == label
+
+
+@pytest.mark.parametrize(
+    ("alarm", "label"),
+    [
+        ("2020-06-20 23:30", "Match"),    # last stamp of the 7-day grace
+        ("2020-06-21 00:00", "Unmatch"),  # (13 + 1) June 00:00 + 7d, exclusive
+    ],
+)
+def test_match_unmatch_point_window_counts_the_whole_event_day(alarm, label):
+    events = _aemo_events([("E1", "2020-06-13", "2020-06-13", "day", "SA1")])
+    result = match_unmatch([pd.Timestamp(alarm)], events, "SA1")
+
+    assert result.iloc[0]["label"] == label
 
 
 def test_match_unmatch_point_event_matched():
@@ -456,6 +667,20 @@ def test_match_unmatch_refractory_period_blocks_a_later_event():
     ignored = result[result["label"] == "Ignored"]
     assert len(ignored) == 1
     assert ignored.iloc[0]["timestamp"] == pd.Timestamp("2020-03-07")
+
+
+def test_match_unmatch_refractory_window_is_right_exclusive():
+    events = _aemo_events([("E1", "2020-06-01", "2020-06-01", "day", "SA1")])
+    kept = pd.Timestamp("2020-06-01 12:00")
+    result = match_unmatch(
+        [kept, kept + pd.Timedelta(days=14) - pd.Timedelta(minutes=30), kept + pd.Timedelta(days=14)],
+        events,
+        "SA1",
+    ).set_index("timestamp")
+
+    assert result.loc[kept, "label"] == "Match"
+    assert result.loc[kept + pd.Timedelta(days=14) - pd.Timedelta(minutes=30), "label"] == "Ignored"
+    assert result.loc[kept + pd.Timedelta(days=14), "label"] == "Unmatch"  # window end is exclusive
 
 
 def test_match_unmatch_custom_refractory_period():
@@ -627,48 +852,50 @@ def test_match_unmatch_rejects_end_before_start():
 # --- evaluate_aemo_detections ---------------------------------------------
 
 
-def test_evaluate_aemo_detections_returns_all_keys():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
-    )
-    result = evaluate_aemo_detections(["2020-03-03"], events, "SA1")
+# Commented out with evaluate_aemo_detections (unused).
+# def test_evaluate_aemo_detections_returns_all_keys():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     result = evaluate_aemo_detections(["2020-03-03"], events, "SA1")
+#
+#     assert "match_results" in result
+#     assert "regime_results" in result
+#     assert "event_metrics" in result
+#     m = result["event_metrics"]
+#     assert m["n_total_detections"] == 1
+#     assert m["n_matched_t1"] == 0
+#     assert m["n_matched_t2"] == 1
+#     assert m["n_unmatched_events"] == 0
+#     assert m["n_matched_detections"] == 1
+#     assert m["n_unmatched_detections"] == 0
+#     assert m["precision"] == pytest.approx(1.0)
+#     # precision_t1/precision_t2 share the overall pooled denominator
+#     # (effective detections), so a Tier 1 miss with zero Tier 1 matches
+#     # here is a real 0, not undefined.
+#     assert m["precision_t1"] == pytest.approx(0.0)
+#     assert m["precision_t2"] == pytest.approx(1.0)
+#     assert m["event_recall"] == pytest.approx(1.0)
+#
+#
+# def test_evaluate_aemo_detections_no_match():
+#     events = _aemo_events(
+#         [
+#             ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
+#         ]
+#     )
+#     result = evaluate_aemo_detections(["2020-06-01"], events, "SA1")
+#     m = result["event_metrics"]
+#
+#     assert m["n_matched_t1"] == 0
+#     assert m["n_matched_t2"] == 0
+#     assert m["n_unmatched_events"] == 1
+#     assert m["n_unmatched_detections"] == 1
+#     assert m["precision"] == pytest.approx(0.0)
+#     assert m["event_recall"] == pytest.approx(0.0)
 
-    assert "match_results" in result
-    assert "regime_results" in result
-    assert "event_metrics" in result
-    m = result["event_metrics"]
-    assert m["n_total_detections"] == 1
-    assert m["n_matched_t1"] == 0
-    assert m["n_matched_t2"] == 1
-    assert m["n_unmatched_events"] == 0
-    assert m["n_matched_detections"] == 1
-    assert m["n_unmatched_detections"] == 0
-    assert m["precision"] == pytest.approx(1.0)
-    # precision_t1/precision_t2 share the overall pooled denominator
-    # (effective detections), so a Tier 1 miss with zero Tier 1 matches
-    # here is a real 0, not undefined.
-    assert m["precision_t1"] == pytest.approx(0.0)
-    assert m["precision_t2"] == pytest.approx(1.0)
-    assert m["event_recall"] == pytest.approx(1.0)
-
-
-def test_evaluate_aemo_detections_no_match():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
-    )
-    result = evaluate_aemo_detections(["2020-06-01"], events, "SA1")
-    m = result["event_metrics"]
-
-    assert m["n_matched_t1"] == 0
-    assert m["n_matched_t2"] == 0
-    assert m["n_unmatched_events"] == 1
-    assert m["n_unmatched_detections"] == 1
-    assert m["precision"] == pytest.approx(0.0)
-    assert m["event_recall"] == pytest.approx(0.0)
 
 
 # --- calculate_event_metrics ----------------------------------------------
@@ -789,58 +1016,17 @@ def test_calculate_event_metrics_precision_per_tier_uses_pooled_denominator():
     assert m["precision"] == pytest.approx(4 / 5)
 
 
-# --- calculate_regime_metrics -----------------------------------------------
-
-
-def test_calculate_regime_metrics_reports_overall_and_tier_precision():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
-    )
-    # Mar 1 sits inside E1's drift window ([Mar 1, Mar 2)) so it matches.
-    match_results = match_unmatch(["2020-03-01"], events, "SA1")
-    windows = build_event_windows(events, "SA1")
-    regime_results = assign_regime(["2020-03-01"], windows)
-
-    metrics = calculate_regime_metrics(match_results, regime_results)
-
-    assert metrics["drift"]["detections"] == 1
-    assert metrics["drift"]["matched_detections"] == 1
-    assert metrics["drift"]["precision"] == pytest.approx(1.0)
-    # precision_t1/precision_t2 share this regime's pooled effective
-    # count (1), so zero Tier 1 matches here is a real 0, not undefined.
-    assert metrics["drift"]["precision_t1"] == pytest.approx(0.0)
-    assert metrics["drift"]["precision_t2"] == pytest.approx(1.0)
-    # No detections landed in pre_drift, so precision is undefined there.
-    assert metrics["pre_drift"]["detections"] == 0
-    assert np.isnan(metrics["pre_drift"]["precision"])
-    assert metrics["unassigned"] == {"detections": 0, "ignored_detections": 0}
-
-
-def test_calculate_regime_metrics_counts_but_does_not_score_unassigned():
-    events = _aemo_events(
-        [
-            ("E1", "2020-03-01", "2020-03-01", "day", "SA1"),
-        ]
-    )
-    detections = ["2020-03-01", "2020-06-01"]
-    match_results = match_unmatch(detections, events, "SA1")
-    regime_results = assign_regime(detections, build_event_windows(events, "SA1"))
-
-    metrics = calculate_regime_metrics(match_results, regime_results)
-
-    assert metrics["unassigned"] == {"detections": 1, "ignored_detections": 0}
-    assert sum(metrics[r]["detections"] for r in ("pre_drift", "drift", "post_drift")) == 1
-
-
 # --- guard ----------------------------------------------------------------
 
 
 def test_no_metric_code_outside_evaluation_module():
     repo = Path(__file__).resolve().parents[1]
     roots = [repo / "src" / "drift_lab", repo / "experiments"]
-    allowed = {"drift_lab/evaluation/evaluation.py"}
+    allowed = {
+        "drift_lab/evaluation/evaluation.py",
+        # Smooths the TRAIN seasonal profile (preprocessing, not a metric).
+        "drift_lab/aemo/deseasonalise.py",
+    }
     offenders = []
     for root in roots:
         for path in root.rglob("*.py"):
@@ -853,3 +1039,14 @@ def test_no_metric_code_outside_evaluation_module():
             if ".rolling(" in text or ".ewm(" in text:
                 offenders.append(rel)
     assert not offenders, f"metric code outside evaluation.py: {offenders}"
+
+
+def test_calculate_match_window_is_left_inclusive_right_exclusive():
+    assert calculate_match_window("2020-06-13", "2020-06-15", "date_range") == (
+        pd.Timestamp("2020-06-13"),
+        pd.Timestamp("2020-06-23"),
+    )
+    assert calculate_match_window("2020-06-13", "2020-06-13", "day") == (
+        pd.Timestamp("2020-06-13"),
+        pd.Timestamp("2020-06-21"),
+    )

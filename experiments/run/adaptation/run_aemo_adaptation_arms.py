@@ -1,41 +1,27 @@
 """Step 5 / T3, T4, F3 -- the four adaptation arms on AEMO.
 
-Arms (SHARED_DECISIONS.md 14, TEAM_DECISIONS.md 5.1), each an independent
-run with its own model instance, adapter and retrain schedule:
+    A  never retrain (control)
+    B  retrain every 30 days on the last 30 days (control)
+    C  retrain on each accepted drift alarm, on all history
+    D  retrain on each accepted drift alarm, on the last 30/60/120/180 days
 
-    A  NeverRetrain              never retrain (control)
-    B  RetrainEvery30Days        every 30 days, on the last 30 days (control)
-    C  RetrainUsingFullHistory   on each accepted drift alarm, all history
-    D  RetrainUsingRecentWindow  on each accepted drift alarm, the last
-                                 30 / 60 / 120 / 180 days -- every window is
-                                 run and logged; the official D is chosen
-                                 later by lowest drift-regime MAE
+Alarms come from one trigger detector (`--detector`: ADWIN or Page-Hinkley),
+read from run_detector_changepoints.py's files; detection is never re-run.
+A and B ignore the detector, so they run only in the ADWIN batch and are
+shared by every detector.
 
-Trigger: the accepted (post-refractory) change points written once by
-run_adwin_changepoints.py -- detection is never re-run here.
+For an alarm on day d the current model forecasts through d 23:30, the
+adapter refits on data through d 23:30, and the new model forecasts from
+d+1. NHITS forecasts 48-step blocks with real context (input 336, 500
+steps); xgboost / dhr_arima roll forward blind from their latest fit. Every
+arm uses the global regime labels. Cost fields: n_retrains, train_samples
+and wall_clock_s (retrain fits only). nhits / xgboost need `--seed`.
 
-Retraining boundary: for a trigger on day d the current model forecasts
-through d 23:30, the adapter refits on data through d 23:30, and the new
-model forecasts from d+1. Days are the calendar date of AEMO's timestamp.
-
-Forecast protocol: each model's own F1 protocol, unchanged -- NHITS uses
-the BLOCK protocol (real context between horizon-sized blocks) with the
-shared settings (horizon 48, input 336, 500 steps); xgboost / dhr_arima
-roll forward blind from their latest fit. A retrain is just `fit()`.
-
-Regimes: documented-event regimes from `evaluation.assign_regime`, the
-same labels for every arm. Cost fields per run: `n_retrains`,
-`train_samples` (cumulative retrain samples) and `wall_clock_s`
-(cumulative retrain fit time); the initial TRAIN fit is excluded.
-
-Seeds: nhits and xgboost are stochastic, so `--seed` is required and must
-come from the shared `config.SEEDS`; it is the model's `random_seed` /
-`random_state`. dhr_arima is deterministic and takes no seed.
-
-Logged under split_id "aemo_adapt_adwin_std_hh_v1", method "<model>/<arm>".
+Logged under split_id "aemo_adapt_<detector>_std_hh_v1", method "<model>/<arm>".
 
 Usage:
     python -m experiments.run.adaptation.run_aemo_adaptation_arms --model nhits --region SA1 --seed 1
+    python -m experiments.run.adaptation.run_aemo_adaptation_arms --detector page_hinkley --model xgboost --region NSW1 --seed 1
 """
 
 from __future__ import annotations
@@ -58,18 +44,24 @@ from drift_lab.adaptation.retrain_using_recent_window import (
 )
 from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SEEDS
-from drift_lab.evaluation import assign_regime, build_event_windows
-from drift_lab.forecasting.base import Forecaster
-from experiments.run.detection.run_adwin_changepoints import (
-    DETECTOR as TRIGGER_DETECTOR,
+from drift_lab.evaluation import (
+    assign_event_local_regime,
+    assign_timestamp_global_regime,
+    build_event_windows,
 )
-from experiments.run.detection.run_adwin_changepoints import (
+from drift_lab.forecasting.base import Forecaster
+from experiments.run.detection.run_detector_changepoints import (
     changepoints_path,
     load_changepoints,
 )
 from experiments.run_harness import config_of, record_run
+from experiments.trigger_detectors import (
+    CONTROL_ARMS,
+    CONTROL_DETECTOR,
+    TRIGGER_DETECTORS,
+    adaptation_split_id,
+)
 
-SPLIT_ID = "aemo_adapt_adwin_std_hh_v1"
 TARGET_COLUMN = "TOTALDEMAND"
 MODELS = ("nhits", "xgboost", "dhr_arima")
 SEEDED_MODELS = ("nhits", "xgboost")
@@ -87,6 +79,7 @@ def arm_d(window_days: int) -> str:
 
 
 ARMS = (ARM_A, ARM_B, ARM_C, *(arm_d(w) for w in SWEEP_WINDOW_DAYS))
+assert CONTROL_ARMS == (ARM_A, ARM_B)
 
 
 def make_adapter(arm: str) -> RetrainAccounting:
@@ -135,9 +128,18 @@ def demand_series(frame: pd.DataFrame) -> pd.Series:
 
 
 def regime_labels(test_index: pd.DatetimeIndex, region: str) -> pd.Series:
-    """Documented-event regime for every TEST timestamp (shared by all arms)."""
+    """Global regime for every TEST timestamp (shared by all arms)."""
     events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
-    labelled = assign_regime(test_index, build_event_windows(events, region))
+    labelled = assign_timestamp_global_regime(test_index, build_event_windows(events, region))
+    return labelled.set_index("timestamp")["regime"].reindex(test_index)
+
+
+def event_local_regime_labels(test_index: pd.DatetimeIndex, region: str) -> pd.Series:
+    """Event-local regime per TEST timestamp (shared by all arms); NaN for
+    timestamps outside every event window, which the event-local tables
+    leave out."""
+    events = pd.read_csv(DOCUMENTED_EVENTS_CSV, parse_dates=["start_date", "end_date"])
+    labelled = assign_event_local_regime(test_index, build_event_windows(events, region))
     return labelled.set_index("timestamp")["regime"].reindex(test_index)
 
 
@@ -190,16 +192,16 @@ def trigger_days_for(
     return alarm_days
 
 
-def run_one(model_name: str, region: str, seed: int | None, arms: list[str]) -> None:
+def run_one(model_name: str, region: str, seed: int | None, arms: list[str], detector: str) -> None:
     train, calibration, test = loader.load(region)
     train_y, cal_y, test_y = (demand_series(f) for f in (train, calibration, test))
     history_y = pd.concat([train_y, cal_y]).sort_index()
 
-    changepoints = load_changepoints(region)
+    changepoints = load_changepoints(detector, region)
     alarm_days = sorted(set(pd.DatetimeIndex(changepoints["day"])))
     labels = regime_labels(pd.DatetimeIndex(test_y.index), region)
     print(
-        f"[{model_name} {region} seed={seed}] {len(alarm_days)} accepted {TRIGGER_DETECTOR} "
+        f"[{model_name} {region} seed={seed}] {len(alarm_days)} accepted {detector} "
         f"change-point days; regimes {labels.value_counts().to_dict()}",
         flush=True,
     )
@@ -239,7 +241,7 @@ def run_one(model_name: str, region: str, seed: int | None, arms: list[str]) -> 
             **{f"adapter_{k}": v for k, v in config_of(adapter).items()},
             "retraining_boundary": "end_of_trigger_day",
             "trigger": (
-                f"{TRIGGER_DETECTOR}_accepted:{changepoints_path(region).name}"
+                f"{detector}_accepted:{changepoints_path(detector, region).name}"
                 if arm not in (ARM_A, ARM_B)
                 else "none"
             ),
@@ -251,7 +253,7 @@ def run_one(model_name: str, region: str, seed: int | None, arms: list[str]) -> 
             seed=seed,
             config=config,
             wall_clock_s=adapter.fit_seconds,
-            split_id=SPLIT_ID,
+            split_id=adaptation_split_id(detector),
             train_samples=adapter.train_samples,
             n_retrains=adapter.retrain_count,
             forecast=(test_y.to_numpy(), y_pred.to_numpy(), test_y.index),
@@ -272,14 +274,26 @@ def main() -> None:
     parser.add_argument(
         "--seed", type=int, choices=SEEDS, default=None, help="model seed (nhits / xgboost)"
     )
-    parser.add_argument("--arms", default=",".join(ARMS), help=f"comma list from {ARMS}")
+    parser.add_argument(
+        "--detector", choices=TRIGGER_DETECTORS, default=CONTROL_DETECTOR,
+        help="trigger detector for arms C and D",
+    )
+    parser.add_argument(
+        "--arms", default=None,
+        help=f"comma list from {ARMS}; default all ({CONTROL_DETECTOR}) or C and D only (other detectors)",
+    )
     parser.add_argument("--torch-threads", type=int, default=None)
     args = parser.parse_args()
 
-    arms = [a.strip() for a in args.arms.split(",") if a.strip()]
+    if args.arms is None:
+        arms = list(ARMS) if args.detector == CONTROL_DETECTOR else [a for a in ARMS if a not in CONTROL_ARMS]
+    else:
+        arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     unknown = sorted(set(arms) - set(ARMS))
     if unknown:
         parser.error(f"unknown arms {unknown}")
+    if args.detector != CONTROL_DETECTOR and set(arms) & set(CONTROL_ARMS):
+        parser.error(f"arms {CONTROL_ARMS} ignore the detector; they run only with --detector {CONTROL_DETECTOR}")
 
     if args.model in SEEDED_MODELS:
         if args.seed is None:
@@ -296,7 +310,7 @@ def main() -> None:
 
             torch.set_num_threads(args.torch_threads)
 
-    run_one(args.model, args.region, args.seed, arms)
+    run_one(args.model, args.region, args.seed, arms, args.detector)
 
 
 if __name__ == "__main__":

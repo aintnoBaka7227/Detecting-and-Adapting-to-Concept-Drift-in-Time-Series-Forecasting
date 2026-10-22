@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import os
@@ -24,9 +25,16 @@ TABLE1_DIR = TABLES_DIR / "table1"
 TABLE2_DIR = TABLES_DIR / "table2"
 TABLE3_DIR = TABLES_DIR / "table3"
 TABLE4_DIR = TABLES_DIR / "table4"
+TABLE5_DIR = TABLES_DIR / "table5"
+TABLE6_DIR = TABLES_DIR / "table6"
+TABLE7_DIR = TABLES_DIR / "table7"
+ARM_D_SWEEP_DIR = TABLES_DIR / "arm_d_sweep"
 FIGURE1_DIR = FIGURES_DIR / "figure1"
 FIGURE2_DIR = FIGURES_DIR / "figure2"
 FIGURE3_DIR = FIGURES_DIR / "figure3"
+FIGURE4_DIR = FIGURES_DIR / "figure4"
+FIGURE5_DIR = FIGURES_DIR / "figure5"
+FIGURE6_DIR = FIGURES_DIR / "figure6"
 
 RUN_COLUMNS = [
     "group",
@@ -44,6 +52,16 @@ RUN_COLUMNS = [
     "wall_clock_s",
     "timestamp",
 ]
+
+
+def output_path(base_dir: Path, *subdirs: str, name: str) -> Path:
+    """`base_dir/<subdirs...>/name`, creating the folders. Report outputs are
+    grouped by trigger detector, then forecast model, then escalation
+    signal, wherever the output varies by them (e.g. figure5/adwin/nhits/
+    nonconformity_1d/...)."""
+    folder = base_dir.joinpath(*subdirs)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / name
 
 
 def config_hash(config: dict) -> str:
@@ -138,12 +156,56 @@ def dump_retrains(
     return path
 
 
-def calibration_path(model: str, region: str, seed: int | None) -> Path:
-    """Calibration-window forecasts of one model x region x seed, written
-    by run_aemo_calibration_forecasts.py: the residuals every conformal
-    interval for that stream is calibrated on."""
+def intervals_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
+    """Where run_aemo_uq_replay.py writes one adaptation run's issued
+    prediction intervals, every UQ method side by side (T5, F4)."""
     seed_token = "none" if seed is None else str(seed)
-    return RUNS_DIR / "calibration" / f"calibration_{model}_{region}_{seed_token}.csv"
+    return RUNS_DIR / config_hash_ / f"intervals_{dataset}_{region or '-'}_{seed_token}.csv"
+
+
+def escalation_curve_path(
+    config_hash_: str, dataset: str, region: str | None, seed: int | None
+) -> Path:
+    """Where run_aemo_escalation_sweep.py writes one UQ run's escalation
+    curves: review rate and retained coverage per width threshold and
+    regime (T6, F5)."""
+    seed_token = "none" if seed is None else str(seed)
+    return RUNS_DIR / config_hash_ / f"escalation_curve_{dataset}_{region or '-'}_{seed_token}.csv"
+
+
+# Stage 4 (run_aemo_calibration_forecasts.py) logs here; calibration_path reads
+# the latest such run.
+CALIBRATION_SPLIT_ID = "aemo_calibration_forecasts_v1"
+
+
+@functools.lru_cache(maxsize=4)
+def _calibration_runs(runs_csv_stamp: tuple) -> dict:
+    """{(model, region, seed or None): config_hash} of the latest stage-4 run
+    per stream; cached per runs.csv version (path, mtime, size)."""
+    runs = pd.read_csv(RUNS_CSV, usecols=["method", "region", "seed", "config_hash", "split_id", "timestamp"])
+    runs = runs[runs["split_id"] == CALIBRATION_SPLIT_ID]
+    latest = runs.sort_values("timestamp").groupby(["method", "region", runs["seed"].fillna(-1)]).tail(1)
+    return {
+        (r.method, r.region, None if pd.isna(r.seed) else int(r.seed)): r.config_hash
+        for r in latest.itertuples()
+    }
+
+
+def calibration_path(model: str, region: str, seed: int | None) -> Path:
+    """Calibration-window forecasts (timestamp, actual, forecast, residual) of
+    one model x region x seed: the residuals every conformal interval for that
+    stream is calibrated on, read from the latest stage-4 run's hash folder.
+    Without such a run the returned path does not exist, so callers that check
+    `.exists()` skip the stream."""
+    stamp = (str(RUNS_CSV), RUNS_CSV.stat().st_mtime_ns, RUNS_CSV.stat().st_size) if RUNS_CSV.exists() else None
+    chash = _calibration_runs(stamp).get((model, region, seed)) if stamp else None
+    seed_token = "none" if seed is None else str(seed)
+    name = f"calibration_forecast_aemo_{region}_{seed_token}.csv"
+    if chash is None:
+        return RUNS_DIR / "no_calibration_run" / f"{model}_{name}"
+    return RUNS_DIR / chash / name
 
 
 def detections_path(

@@ -14,7 +14,9 @@ run_aemo_detectors_standard_daily_post_tune.py / run_aemo_detectors_standard_hal
 can (that script was retired -- see DECISIONS.md). This script gives raw
 demand the same both-tier-matched treatment as those two, so all three
 post-tuning input streams (raw, standard-daily, standard-half-hourly) are
-comparable in one table (produce_table_t2_all_streams_post_tune.py).
+comparable. Its T2 table (and the combined all-streams T2) were retired:
+the report uses the standard-half-hourly stream only; the rows remain in
+runs.csv.
 
 split_id "aemo_detect_raw_post_tune_v1": its own id, distinct from
 run_aemo_detectors_raw_pre_tune.py's "aemo_detect_raw_pre_tune_v1"
