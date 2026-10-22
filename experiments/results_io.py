@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import os
@@ -26,11 +27,13 @@ TABLE3_DIR = TABLES_DIR / "table3"
 TABLE4_DIR = TABLES_DIR / "table4"
 TABLE5_DIR = TABLES_DIR / "table5"
 TABLE6_DIR = TABLES_DIR / "table6"
+TABLE7_DIR = TABLES_DIR / "table7"
 FIGURE1_DIR = FIGURES_DIR / "figure1"
 FIGURE2_DIR = FIGURES_DIR / "figure2"
 FIGURE3_DIR = FIGURES_DIR / "figure3"
 FIGURE4_DIR = FIGURES_DIR / "figure4"
 FIGURE5_DIR = FIGURES_DIR / "figure5"
+FIGURE6_DIR = FIGURES_DIR / "figure6"
 
 RUN_COLUMNS = [
     "group",
@@ -171,12 +174,37 @@ def escalation_curve_path(
     return RUNS_DIR / config_hash_ / f"escalation_curve_{dataset}_{region or '-'}_{seed_token}.csv"
 
 
+# Stage 4 (run_aemo_calibration_forecasts.py) logs here; calibration_path reads
+# the latest such run.
+CALIBRATION_SPLIT_ID = "aemo_calibration_forecasts_v1"
+
+
+@functools.lru_cache(maxsize=4)
+def _calibration_runs(runs_csv_stamp: tuple) -> dict:
+    """{(model, region, seed or None): config_hash} of the latest stage-4 run
+    per stream; cached per runs.csv version (path, mtime, size)."""
+    runs = pd.read_csv(RUNS_CSV, usecols=["method", "region", "seed", "config_hash", "split_id", "timestamp"])
+    runs = runs[runs["split_id"] == CALIBRATION_SPLIT_ID]
+    latest = runs.sort_values("timestamp").groupby(["method", "region", runs["seed"].fillna(-1)]).tail(1)
+    return {
+        (r.method, r.region, None if pd.isna(r.seed) else int(r.seed)): r.config_hash
+        for r in latest.itertuples()
+    }
+
+
 def calibration_path(model: str, region: str, seed: int | None) -> Path:
-    """Calibration-window forecasts of one model x region x seed, written
-    by run_aemo_calibration_forecasts.py: the residuals every conformal
-    interval for that stream is calibrated on."""
+    """Calibration-window forecasts (timestamp, actual, forecast, residual) of
+    one model x region x seed: the residuals every conformal interval for that
+    stream is calibrated on, read from the latest stage-4 run's hash folder.
+    Without such a run the returned path does not exist, so callers that check
+    `.exists()` skip the stream."""
+    stamp = (str(RUNS_CSV), RUNS_CSV.stat().st_mtime_ns, RUNS_CSV.stat().st_size) if RUNS_CSV.exists() else None
+    chash = _calibration_runs(stamp).get((model, region, seed)) if stamp else None
     seed_token = "none" if seed is None else str(seed)
-    return RUNS_DIR / "calibration" / f"calibration_{model}_{region}_{seed_token}.csv"
+    name = f"calibration_forecast_aemo_{region}_{seed_token}.csv"
+    if chash is None:
+        return RUNS_DIR / "no_calibration_run" / f"{model}_{name}"
+    return RUNS_DIR / chash / name
 
 
 def detections_path(

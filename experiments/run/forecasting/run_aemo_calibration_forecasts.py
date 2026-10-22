@@ -18,28 +18,22 @@ Recorded through record_run under split_id SPLIT_ID, method "<model>":
                           (timestamp, actual, forecast, residual): the exact
                           residuals this run produced.
 produce_table_forecaster_selection.py picks the forecaster from these rows.
-
-The same forecasts are handed to results_io.calibration_path(...), the file the
-conformal stages read (rescore, UQ replay, escalation). An existing file is
-kept unless --overwrite: if the new forecasts differ, the difference is
-reported and the old file stays, so current results never fall out of step
-with their inputs. Use --overwrite in a full pipeline run.
+The later stages (rescore, UQ replay, escalation) read the residuals through
+results_io.calibration_path, which resolves the latest run's hash folder, so
+a rerun of this stage is picked up by every later stage.
 
 Usage:
     python -m experiments.run.forecasting.run_aemo_calibration_forecasts
     python -m experiments.run.forecasting.run_aemo_calibration_forecasts --model xgboost --region SA1 --seed 3
-    python -m experiments.run.forecasting.run_aemo_calibration_forecasts --overwrite
 """
 
 from __future__ import annotations
 
 import argparse
-import io
 import logging
 import time
 import warnings
 
-import numpy as np
 import pandas as pd
 
 from drift_lab.aemo import loader
@@ -55,7 +49,7 @@ from experiments.run.adaptation.run_aemo_adaptation_arms import (
 )
 from experiments.run_harness import config_of, record_run
 
-SPLIT_ID = "aemo_calibration_forecasts_v1"
+SPLIT_ID = results_io.CALIBRATION_SPLIT_ID
 TORCH_THREADS = 4  # NHITS; xgboost's own n_jobs is 4 too
 PROTOCOL = {
     "nhits": "48-step blocks with real context between blocks",
@@ -64,26 +58,7 @@ PROTOCOL = {
 }
 
 
-def hand_off(frame: pd.DataFrame, model_name: str, region: str, seed: int | None, overwrite: bool) -> str:
-    """Write the conformal stages' Calibration file unless an existing one
-    would change without --overwrite; returns a note on what happened."""
-    path = results_io.calibration_path(model_name, region, seed)
-    if path.exists() and not overwrite:
-        old = pd.read_csv(path, float_precision="round_trip")["forecast"].to_numpy()
-        # Compare as written: a float32 forecast reads back from CSV as a
-        # slightly different float64, so put the new one through CSV too.
-        new = pd.read_csv(io.StringIO(frame.to_csv(index=False)), float_precision="round_trip")
-        new = new["forecast"].to_numpy()
-        if len(old) == len(new) and np.array_equal(old, new):
-            return "matches the existing calibration file"
-        gap = np.abs(old - new).max() if len(old) == len(new) else float("nan")
-        return f"DIFFERS from the existing calibration file (max |diff| {gap:.3g} MW); kept the old file"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_csv(path, index=False)
-    return f"wrote {path}"
-
-
-def run_one(model_name: str, region: str, seed: int | None, overwrite: bool) -> None:
+def run_one(model_name: str, region: str, seed: int | None) -> None:
     train, calibration, _ = loader.load(region)
     train_y, cal_y = demand_series(train), demand_series(calibration)
 
@@ -119,10 +94,9 @@ def run_one(model_name: str, region: str, seed: int | None, overwrite: bool) -> 
     seed_token = "none" if seed is None else str(seed)
     run_dir = results_io.RUNS_DIR / rows["config_hash"].iloc[0]
     frame.to_csv(run_dir / f"calibration_forecast_aemo_{region}_{seed_token}.csv", index=False)
-    note = hand_off(frame, model_name, region, seed, overwrite)
     print(
         f"[{model_name} {region} seed={seed}] {len(frame)} {TARGET_COLUMN} forecasts, "
-        f"fit {fit_seconds:.1f}s, predict {predict_seconds:.1f}s; {note}",
+        f"fit {fit_seconds:.1f}s, predict {predict_seconds:.1f}s -> {run_dir}",
         flush=True,
     )
 
@@ -132,7 +106,6 @@ def main() -> None:
     parser.add_argument("--model", choices=MODELS, default=None, help="default: every model")
     parser.add_argument("--region", choices=REGIONS, default=None, help="default: every region")
     parser.add_argument("--seed", type=int, choices=SEEDS, default=None, help="default: every seed")
-    parser.add_argument("--overwrite", action="store_true", help="replace existing calibration files")
     args = parser.parse_args()
 
     models = [args.model] if args.model else list(MODELS)
@@ -151,7 +124,7 @@ def main() -> None:
         seeds = [args.seed] if args.seed is not None else (list(SEEDS) if model_name in SEEDED_MODELS else [None])
         for region in regions:
             for seed in seeds:
-                run_one(model_name, region, seed, args.overwrite)
+                run_one(model_name, region, seed)
 
 
 if __name__ == "__main__":
