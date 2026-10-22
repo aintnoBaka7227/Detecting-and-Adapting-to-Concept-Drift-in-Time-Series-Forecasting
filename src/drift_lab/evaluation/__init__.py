@@ -4,6 +4,7 @@ from drift_lab.evaluation.evaluation import (
     build_event_windows,
     calculate_absolute_error,
     calculate_adaptation_gain,
+    calculate_alarm_gaps,
     calculate_complete_window_count,
     calculate_coverage_at_review_rate,
     calculate_detection_delay,
@@ -14,6 +15,8 @@ from drift_lab.evaluation.evaluation import (
     calculate_event_metrics,
     calculate_false_alarms_per_10000,
     calculate_forecast_metrics_by_regime,
+    calculate_gap_cv,
+    calculate_gap_share,
     calculate_interval_pinball_loss,
     calculate_mae,
     calculate_match_window,
@@ -21,6 +24,7 @@ from drift_lab.evaluation.evaluation import (
     calculate_missed_detections,
     calculate_nonconformity_score,
     calculate_normalised_interval_width,
+    calculate_phase_concentration,
     calculate_pinball_loss,
     calculate_retained_coverage,
     calculate_review_rate,
@@ -32,6 +36,7 @@ from drift_lab.evaluation.evaluation import (
     calculate_worst_rolling_coverage,
     evaluate_detections,
     match_unmatch,
+    simulate_random_alarm_days,
 )
 
 __all__ = [
@@ -40,6 +45,7 @@ __all__ = [
     "build_event_windows",
     "calculate_absolute_error",
     "calculate_adaptation_gain",
+    "calculate_alarm_gaps",
     "calculate_complete_window_count",
     "calculate_coverage_at_review_rate",
     "calculate_detection_delay",
@@ -50,6 +56,8 @@ __all__ = [
     "calculate_event_metrics",
     "calculate_false_alarms_per_10000",
     "calculate_forecast_metrics_by_regime",
+    "calculate_gap_cv",
+    "calculate_gap_share",
     "calculate_interval_pinball_loss",
     "calculate_mae",
     "calculate_match_window",
@@ -57,6 +65,7 @@ __all__ = [
     "calculate_missed_detections",
     "calculate_nonconformity_score",
     "calculate_normalised_interval_width",
+    "calculate_phase_concentration",
     "calculate_pinball_loss",
     "calculate_retained_coverage",
     "calculate_review_rate",
@@ -68,4 +77,5 @@ __all__ = [
     "calculate_worst_rolling_coverage",
     "evaluate_detections",
     "match_unmatch",
+    "simulate_random_alarm_days",
 ]

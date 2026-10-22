@@ -1,30 +1,15 @@
 """F4 -- coverage trajectory: 7-day rolling coverage through the TEST period.
 
-One figure per model x region. Rows are the adaptation arms (A, B, C and
-arm D at the 180-day window, as in T4/T5), on one shared date axis. Each row
-has one line per UQ method -- AgACI and fixed split conformal -- giving the
-empirical coverage of the 90% intervals over the last 7 days (336
-half-hourly observations, the same window as F1's and F3's rolling MAE).
-The dashed line is the 0.90 target; where a method's line is below it, the
-gap is filled in that method's colour, so the figure shows when
-calibration failed. The global drift regime is shaded and Tier 1
-documented events are thin vertical lines.
+One figure per model x region; rows are arms A, B, C and D (180 days), each
+with an AgACI and a fixed split conformal line (mean ± sd across seeds) of
+the 90% intervals' coverage over the last 336 half-hours (F1's window).
+Below the dashed 0.90 target the gap is filled, showing when calibration
+failed; the drift regime is shaded and Tier 1 events are drawn. The
+rolling coverage is read from the interval files (computed at the run stage
+by run_aemo_uq_replay.add_rolling_coverage); the first 335 values are blank.
 
-Seeds: each seed's rolling coverage is read from its interval file
-(rolling_coverage_7d_<uq method>, computed at the run stage by
-run_aemo_uq_replay.add_rolling_coverage over the full chronological
-stream, never on one regime's rows; nothing is recalculated here), and the
-line is the mean across seeds with a ±1 sd band.
-The first 335 values of every stream have no full window and are left
-blank.
-
-Reads the uncertainty runs.csv rows and, through each UQ run's
-source_config_hash, the interval files written by run_aemo_uq_replay.py.
-Both UQ methods share one interval file per adaptation run.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/[<signal>/]] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 
 Usage:
     python -m experiments.produce.produce_figure_f4

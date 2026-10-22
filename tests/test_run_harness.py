@@ -56,6 +56,26 @@ def test_forecast_run_writes_expected_rows(results_in_tmp):
     assert curve.exists()
 
 
+def test_extra_metrics_are_logged_as_rows_of_the_same_run(results_in_tmp):
+    rows = record_run(
+        method="seasonal_naive",
+        dataset="aemo",
+        region="SA1",
+        seed=0,
+        config={"season_length": 48},
+        wall_clock_s=3.0,
+        split_id="test_v1",
+        forecast=build_forecast_arrays(),
+        extra_metrics={"fit_seconds": 2.0, "predict_seconds": 1.0},
+    )
+    extra = rows.set_index("metric_name").loc[["fit_seconds", "predict_seconds"]]
+    assert extra["metric_value"].tolist() == [2.0, 1.0]
+    assert set(extra["regime"]) == {"full"}
+    assert set(extra["group"]) == {"baseline"}
+    assert extra["config_hash"].nunique() == 1
+    assert extra["config_hash"].iloc[0] == rows["config_hash"].iloc[0]
+
+
 def test_detection_run_writes_three_metrics():
     rows = record_run(
         method="adwin",

@@ -1,36 +1,18 @@
 """T6 -- escalation operating points: how much human review is needed.
 
-Columns (required-outputs T6): model, arm, region, UQ method, regime,
-review rate for 0.90, review rate for 0.95, coverage @ 5%, @ 10%, @ 20%,
-seeds. Read from the escalation rows logged by run_aemo_escalation_sweep.py
-(rule: escalate when the 90% interval is wider than tau, tau swept over
-every issued width; evaluation.calculate_escalation_operating_points).
+One table per detector x escalation signal (width or a nonconformity
+score), read from run_aemo_escalation_sweep.py's rows. Columns: review rate
+for 0.90 / 0.95 (the smallest review rate whose kept forecasts reach it) and
+coverage at 5 / 10 / 20% review. Across seeds:
+    "4%" or "4% ± 2%"                    every seed reaches it (± if they differ)
+    "0% in 1/5 seeds, else unreachable"  only some seeds do
+    "unreachable"                        none does
+A budget is "not attainable" when no threshold reviews within
+ATTAIN_TOLERANCE of it (e.g. width for fixed split conformal: 0% or 100%
+only). Global regimes; arm D at 180 days.
 
-Review rate for a target is the smallest review rate whose retained
-coverage reaches it. Across seeds:
-
-    every seed reaches it   "4%" when the seeds agree, else "4% ± 2%"
-    some seeds do           "0% in 1/5 seeds, else unreachable" (the rate
-                            is the mean over the seeds that reach it)
-    no seed does            "unreachable"
-
-Coverage @ b is the retained coverage at review rate b, "0.927" when the
-seeds agree to three decimals, else "0.927 ± 0.002". A run "attains" b when
-it has an operating point within ATTAIN_TOLERANCE of b; otherwise the cell
-is "not attainable". Fixed split conformal has a constant width, so its
-only operating points are 0% and 100% review: it never attains 5/10/20%,
-and its review rate for a target is 0% (already met) or unreachable.
-
-A single run (dhr_arima is deterministic) is shown without a spread.
-
-Regimes are the global rule, as in T5. Arm D is reported at the 180-day
-window only, as in T4/T5.
-
-Writes one CSV with every row and one table image per model.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/[<signal>/]] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 """
 
 from __future__ import annotations

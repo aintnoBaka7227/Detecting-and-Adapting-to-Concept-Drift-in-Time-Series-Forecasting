@@ -47,76 +47,37 @@ def record_run(
     regime_labels=None,
     retrain_timestamps=None,
     interval: tuple | None = None,
+    extra_metrics: dict[str, float] | None = None,
 ) -> pd.DataFrame:
-    """Append one method's metrics to runs.csv and return the rows.
+    """
+    Append one method's metrics to runs.csv and return the rows.
 
     Pass exactly one of:
-      forecast  = (y_true, y_pred, index)        -> group "baseline"
-                  (group "adaptation" when `regime_labels` is also
-                  passed -- an adaptation-arm run, not a baseline)
-      detection = (detected, truth, n_samples)   -> group "detection"
-        `truth` a list of int indices  -> synthetic; `dataset` must be
-          "synthetic_<drift_type>" and evaluation.evaluate_detections scores it.
-        `truth` a DataFrame            -> AEMO documented-event matching
-          (Table T2); `detected` is timestamps, the frame is the event
-          catalogue filtered to the tier/region being scored.
-        `truth=None`                   -> no scoring, just log `n_detections`.
+        forecast  = (y_true, y_pred, index)       group "baseline" ("adaptation"
+                                                  with regime_labels)
+        detection = (detected, truth, n_samples)  group "detection"; truth is
+            int indices (synthetic, dataset "synthetic_<type>"), an event
+            catalogue DataFrame (AEMO matching, T2) or None (n_detections only).
 
-    `point_tolerance` / `period_grace`, documented-event matching only:
-    override `evaluation.match_unmatch`'s defaults
-    (`POINT_WINDOW` / `INTERVAL_GRACE`). Leave unset
-    for the frozen Table T2 run — the supervisor's rule there is to fix the
-    matching tolerance *before* seeing results, not loosen it after. An
-    override belongs to an explicitly exploratory script that says so in
-    its own docstring; it lands in the run's `config`, so it still gets its
-    own `config_hash` and never silently mixes with the frozen tolerance's
-    rows.
-
-    `seed=None` for a deterministic run (no stochasticity to average over) —
-    written as NaN, never a fabricated seed value.
-
-    `split_id` identifies the data-partitioning scheme the arrays came from
-    (e.g. "aemo_frozen_v1" for config.SPLIT, "synth_n20000" for a generator
-    config) — not "this batch of rows" (that's dataset+method+config_hash).
-    Required, no default: a generic default is exactly how a synthetic run
-    ends up mislabelled with an AEMO-shaped split_id.
-
-    `changepoints`, forecast runs only: splits the metrics into
-    pre-drift / drift / post-drift rows instead of one `regime="full"` set.
-    Not ground truth — either the dataset's known changepoints (synthetic)
-    or a detector's output (AEMO), passed by the caller.
-
-    `samples_per_year`, synthetic detection runs only: when supplied, also
-    logs `n_detections`, `n_false_alarms` and `false_alarms_per_year`
-    (`n_false_alarms / n_samples * samples_per_year`) alongside the
-    standard `detection_delay` / `false_alarms_per_10000` /
-    `missed_detections` rows. Lets a tuning run pick the annualisation
-    appropriate to the cadence it's calibrating for (e.g. 365 for a
-    daily-aggregated deployment vs. 48*365 for half-hourly) instead of
-    every caller sharing one fixed assumption. Omitted (the default),
-    behaviour is unchanged from before this parameter existed.
-
-    `regime_labels`, forecast runs only: one global regime label per
-    forecast timestamp (from `evaluation.assign_timestamp_global_regime`), shared by
-    every adaptation arm. Logs the `regime="full"` rows plus a pooled `mae`
-    and `n_observations` row per regime (Table T3), and writes the full
-    per-timestamp curve (actual, forecast, absolute error, rolling MAE,
-    regime, arm, seed). Mutually exclusive with `changepoints`.
-
-    `interval`, with `regime_labels` only: `(lower, upper, alpha)` -- the
-    prediction-interval bounds issued for every forecast timestamp and
-    their nominal miscoverage. Adds `lower` / `upper` to the curve file and
-    logs `pinball_loss` over the whole TEST stream (`regime="full"`, T3).
-
-    `retrain_timestamps`, forecast runs only: the exact retraining
-    boundaries, written to `retrains_<dataset>_<region>_<seed>.csv` (F3).
-
-    `test_period_days`, AEMO documented-event matching only: when
-    supplied, also logs `n_effective_detections` (accepted = Match +
-    Unmatch, excluding refractory-suppressed `Ignored` rows) and
-    `accepted_detections_per_year` (`n_effective_detections /
-    (test_period_days / 365)`). Omitted (the default), behaviour is
-    unchanged from before this parameter existed.
+    Options:
+        seed                 None for a deterministic run (logged as NaN).
+        split_id             the data-partitioning scheme; required, no default.
+        point_tolerance, period_grace
+                             override match_unmatch's windows. Leave unset for the
+                             frozen T2 run (fix the tolerance before seeing results);
+                             an override changes config_hash.
+        changepoints         forecast only: pre/drift/post rows instead of "full".
+        samples_per_year     synthetic detection: also n_false_alarms and
+                             false_alarms_per_year.
+        regime_labels        forecast only: per-regime mae and n_observations rows
+                             plus the per-timestamp curve file; not with changepoints.
+        interval             with regime_labels: (lower, upper, alpha) -> bounds in
+                             the curve file and pinball_loss.
+        retrain_timestamps   forecast only: retrains_<dataset>_<region>_<seed>.csv (F3).
+        test_period_days     AEMO matching: also n_effective_detections and
+                             accepted_detections_per_year.
+        extra_metrics        {name: value}: extra scalars logged as regime="full"
+                             rows of the same run (e.g. fit_seconds).
     """
     if (forecast is None) == (detection is None):
         raise ValueError("pass exactly one of forecast= / detection=")
@@ -158,6 +119,10 @@ def record_run(
             samples_per_year,
             test_period_days,
         )
+
+    if extra_metrics:
+        group = {**common, "group": rows[0]["group"]}
+        rows.extend(build_row(group, name, value, "full") for name, value in extra_metrics.items())
 
     if retrain_timestamps is not None:
         results_io.dump_retrains(chash, dataset, region, seed, retrain_timestamps)

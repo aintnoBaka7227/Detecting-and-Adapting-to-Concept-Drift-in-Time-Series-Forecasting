@@ -1,7 +1,10 @@
 """F1 — 7-day rolling-MAE degradation curves for frozen baselines.
 
-Reads saved curves and all Tier 1 and Tier 2 documented events. No metric is
-recalculated.
+Reads the saved curves of the frozen baselines (BASELINE_SPLITS) and all
+Tier 1 and Tier 2 documented events; nothing is recalculated. xgboost and
+NHITS (1 day ahead) are stochastic: each line is the mean of the 7-day
+rolling MAE over seeds 1-5 (latest run per seed); seasonal naive and
+DHR + ARIMA are single deterministic runs.
 Writes one yearly figure with SA1 and NSW1 shown as stacked panels, plus a
 joined figure covering every test year on one continuous time axis.
 """
@@ -13,7 +16,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS
+from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SEEDS
 from experiments.produce.figure_text import axes_right_in, line_height_in, wrap_to_width
 from experiments.results_io import FIGURE1_DIR, RUNS_CSV, curve_path
 
@@ -21,7 +24,14 @@ MODEL_STYLE = {
     "seasonal_naive": ("Seasonal naive (lag 48)", "#198754"),
     "xgboost": ("XGBoost (lag + calendar)", "#1464A5"),
     "dhr_arima": ("DHR + ARIMA", "#E67E22"),
-    "nhits": ("NHITS (7-day blocks)", "#7D3C98"),
+    "nhits": ("NHITS (1 day ahead)", "#7D3C98"),
+}
+# Where each baseline is logged, and whether it is averaged over SEEDS.
+BASELINE_SPLITS = {
+    "seasonal_naive": ("aemo_frozen_v1", False),
+    "xgboost": ("aemo_frozen_v1", True),
+    "dhr_arima": ("aemo_frozen_v1", False),
+    "nhits": ("aemo_nhits_block1d_v1", True),
 }
 
 EVENT_STYLE = {
@@ -54,23 +64,26 @@ def load_model_curves(region: str) -> dict[str, pd.Series]:
 
     curves: dict[str, pd.Series] = {}
     for method in MODEL_STYLE:
-        rows = baseline[baseline["method"] == method]
+        split_id, seeded = BASELINE_SPLITS[method]
+        rows = baseline[(baseline["method"] == method) & (baseline["split_id"] == split_id)]
+        rows = rows[rows["seed"].isin(SEEDS)] if seeded else rows[rows["seed"].isna()]
         if rows.empty:
             continue
 
-        row = rows.iloc[-1]
-        seed = None if pd.isna(row["seed"]) else int(row["seed"])
-        path = curve_path(row["config_hash"], "aemo", region, seed)
-        if not path.exists():
-            print(f"warning: curve dump not found for {method}/{region}: {path}")
-            continue
-
-        curve = pd.read_csv(path, parse_dates=["index"])
-        curves[method] = pd.Series(
-            curve["rolling_mae_7d"].to_numpy(),
-            index=pd.DatetimeIndex(curve["index"]),
-            name=method,
-        ).sort_index()
+        seed_curves = []
+        for _, row in rows.groupby(rows["seed"].fillna(-1)).tail(1).iterrows():
+            seed = None if pd.isna(row["seed"]) else int(row["seed"])
+            path = curve_path(row["config_hash"], "aemo", region, seed)
+            if not path.exists():
+                print(f"warning: curve dump not found for {method}/{region}: {path}")
+                continue
+            curve = pd.read_csv(path, parse_dates=["index"])
+            seed_curves.append(
+                pd.Series(curve["rolling_mae_7d"].to_numpy(), index=pd.DatetimeIndex(curve["index"]))
+            )
+        if seed_curves:
+            # Mean across seeds (one curve for a deterministic baseline).
+            curves[method] = pd.concat(seed_curves, axis=1).mean(axis=1).sort_index().rename(method)
 
     if not curves:
         raise SystemExit(f"no baseline curves found for {region}")
@@ -332,7 +345,8 @@ def plot_year(
     add_subtitle(
         fig,
         axes,
-        "Higher values indicate larger forecasting errors; vertical labels show all documented Tier 1 and Tier 2 events.",
+        "Higher values indicate larger forecasting errors; vertical labels show all documented Tier 1 and Tier 2 events. "
+        "XGBoost and NHITS lines are the mean of 5 seeds.",
     )
     out_path = FIGURE1_DIR / f"f1_degradation_{year}.png"
     fig.savefig(
@@ -419,7 +433,8 @@ def plot_all_years(
         fig,
         axes,
         "All test years joined on one axis; solid grey lines mark year boundaries. "
-        "Vertical labels show all documented Tier 1 and Tier 2 events.",
+        "Vertical labels show all documented Tier 1 and Tier 2 events. "
+        "XGBoost and NHITS lines are the mean of 5 seeds.",
     )
     out_path = FIGURE1_DIR / f"f1_degradation_{years[0]}_{years[-1]}.png"
     fig.savefig(

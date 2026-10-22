@@ -1,54 +1,28 @@
 """Step 6 / T6, F5 -- escalation threshold sweep for every UQ run.
 
-No interval is re-issued. For the latest replay of every (model, arm,
-region, UQ method, seed) logged by run_aemo_uq_replay.py, this reads the
-saved intervals (located through the UQ run's config.json ->
-source_config_hash) and sweeps an escalation rule "escalate <=> score > tau" over every distinct
-score tau (evaluation.calculate_escalation_curve), for each signal in
-SIGNALS (the brief: "the interval width, or the nonconformity score"):
-
-    width                 upper - lower, the rule the UQ classes apply to
-                          their own flag;
-    nonconformity_<L>     mean |actual - forecast| over the previous L
-                          half-hours (evaluation.calculate_nonconformity_
-                          score): 30min = 1, 1d = 48, 7d = 336. Forecast t
-                          sees errors up to t-1 only; the first TEST
-                          forecasts carry in the end of the Calibration
-                          window's errors (the same model, before any
-                          retrain). One score per forecast, shared by both
-                          UQ methods; coverage is judged against each
-                          method's own intervals.
-
-Escalation hands a forecast to a human and never feeds back into the UQ
-state, so the bounds do not depend on tau and sweeping the saved bounds is
-the same as re-issuing at each tau.
+No interval is re-issued: escalation never feeds back into the UQ state, so
+sweeping the saved bounds equals re-issuing at each threshold. For each
+signal in SIGNALS ("the interval width, or the nonconformity score"), every
+distinct score is tried as tau with "escalate <=> score > tau"
+(evaluation.calculate_escalation_curve):
+    width                upper - lower, the UQ classes' own flag rule;
+    nonconformity_<L>    mean |actual - forecast| over the previous L
+                         half-hours (30min = 1, 1d = 48, 7d = 336), lagged so
+                         forecast t sees errors up to t-1; the first TEST
+                         forecasts carry in the Calibration window's errors.
+A constant-width interval (fixed split conformal) has only 0% and 100%
+review under width; a nonconformity signal gives it a full curve.
 
 Outputs per UQ run:
-
     results/runs/<escalation hash>/escalation_curve_aemo_<region>_<seed>.csv
-        regime (full / pre_drift / drift / post_drift), threshold,
-        review_rate, retained_coverage, n_retained, n_reviewed,
-        n_observations. Regimes share the full stream's threshold grid;
-    runs.csv rows under group "escalation", split_id
-        experiments.trigger_detectors.escalation_split_id(detector, signal)
-        ("aemo_escalation_<detector>[_<signal>]_half_hourly_v1"), method
-        "<model>/<arm>/<uq method>", config_hash = the escalation hash
-        above (so producers can find the curve file):
-        review_rate_for_coverage_0.90 / _0.95 (NaN = unreachable),
-        coverage_at_review_0.05 / _0.10 / _0.20 with the review rate
-        actually attained (actual_review_at_*), n_operating_points and
-        n_observations, per regime and over the full stream.
-
-A constant-width method (fixed split conformal) has one width, so its only
-width operating points are 0% and 100% review; that is logged as is. A
-nonconformity signal varies forecast by forecast, so it has a full curve.
-
-MIN_RETAINED is provisional: a target coverage counts as reached only when
-at least this many forecasts are kept.
+        review rate and retained coverage at every threshold, per regime;
+    runs.csv, group "escalation", split_id escalation_split_id(detector,
+        signal): review rate for 0.90 / 0.95 (NaN = unreachable) and coverage
+        at 5 / 10 / 20% review, per regime and overall.
+MIN_RETAINED (provisional) is the fewest kept forecasts that may reach a target.
 
 Usage:
     python -m experiments.run.uncertainty.run_aemo_escalation_sweep
-    python -m experiments.run.uncertainty.run_aemo_escalation_sweep --model xgboost --region SA1
     python -m experiments.run.uncertainty.run_aemo_escalation_sweep --signals nonconformity_1d
 """
 

@@ -1,32 +1,11 @@
-"""Check that the TRAIN-fitted seasonal profile generalises to Calibration
-and TEST, not only TRAIN.
+"""Check that the TRAIN-fitted seasonal profile generalises beyond TRAIN.
 
-The earlier check_seasonal_residuals.py only plots/reports TRAIN, which is
-the same data the profile was fitted on -- a fitted profile naturally
-performs best there. This script applies the same frozen (TRAIN-fitted)
-profile to every split and compares raw versus residual seasonality for
-each one, using:
-
-    monthly-mean amplitude, before vs after
-    weekday-mean spread, before vs after
-    half-hour-mean spread, before vs after (half-hourly pipeline only)
-    autocorrelation at each pipeline's seasonal lags, before vs after
-
-Seasonal lags:
-    daily:       7, 365
-    half-hourly: 48, 336, 17520
-
-The required pattern is strong raw autocorrelation collapsing to
-substantially weaker residual autocorrelation -- not residual
-autocorrelation forced to exactly zero.
-
-This script does not call a detector and does not call record_run().
-
-Also saves the printed summary as a table image (plus CSV twin), split
-into a daily table and a half-hourly table -- combining them into one
-would leave every daily row's half-hour/lag-48/336/17520 columns (and
-every half-hourly row's lag-7/365 columns) empty, since those lags only
-apply to one pipeline.
+Applies the frozen half-hourly profile to TRAIN, Calibration and TEST and
+compares raw vs residual monthly amplitude, weekday spread, half-hour spread
+and autocorrelation at lags 48, 336 and 17520. Required pattern: strong raw
+autocorrelation collapsing to much weaker (not zero) residual
+autocorrelation. No detector, no runs.csv; writes a table image and CSV. The
+daily pipeline was retired with the standard-daily T2.
 """
 
 from __future__ import annotations
@@ -34,18 +13,13 @@ from __future__ import annotations
 import pandas as pd
 
 from drift_lab.aemo import loader
-from drift_lab.aemo.deseasonalise import (
-    aggregate_daily_demand,
-    apply_seasonal_profile,
-    fit_seasonal_profile,
-)
+from drift_lab.aemo.deseasonalise import apply_seasonal_profile, fit_seasonal_profile
 from drift_lab.config import REGIONS
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import TABLES_DIR
 
 TARGET_COLUMN = "TOTALDEMAND"
 
-DAILY_LAGS = (7, 365)
 HALF_HOURLY_LAGS = (48, 336, 17520)
 
 
@@ -77,23 +51,19 @@ def autocorrelations(series: pd.Series, lags: tuple[int, ...]) -> dict[int, floa
     return {lag: series.autocorr(lag=lag) for lag in lags}
 
 
-def compare(raw: pd.Series, residual: pd.Series, pipeline: str) -> dict:
-    lags = DAILY_LAGS if pipeline == "daily" else HALF_HOURLY_LAGS
-
+def compare(raw: pd.Series, residual: pd.Series) -> dict:
     result = {
         "monthly_amplitude_before": monthly_amplitude(raw),
         "monthly_amplitude_after": monthly_amplitude(residual),
         "weekday_spread_before": weekday_spread(raw),
         "weekday_spread_after": weekday_spread(residual),
+        "half_hour_spread_before": half_hour_spread(raw),
+        "half_hour_spread_after": half_hour_spread(residual),
     }
 
-    if pipeline == "half_hourly":
-        result["half_hour_spread_before"] = half_hour_spread(raw)
-        result["half_hour_spread_after"] = half_hour_spread(residual)
-
-    raw_autocorr = autocorrelations(raw, lags)
-    residual_autocorr = autocorrelations(residual, lags)
-    for lag in lags:
+    raw_autocorr = autocorrelations(raw, HALF_HOURLY_LAGS)
+    residual_autocorr = autocorrelations(residual, HALF_HOURLY_LAGS)
+    for lag in HALF_HOURLY_LAGS:
         result[f"autocorr_lag{lag}_before"] = raw_autocorr[lag]
         result[f"autocorr_lag{lag}_after"] = residual_autocorr[lag]
 
@@ -110,37 +80,12 @@ def main() -> None:
         calibration_s = demand_series(calibration)
         test_s = demand_series(test)
 
-        train_daily = aggregate_daily_demand(train_s)
-        calibration_daily = aggregate_daily_demand(calibration_s)
-        test_daily = aggregate_daily_demand(test_s)
+        # The profile is fit on TRAIN only, then reused unchanged below.
+        profile = fit_seasonal_profile(train_s, frequency="30min")
 
-        # Profiles are fit on TRAIN only, then reused unchanged below.
-        daily_profile = fit_seasonal_profile(train_daily, frequency="daily")
-        half_hourly_profile = fit_seasonal_profile(train_s, frequency="30min")
-
-        pipelines = {
-            "daily": (
-                daily_profile,
-                {"train": train_daily, "calibration": calibration_daily, "test": test_daily},
-            ),
-            "half_hourly": (
-                half_hourly_profile,
-                {"train": train_s, "calibration": calibration_s, "test": test_s},
-            ),
-        }
-
-        for pipeline, (profile, splits) in pipelines.items():
-            for split_name, raw in splits.items():
-                residual = apply_seasonal_profile(raw, profile)
-                metrics = compare(raw, residual, pipeline)
-                rows.append(
-                    {
-                        "region": region,
-                        "pipeline": pipeline,
-                        "split": split_name,
-                        **metrics,
-                    }
-                )
+        for split_name, raw in {"train": train_s, "calibration": calibration_s, "test": test_s}.items():
+            residual = apply_seasonal_profile(raw, profile)
+            rows.append({"region": region, "split": split_name, **compare(raw, residual)})
 
     summary = pd.DataFrame(rows)
 
@@ -151,30 +96,21 @@ def main() -> None:
     print(summary.to_string(index=False))
 
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
-    for pipeline, lags in (("daily", DAILY_LAGS), ("half_hourly", HALF_HOURLY_LAGS)):
-        columns = ["region", "split", "monthly_amplitude_before", "monthly_amplitude_after"]
-        columns += ["weekday_spread_before", "weekday_spread_after"]
-        if pipeline == "half_hourly":
-            columns += ["half_hour_spread_before", "half_hour_spread_after"]
-        for lag in lags:
-            columns += [f"autocorr_lag{lag}_before", f"autocorr_lag{lag}_after"]
-
-        table = summary.loc[summary["pipeline"] == pipeline, columns].round(3).reset_index(drop=True)
-
-        out_csv = TABLES_DIR / f"qc_residual_generalisation_{pipeline}.csv"
-        out_png = TABLES_DIR / f"qc_residual_generalisation_{pipeline}.png"
-        table.to_csv(out_csv, index=False)
-        save_table_image(
-            table,
-            out_png,
-            title=f"Residual generalisation check — {pipeline}",
-            subtitle=(
-                "TRAIN-fitted seasonal profile applied unchanged to TRAIN/Calibration/TEST; "
-                "before vs after removing it. Required pattern: substantially weaker, not exactly zero."
-            ),
-        )
-        print(f"\nwrote {out_csv}")
-        print(f"wrote {out_png}")
+    table = summary.round(3)
+    out_csv = TABLES_DIR / "qc_residual_generalisation_half_hourly.csv"
+    out_png = TABLES_DIR / "qc_residual_generalisation_half_hourly.png"
+    table.to_csv(out_csv, index=False)
+    save_table_image(
+        table,
+        out_png,
+        title="Residual generalisation check — half_hourly",
+        subtitle=(
+            "TRAIN-fitted seasonal profile applied unchanged to TRAIN/Calibration/TEST; "
+            "before vs after removing it. Required pattern: substantially weaker, not exactly zero."
+        ),
+    )
+    print(f"\nwrote {out_csv}")
+    print(f"wrote {out_png}")
 
 
 if __name__ == "__main__":

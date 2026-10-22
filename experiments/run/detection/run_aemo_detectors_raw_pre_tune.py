@@ -1,34 +1,15 @@
-"""AEMO detection runs for Figure F2.
+"""AEMO detection runs on the raw demand stream, pre-tuning (output retired).
 
-Runs the three drift detectors on each region's full standardised demand
-series, keeps the detections that fall in the frozen test window, and
-matches those against the *full* documented event catalogue -- Tier 1
-and Tier 2, not Tier 1 only -- via `evaluation.match_unmatch` /
-`calculate_event_metrics`, inside `record_run`. `runs.csv` gets every
-scalar `calculate_event_metrics` produces (including the Tier 1/Tier 2
-breakdown and `event_recall`) plus one `delay_<event_id>` row per match;
-the raw detection timestamps are dumped alongside for F2.
+Runs the three detectors on each region's full 2018-2023 series (so they are
+warmed up by the test window), keeps test-window detections and matches them
+to the full event catalogue (Tier 1 and 2) inside record_run: every
+calculate_event_metrics scalar plus delay_<event_id> rows, and the detection
+timestamps. split_id "aemo_detect_raw_pre_tune_v1"; deterministic, so
+seed=None. The tiering and matching tolerance are fixed before running and
+recorded in the config, never chosen after seeing detections.
 
-Feeds Figure F2, and (as a second, read-only consumer of the same rows)
-the pre-tuning raw rows of produce_table_t2_all_streams_all_tuning.py
--- not the canonical Table T2, which
-reads `run_aemo_detectors_standard_daily_post_tune.py`'s standard-daily,
-post-tuning rows instead.
-
-split_id "aemo_detect_raw_pre_tune_v1": detectors see the whole 2018-2023
-series so they are warmed up by the time the test window starts, but only
-test-window detections are scored -- a different data scope from the
-baselines' fit-then-predict "aemo_frozen_v1".
-
-Deterministic given a fixed detector config, so `seed=None` (no 5-seed
-sweep). The matching tolerance is frozen before the run (see
-`evaluation.POINT_WINDOW` / `INTERVAL_GRACE`) and recorded in
-the config, so re-tiering or re-tolerancing yields a distinct config_hash.
-
-Per the supervisor: fix the tiering (events.csv `tier` column) and the
-matching rule *before* running - choosing which events count after seeing
-where detectors fired would invalidate the table. Coordinate the rule with
-the other team.
+No table or figure reads these rows any more (the report uses the
+standard-half-hourly, post-tuning stream); kept for reproducibility.
 """
 
 from __future__ import annotations

@@ -1,23 +1,14 @@
 """T3 -- forecast accuracy by regime for every adaptation arm.
 
-Columns (required-outputs T3): model, arm, region, MAE pre-drift / drift /
-post-drift (mean ± sd across seeds, errors pooled within each regime),
-pinball loss, seeds. Pinball loss is the 90% interval score (mean of the
-q = 0.05 and q = 0.95 losses) over every TEST timestamp, with bounds from
-fixed split conformal (rescore_adaptation_runs.py); an arm with no
-intervals logged reads "pending UQ". Arm D is reported at the 180-day
-window only, as in T4 and T5; the other sweep windows are left out until
-the full sweep is run.
+Columns: model, arm, region, MAE pre-drift / drift / post-drift (mean ± sd
+across seeds, pooled within each regime), pinball loss of the 90% fixed
+split conformal interval over all TEST timestamps (from
+rescore_adaptation_runs.py; "pending UQ" if not yet rescored) and seeds.
+Arm D at 180 days. Two versions: global regimes (official) and event-local
+(only the 7 days before, during and 7 days after an event).
 
-Two versions are written (TEAM_DECISIONS.md 5.3):
-    global       official -- every TEST timestamp has a regime;
-    event-local  comparison -- only timestamps in the 7 days before, during
-                 and 7 days after an event; the rest are left out.
-Pinball loss is over every TEST timestamp in both.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 """
 
 from __future__ import annotations

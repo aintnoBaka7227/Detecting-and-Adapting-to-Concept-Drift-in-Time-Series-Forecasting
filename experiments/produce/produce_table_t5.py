@@ -1,29 +1,14 @@
 """T5 -- coverage and interval width by regime, per UQ method.
 
-Columns (required-outputs T5): model, arm, region, UQ method, regime,
-coverage, mean width, normalised width, worst 24h coverage, complete 24h
-windows, seeds. Values
-are mean ± sd across seeds of each run's metric
-(evaluation.calculate_uq_metrics_by_regime, logged by
-run_aemo_uq_replay.py): coverage and width pooled over the regime's
-timestamps, and the lowest coverage of any window of 48 consecutive
-half-hours lying entirely inside the regime ("N/A" when no window does).
-Complete 24h windows counts those eligible windows; they overlap, so it is
-not a number of independent days. Regimes are the global rule: every TEST
-timestamp has one. Intervals are 90%
-and issued one half-hour ahead. Arm D is reported at the 180-day window
-only, as in T4.
+Columns: model, arm, region, UQ method, regime, coverage, mean width,
+normalised width (mean width / the region's mean TRAIN demand), worst 24h
+coverage (lowest window of 48 half-hours inside the regime; "N/A" if none),
+complete 24h windows (overlapping, not independent days) and seeds. Values
+are mean ± sd across seeds of the metrics logged by run_aemo_uq_replay.py;
+global regimes; arm D at 180 days.
 
-Normalised width is mean width over the region's mean TRAIN demand
-(evaluation.calculate_normalised_interval_width), one fixed denominator per
-region logged by the replay as width_scale; both denominators are stated in
-the table subtitle.
-
-Writes one CSV with every row and one table image per model.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/[<signal>/]] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 """
 
 from __future__ import annotations

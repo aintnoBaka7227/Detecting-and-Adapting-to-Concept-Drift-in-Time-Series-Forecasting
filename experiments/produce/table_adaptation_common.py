@@ -25,7 +25,11 @@ from experiments.run.adaptation.run_aemo_adaptation_arms import (
     arm_d,
     event_local_regime_labels,
 )
-from experiments.trigger_detectors import CONTROL_DETECTOR, adaptation_split_id, detector_rows
+from experiments.trigger_detectors import (
+    CONTROL_DETECTOR,
+    adaptation_split_id,
+    detector_rows,
+)
 
 REGIMES = ("pre-drift", "drift", "post-drift")
 D_PREFIX = "D_drift_recent_"

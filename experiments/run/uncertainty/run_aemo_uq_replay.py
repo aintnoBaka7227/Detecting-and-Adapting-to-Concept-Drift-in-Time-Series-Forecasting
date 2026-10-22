@@ -1,51 +1,23 @@
-"""Step 6 / T5, F4 -- prediction intervals for every adaptation run.
+"""Step 6 / T5, F4 -- 90% prediction intervals for every adaptation run.
 
-No model is refitted. For the latest logged run of every (model, arm,
-region, seed) this replays the saved per-timestamp curve (actual,
-forecast) in chronological order and issues a 90% interval for every TEST
-half-hour with two methods, both calibrated on that model x region x
-seed's Calibration-window residuals (run_aemo_calibration_forecasts.py):
-
-    fixed_split_conformal  one radius, set once, never updated;
-    agaci                  AgACI over a rolling 7-day error buffer
-                           (drift_lab.uncertainty.AgACI): one interval per
-                           half-hour, built from every outcome up to the
-                           previous half-hour, then fed its own outcome
-                           before the next is issued. The point forecast
-                           is the saved one and is never revised.
-
-Both methods are driven only through the shared UQ interface
-(base.py): `quantify` one half-hour, then `observe` its outcome.
-
-Arm D is replayed at the 180-day window only, as in T4. A run with no
-calibration file is skipped.
+No model is refitted. Each latest adaptation run's saved forecasts are
+replayed through the UQ interface (quantify one half-hour, then observe its
+outcome), calibrated on that model x region x seed's Calibration residuals:
+    fixed_split_conformal   one radius, set once;
+    agaci                   AgACI over a 7-day error buffer, updated after
+                            every outcome.
+Arm D is replayed at 180 days only; a run without a calibration file is
+skipped. AgACI calls R once per half-hour (about a minute per run), so runs
+are replayed in parallel.
 
 Outputs per run:
-
     results/runs/<adaptation hash>/intervals_aemo_<region>_<seed>.csv
         timestamp, regime, actual, forecast, both methods' bounds and
-        rolling_coverage_7d_<uq method>: each method's coverage over the
-        last 7 days (336 half-hours, the window of F1's rolling MAE), read
-        by F4 (NaN for the first 335 half-hours);
-    runs.csv rows under group "uncertainty", split_id
-        "aemo_uq_<detector>_half_hourly_v1", method
-        "<model>/<arm>/<uq method>": coverage, mean_interval_width,
-        normalised_interval_width, worst_24h_coverage and
-        n_complete_windows per regime (evaluation.
-        calculate_uq_metrics_by_regime) and over the whole stream, plus
-        pinball_loss and width_scale over the whole stream.
-
-Worst 24h coverage uses rolling windows of 48 consecutive half-hours
-lying entirely inside one regime; timestamps are passed so a window that
-spans a gap is not eligible. n_complete_windows counts the eligible
-(overlapping) windows.
-
-Normalised width divides by the region's mean TRAIN demand
-(evaluation.calculate_width_scale), computed once per region and shared
-by every model, arm, UQ method, seed and regime.
-
-AgACI aggregates in R (opera), one call per half-hour: about a minute per
-run, so runs are replayed in parallel worker processes.
+        rolling_coverage_7d_<method> (336 half-hours, read by F4);
+    runs.csv, group "uncertainty", split_id "aemo_uq_<detector>_half_hourly_v1",
+        method "<model>/<arm>/<method>": coverage, mean and normalised width,
+        worst 24h coverage and complete windows per regime and overall,
+        plus pinball_loss and width_scale (mean TRAIN demand).
 
 Usage:
     python -m experiments.run.uncertainty.run_aemo_uq_replay

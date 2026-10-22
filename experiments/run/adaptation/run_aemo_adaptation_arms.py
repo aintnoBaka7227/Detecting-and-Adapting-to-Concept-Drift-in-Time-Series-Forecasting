@@ -1,40 +1,21 @@
 """Step 5 / T3, T4, F3 -- the four adaptation arms on AEMO.
 
-Arms (SHARED_DECISIONS.md 14, TEAM_DECISIONS.md 5.1), each an independent
-run with its own model instance, adapter and retrain schedule:
+    A  never retrain (control)
+    B  retrain every 30 days on the last 30 days (control)
+    C  retrain on each accepted drift alarm, on all history
+    D  retrain on each accepted drift alarm, on the last 30/60/120/180 days
 
-    A  NeverRetrain              never retrain (control)
-    B  RetrainEvery30Days        every 30 days, on the last 30 days (control)
-    C  RetrainUsingFullHistory   on each accepted drift alarm, all history
-    D  RetrainUsingRecentWindow  on each accepted drift alarm, the last
-                                 30 / 60 / 120 / 180 days -- every window is
-                                 run and logged; the official D is chosen
-                                 later by lowest drift-regime MAE
+Alarms come from one trigger detector (`--detector`: ADWIN or Page-Hinkley),
+read from run_detector_changepoints.py's files; detection is never re-run.
+A and B ignore the detector, so they run only in the ADWIN batch and are
+shared by every detector.
 
-Trigger: the accepted (post-refractory) change points of one trigger
-detector (`--detector`, experiments.trigger_detectors: ADWIN or
-Page-Hinkley), written once by run_detector_changepoints.py -- detection
-is never re-run here. Arms A and B ignore the detector, so they are run
-only in the ADWIN batch (CONTROL_DETECTOR) and shared by every detector;
-any other detector runs arms C and D only.
-
-Retraining boundary: for a trigger on day d the current model forecasts
-through d 23:30, the adapter refits on data through d 23:30, and the new
-model forecasts from d+1. Days are the calendar date of AEMO's timestamp.
-
-Forecast protocol: each model's own F1 protocol, unchanged -- NHITS uses
-the BLOCK protocol (real context between horizon-sized blocks) with the
-shared settings (horizon 48, input 336, 500 steps); xgboost / dhr_arima
-roll forward blind from their latest fit. A retrain is just `fit()`.
-
-Regimes: the global regime rule (`evaluation.assign_timestamp_global_regime`)
-over the documented events, the same labels for every arm. Cost fields per run: `n_retrains`,
-`train_samples` (cumulative retrain samples) and `wall_clock_s`
-(cumulative retrain fit time); the initial TRAIN fit is excluded.
-
-Seeds: nhits and xgboost are stochastic, so `--seed` is required and must
-come from the shared `config.SEEDS`; it is the model's `random_seed` /
-`random_state`. dhr_arima is deterministic and takes no seed.
+For an alarm on day d the current model forecasts through d 23:30, the
+adapter refits on data through d 23:30, and the new model forecasts from
+d+1. NHITS forecasts 48-step blocks with real context (input 336, 500
+steps); xgboost / dhr_arima roll forward blind from their latest fit. Every
+arm uses the global regime labels. Cost fields: n_retrains, train_samples
+and wall_clock_s (retrain fits only). nhits / xgboost need `--seed`.
 
 Logged under split_id "aemo_adapt_<detector>_std_hh_v1", method "<model>/<arm>".
 

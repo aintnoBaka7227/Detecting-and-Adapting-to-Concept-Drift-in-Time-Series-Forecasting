@@ -1,26 +1,12 @@
 """Re-score logged adaptation runs from their saved forecasts.
 
-No model is refitted. For the latest logged run of every (model, arm,
-region, seed) this reads the saved per-timestamp curve (actual, forecast)
-and logs the run again through `record_run`, with its original config and
-cost fields, after recomputing:
-
-    regimes     the global regime of every TEST timestamp, from the
-                current `evaluation.assign_timestamp_global_regime`;
-    intervals   90% fixed split conformal bounds (`FixedSplitConformal`),
-                calibrated once on that model x region x seed's
-                Calibration-window residuals from
-                run_aemo_calibration_forecasts.py. Every arm of a stream
-                shares the one radius, and it is never updated from TEST
-                outcomes or at a retrain. A run with no calibration file
-                is re-scored without intervals (no pinball loss).
-
-The new rows carry a later timestamp, so the T3 / T4 producers pick them
-up; the curve file is rewritten in place with the new `regime`, `lower`
-and `upper` columns.
-
-Run after a change to the regime rules or the interval method, so every
-run is scored the same way.
+No model is refitted. Each latest run is logged again (same config and cost
+fields, a later timestamp) after recomputing its global regimes and its 90%
+fixed split conformal bounds, calibrated once on that model x region x
+seed's Calibration residuals (no pinball loss without a calibration file).
+The curve file is rewritten with the new regime, lower and upper columns.
+Run it after a regime-rule or interval change, and after new adaptation runs
+(T3's pinball loss comes from here).
 
 Usage:
     python -m experiments.run.adaptation.rescore_adaptation_runs
