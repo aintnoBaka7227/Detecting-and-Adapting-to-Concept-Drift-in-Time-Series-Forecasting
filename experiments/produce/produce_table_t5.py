@@ -1,8 +1,8 @@
-"""T5 -- coverage and interval width by regime, for fixed split conformal.
+"""T5 -- coverage and interval width by regime, for split conformal.
 
 Reads the per-timestamp curve of the latest logged run of every (model,
 arm, region, seed) -- actual, regime, lower, upper, written by
-rescore_adaptation_runs.py -- and scores the 90% fixed split conformal
+rescore_adaptation_runs.py -- and scores the 90% split conformal
 interval with the shared `drift_lab.evaluation.calculate_uq_metrics_by_regime`.
 Nothing is refitted. Runs whose curve has no interval columns are skipped
 and counted.
@@ -33,7 +33,7 @@ from experiments.produce.table_adaptation_common import (
 from experiments.produce.table_image import save_table_image
 from experiments.run.adaptation.run_aemo_adaptation_arms import TARGET_COLUMN
 
-UQ_METHOD = "fixed split conformal (90%)"
+UQ_METHOD = "split conformal (90%)"
 REGIME_ORDER = ("pre_drift", "drift", "post_drift")
 WINDOW = 48  # 24 hours of half-hours
 
@@ -115,7 +115,7 @@ def main() -> None:
     image = save_table_image(
         table,
         results_io.TABLE5_DIR / "table_t5_coverage_width.png",
-        title="T5 — Coverage and interval width by regime, fixed split conformal",
+        title="T5 — Coverage and interval width by regime, split conformal",
         subtitle=(
             "Nominal coverage 0.90; normalised width = mean width / mean TRAIN demand; "
             "worst 24h = lowest 48-step rolling coverage inside the regime; mean ± sd across seeds."

@@ -1877,6 +1877,7 @@ def calculate_worst_rolling_coverage(
     window=48,
     regime_labels=None,
     regime=None,
+    timestamps=None,
 ):
     """
     Calculate the worst (lowest) rolling coverage (T5 "worst 24h coverage").
@@ -1906,6 +1907,10 @@ def calculate_worst_rolling_coverage(
     regime : str, optional
         Regime to report. Required together with `regime_labels`.
 
+    timestamps : array-like of datetime-like, optional
+        Timestamp per observation. When given, a window counts only if its
+        timestamps are consecutive half-hours, so it never spans a gap.
+
     Returns
     -------
     float
@@ -1918,26 +1923,14 @@ def calculate_worst_rolling_coverage(
         window=window,
     )
 
-    if (regime_labels is None) != (regime is None):
-        raise ValueError("regime_labels and regime must be given together.")
-
-    if regime_labels is not None:
-        labels = pd.Series(regime_labels).reset_index(drop=True)
-
-        if len(labels) != len(rolling):
-            raise ValueError(
-                "regime_labels must have the same length as y_true."
-            )
-
-        if labels.isna().any():
-            raise ValueError("regime_labels must not contain missing values.")
-
-        labels = labels.astype(str).str.replace("-", "_", regex=False)
-        in_regime = labels == str(regime).replace("-", "_")
-        window_in_regime = in_regime.astype(float).rolling(window=window).sum() == window
-        rolling = rolling[window_in_regime]
-
-    rolling = rolling.dropna()
+    eligible = _eligible_window_ends(
+        len(rolling),
+        window=window,
+        regime_labels=regime_labels,
+        regime=regime,
+        timestamps=timestamps,
+    )
+    rolling = rolling[eligible.to_numpy()].dropna()
 
     if rolling.empty:
         return float("nan")
@@ -1993,7 +1986,6 @@ def calculate_uq_metrics_by_regime(
         raise ValueError("regime_labels must not contain missing values.")
 
     labels = labels.astype(str).str.replace("-", "_", regex=False)
-    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
     unexpected = set(labels.unique()) - set(FORECAST_REGIMES) - {UNASSIGNED_REGIME}
     if unexpected:
         raise ValueError(
