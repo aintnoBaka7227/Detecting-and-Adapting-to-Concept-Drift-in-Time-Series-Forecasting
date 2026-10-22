@@ -1,6 +1,6 @@
-"""ADWIN change points for the adaptation arms -- detect once, reuse everywhere.
+"""Change points for the adaptation arms -- detect once, reuse everywhere.
 
-Runs the frozen post-tuning ADWIN a single time per region on the
+Runs the frozen post-tuning detector (ADWIN unless TRIGGER_DETECTOR says otherwise) a single time per region on the
 standard-half-hourly stream (TRAIN-fitted seasonal residual, z-scored on
 TRAIN), warmed up over TRAIN + Calibration exactly like
 run_aemo_detectors_standard_half_hourly_post_tune.py, keeps TEST-period
@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 
 import pandas as pd
 
@@ -39,7 +40,13 @@ from experiments.run.detection.standard_stream_common import (
 )
 from experiments.run_harness import config_of
 
-DETECTOR = "adwin"
+TRIGGER_DETECTORS = ("adwin", "kswin", "page_hinkley")
+# Which detector triggers retraining. Set TRIGGER_DETECTOR=page_hinkley (or
+# kswin) in the environment for every step of the adaptation chain; the
+# default keeps the ADWIN runs and file names unchanged.
+DETECTOR = "page_hinkley"
+if DETECTOR not in TRIGGER_DETECTORS:
+    raise SystemExit(f"TRIGGER_DETECTOR={DETECTOR!r} must be one of {TRIGGER_DETECTORS}")
 STREAM_CADENCE = "half_hourly"
 CHANGEPOINTS_DIR = RUNS_DIR / "changepoints"
 

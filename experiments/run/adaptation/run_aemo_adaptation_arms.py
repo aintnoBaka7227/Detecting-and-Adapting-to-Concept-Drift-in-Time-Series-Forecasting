@@ -69,7 +69,9 @@ from experiments.run.detection.run_adwin_changepoints import (
 )
 from experiments.run_harness import config_of, record_run
 
-SPLIT_ID = "aemo_adapt_adwin_std_hh_v1"
+# ADWIN keeps its original id so existing rows stay valid; any other trigger
+# detector logs under its own id and never mixes with the ADWIN rows.
+SPLIT_ID = f"aemo_adapt_{TRIGGER_DETECTOR}_std_hh_v1"
 TARGET_COLUMN = "TOTALDEMAND"
 MODELS = ("nhits", "xgboost", "dhr_arima")
 SEEDED_MODELS = ("nhits", "xgboost")
