@@ -1,19 +1,13 @@
 """T4 -- what each adaptation arm cost.
 
-Columns (required-outputs T4): model, arm, region, retrains, cumulative
-train samples, wall clock (s) (cumulative TEST retrain fit time), drift-MAE
-gain vs arm A and gain per retrain (evaluation.calculate_adaptation_gain,
-paired with arm A on region and seed; negative = better than never
-retraining), seeds. Arm D is reported at the 180-day window only, as in
-T3 and T5.
+Columns: model, arm, region, retrains, cumulative train samples, wall clock
+(retrain fits only), drift-MAE gain vs arm A and gain per retrain (paired by
+region and seed; negative = better than never retraining) and seeds. Arm D
+at 180 days. Two versions, differing only in the drift regime the gain uses:
+global (official) and event-local.
 
-Two versions are written, differing only in which drift regime the gain
-uses (TEAM_DECISIONS.md 5.3): global (official) and event-local
-(comparison). Retrains and cost are the same in both.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 """
 
 from __future__ import annotations

@@ -1,19 +1,13 @@
 """F3 -- four-arm comparison: 7-day rolling MAE through the TEST period.
 
-One figure per model x region (the MW scales differ by region and by
-model). Each shows exactly four lines -- arms A, B, C and the official
-arm D window -- as the mean 7-day (336-observation) rolling MAE across
-seeds, with a ±1 standard-deviation band when the model has more than one
-seed. Controls A and B are grey; the drift-triggered arms C and D are in
-colour. The dashed horizontal line is arm A's pre-drift MAE. Below the
-curves, one rug row per arm marks every retrain.
+One figure per model x region with four lines -- arms A, B (grey controls),
+C and the arm-D window with the lowest drift MAE (colour) -- as the mean
+336-observation rolling MAE across seeds (± 1 sd band). The dashed line is
+arm A's pre-drift MAE; a rug below marks every retrain. Reads the saved
+curve and retrain files; nothing is recalculated.
 
-Reads the saved curve and retrain files of the latest adaptation runs; no
-metric is recalculated here.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 
 Usage:
     python -m experiments.produce.produce_figure_f3

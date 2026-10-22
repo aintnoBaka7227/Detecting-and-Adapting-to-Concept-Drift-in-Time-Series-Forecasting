@@ -1,18 +1,21 @@
 """Step 1 + Step 2 + Step 3 of the seasonal-residual QC gate.
 
-Step 1: produce daily and half-hourly residuals for every split (TRAIN,
+Step 1: produce half-hourly residuals for every split (TRAIN,
 Calibration, TEST) x region, by fitting one seasonal profile on TRAIN only
 and applying it unchanged to all three splits.
 
-Step 2: plot each pipeline's TRAIN demand, expected seasonal demand,
+Step 2: plot the TRAIN demand, expected seasonal demand,
 residual demand, and residual broken down by day-of-year / weekday /
 half-hour, and print the associated summary numbers, so deseasonalisation
 quality can be checked before any detector runs on the residuals.
 
-Step 3: standardise each pipeline's residuals using the TRAIN residual's
-own mean and standard deviation (ddof=0), applied unchanged to Calibration
-and TEST. Done separately for NSW1 daily, SA1 daily, NSW1 half-hourly and
-SA1 half-hourly.
+Step 3: standardise the residuals using the TRAIN residual's own mean and
+standard deviation (ddof=0), applied unchanged to Calibration and TEST.
+Done separately for NSW1 and SA1.
+
+Half-hourly only: the project detects on the standard-half-hourly stream.
+The daily pipeline (and its qc_*_daily.png plots) was retired with the
+standard-daily T2.
 
 This script does not call a detector and does not call record_run().
 """
@@ -24,7 +27,6 @@ import pandas as pd
 
 from drift_lab.aemo import loader
 from drift_lab.aemo.deseasonalise import (
-    aggregate_daily_demand,
     apply_seasonal_profile,
     fit_seasonal_profile,
 )
@@ -201,26 +203,6 @@ def main() -> None:
         calibration_s = demand_series(calibration)
         test_s = demand_series(test)
 
-        # Daily pipeline
-        train_daily = aggregate_daily_demand(train_s)
-        calibration_daily = aggregate_daily_demand(calibration_s)
-        test_daily = aggregate_daily_demand(test_s)
-
-        daily_profile = fit_seasonal_profile(
-            train_daily,
-            frequency="daily",
-        )
-
-        train_daily_residual = apply_seasonal_profile(
-            train_daily, daily_profile
-        )
-        calibration_daily_residual = apply_seasonal_profile(
-            calibration_daily, daily_profile
-        )
-        test_daily_residual = apply_seasonal_profile(
-            test_daily, daily_profile
-        )
-
         # Half-hourly pipeline
         half_hourly_profile = fit_seasonal_profile(
             train_s,
@@ -237,17 +219,10 @@ def main() -> None:
             test_s, half_hourly_profile
         )
 
-        # Step 2: plot + report TRAIN checks for each pipeline.
-        plot_and_report(region, "daily", train_daily, train_daily_residual)
+        # Step 2: plot + report TRAIN checks.
         plot_and_report(region, "half_hourly", train_s, train_half_hourly_residual)
 
         # Step 3: standardise using TRAIN residual statistics only.
-        train_daily_z, calibration_daily_z, test_daily_z = standardise(
-            train_daily_residual,
-            calibration_daily_residual,
-            test_daily_residual,
-            f"{region} daily",
-        )
         train_half_hourly_z, calibration_half_hourly_z, test_half_hourly_z = standardise(
             train_half_hourly_residual,
             calibration_half_hourly_residual,
@@ -255,16 +230,6 @@ def main() -> None:
             f"{region} half_hourly",
         )
 
-        plot_standardised(
-            region,
-            "daily",
-            train_daily,
-            calibration_daily,
-            test_daily,
-            train_daily_z,
-            calibration_daily_z,
-            test_daily_z,
-        )
         plot_standardised(
             region,
             "half_hourly",

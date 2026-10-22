@@ -1,23 +1,12 @@
 """Shared build logic for Table T2 (AEMO detection vs. documented events).
 
-Three single-stream, post-tuning producers read this module, plus two
-combined producers that call build_table() once per stream and
-concatenate (the standalone pre-tuning tables were retired; the
-all-tuning view still includes the pre-tuning runs):
-
-- produce_table_t2_raw_post_tune.py
-    raw 30-minute demand              (run_aemo_detectors_raw_post_tune.py)
-- produce_table_t2_standard_daily_post_tune.py
-    standard-daily (deseasonalised + standardised, daily-aggregated)
-                                       (run_aemo_detectors_standard_daily_post_tune.py)
-- produce_table_t2_standard_half_hourly_post_tune.py
-    standard-half-hourly (deseasonalised + standardised, native resolution)
-                                       (run_aemo_detectors_standard_half_hourly_post_tune.py)
-- produce_table_t2_all_streams_post_tune.py / _all_tuning.py
-    combined views across the above (_all_tuning adds the pre-tuning runs)
-
-All share the same columns, Tier 1 event ordering, and disclaimer; they
-differ only in which run's `split_id` they pin.
+Read by produce_table_t2_standard_half_hourly_post_tune.py: the
+standard-half-hourly stream (deseasonalised + standardised, native
+resolution; run_aemo_detectors_standard_half_hourly_post_tune.py), the
+stream the adaptation arms use. The T2 tables for the other input streams
+(raw 30-minute, standard-daily, and every pre-tuning run) were retired to
+keep the report to the half-hourly stream; their detection runs and
+runs.csv rows remain, and build_table() still accepts their split_ids.
 """
 
 from __future__ import annotations

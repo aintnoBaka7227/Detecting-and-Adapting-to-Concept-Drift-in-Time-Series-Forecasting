@@ -1,70 +1,28 @@
-"""AgACI: online aggregation of ACI candidates over a rolling error buffer.
+"""AgACI: online aggregation of ACI candidates (Zaffran et al. 2022, Algorithm 1).
 
-Zaffran et al. (2022), "Adaptive Conformal Predictions for Time Series",
-Section 4 / Algorithm 1, on top of the Gibbs & Candes (2021) ACI update.
-Three things adapt, and all of them only ever change *future* intervals:
+Built on the Gibbs & Candes (2021) ACI update. Three things adapt, each only
+changing future intervals:
+    buffer    the latest `window_size` |actual - issued forecast|, shared by
+              every candidate and seeded from the calibration residuals;
+    alpha_k   one level per learning rate gamma_k,
+              alpha_k += gamma_k * (target_alpha - miss_k), with miss_k judged
+              against candidate k's own interval;
+    weights   two Bernstein Online Aggregation states (opera, opera_boa.py):
+              lower bounds scored at alpha / 2, upper bounds at 1 - alpha / 2.
 
-    buffer      the latest `window_size` absolute errors
-                |actual - originally issued forecast|, shared by every
-                candidate, seeded from the end of the calibration
-                residuals and fed once per test outcome;
-    alpha_k     one miscoverage level per learning rate gamma_k, moved by
+Candidate k's radius is the conformal quantile of the buffer at 1 - alpha_k.
+The issued interval is lower = sum_k w_lower_k * (forecast - radius_k), and
+likewise for upper, so it can be asymmetric.
 
-                    alpha_k += gamma_k * (target_alpha - miss_k)
+An infinite radius (alpha_k <= 0, or a rank beyond the buffer) is replaced,
+for the aggregation only, by M = the largest |error| seen in calibration or
+the buffer; the candidate's own feedback still uses its infinite interval.
 
-                where miss_k is judged against candidate k's *own*
-                originally issued interval. gamma_k = 0 keeps the level at
-                target_alpha, but its radius still follows the buffer;
-    weights     two Bernstein Online Aggregation states, one over the
-                candidates' lower bounds scored at alpha / 2 and one over
-                their upper bounds scored at 1 - alpha / 2. They are run
-                by the R package opera, as in the paper (opera_boa.py), so
-                R and opera must be installed.
-
-At issuance candidate k's radius is the finite-sample conformal quantile
-of the buffer at level 1 - alpha_k, and the issued interval is
-
-    lower = sum_k lower_weight_k * (point_forecast - radius_k)
-    upper = sum_k upper_weight_k * (point_forecast + radius_k)
-
-The two weight vectors are separate, so the interval can be asymmetric
-around the point forecast.
-
-Infinite candidates. A candidate whose level has fallen to alpha_k <= 0, or
-whose rank exceeds the buffer, has an infinite radius (never clipped; see
-conformal_common.conformal_radius). It cannot be averaged, so for the
-aggregation only it is replaced by a finite threshold radius M: the
-largest absolute error among the calibration scores and the scores now in
-the buffer. M uses only outcomes already observed and is never smaller
-than a finite candidate's radius. Every replaced bound stays on its own
-side of the point forecast, so the issued bounds cannot cross. The
-candidate's feedback still uses its original (infinite) interval.
-
-Lifecycle, one instance per forecaster x region x arm x seed x
-configuration (a forecaster retrain does not reset it):
-
-    uq = AgACI()
-    issued = uq.quantify(forecasts, calibration_residuals)  # seeds once
-    ...the outcomes of those forecasts arrive...
-    uq.observe(actuals)                  # feeds back the last quantify call
-    issued = uq.quantify(next_forecasts, calibration_residuals)
-
-This is the shared `quantify` / `observe` loop of base.py. `observe` can
-also be given an issuance explicitly (`uq.observe(actuals, issued)`), e.g.
-after `predict`.
-
-`predict` never changes state; `quantify` only records its issuance as the
-one `observe` feeds back. Every forecast in one call
-shares the candidate radii and weights available at that issuance. The
-project issues one forecast per call (a half-hour) and feeds its outcome
-back before the next, so each interval uses every outcome up to the
-previous half-hour; passing several forecasts at once delays feedback to
-the end of that block instead.
-`observe` takes the issuance it is feeding back, processes its outcomes in
-order, and refuses to process the same issuance twice. With one candidate
-there is nothing to aggregate and R is not needed.
-
-`window_size` defaults to a provisional 7 days and `gammas` to a grid the paper examines; neither is tuned to AEMO.
+Use one instance per forecaster x region x arm x seed (a retrain does not
+reset it) through base.py's loop: quantify one half-hour, then observe its
+outcome. `predict` never changes state, and an issuance is fed back once.
+With one candidate there is nothing to aggregate and R is not needed.
+`window_size` (7 days) and `gammas` (the paper's grid) are provisional.
 """
 
 from __future__ import annotations

@@ -1,54 +1,20 @@
-"""FROZEN CONTRACT (Sprint 1 — do not change the shape after Checkpoint 1):
+"""UQ contract, frozen in Sprint 1 and extended additively on 2026-10-15:
 
-    uq(point_forecast, calibration_residuals) -> lower bound, upper bound, escalate flag
-
-Extended 2026-10-15 (additive, `quantify` unchanged) with an optional
-feedback step, so static and adaptive methods share one calling loop:
-
-    uq.quantify(point_forecast, calibration_residuals) -> UQResult
-    uq.observe(actual)                                  -> feedback
+    uq.quantify(point_forecast, calibration_residuals) -> UQResult(lower, upper, escalate)
+    uq.observe(actual)        # feed back the last quantify call's outcomes
 
     for t in range(n):
-        result = uq.quantify(forecast[t], calibration_residuals)  # issue
-        uq.observe(actual[t])                                     # outcome
+        result = uq.quantify(forecast[t], calibration_residuals)
+        uq.observe(actual[t])
 
-`observe` feeds back the outcomes of the most recent `quantify` call. A
-static method (fixed split conformal) ignores it; an adaptive one (AgACI)
-updates from it before the next issuance.
+A static method (fixed split conformal) ignores `observe`; an adaptive one
+(AgACI) updates from it before the next issuance. `escalate` flags an
+interval wider than `escalate_threshold`; the threshold sweep (T6, F5) is
+evaluation.calculate_escalation_curve over saved intervals.
 
-The escalate flag is returned by `quantify()` itself, not by a separate
-top-level "escalation" module — the slide's contract bundles it into UQ.
-The Step 6 threshold-sweep analysis (coverage vs. fraction escalated)
-belongs in a future evaluation/ module that calls `quantify()` at many
-thresholds — it's a report, not part of the frozen interface, and isn't
-needed to kickstart Sprint 1.
-
-See docs/interfaces.md for the full rationale.
-
-How to implement a UQ method (Sprint 5, Step 6)
--------------------------------------------------
-Add a new file next to this one, e.g. `conformal.py`, and subclass
-`UncertaintyQuantifier`:
-
-    import numpy as np
-    from drift_lab.uncertainty.base import UncertaintyQuantifier, UQResult
-
-    class SplitConformal(UncertaintyQuantifier):
-        def __init__(self, coverage: float = 0.90, escalate_threshold: float | None = None):
-            self.coverage = coverage
-            self.escalate_threshold = escalate_threshold
-
-        def quantify(self, point_forecast, calibration_residuals) -> UQResult:
-            q = np.quantile(np.abs(calibration_residuals), self.coverage)
-            lower, upper = point_forecast - q, point_forecast + q
-            width = upper - lower
-            threshold = self.escalate_threshold or np.quantile(width, 0.9)
-            escalate = width > threshold
-            return UQResult(lower=lower, upper=upper, escalate=escalate)
-
-`calibration_residuals` must only ever be residuals already observed —
-the calibration window for the static method, or test-stream-so-far for
-the adaptive one. Never future test-period values (Step 7 leakage audit).
+To add a method, subclass UncertaintyQuantifier and implement `quantify`
+(see fixed_split_conformal.py). `calibration_residuals` must be residuals
+already observed, never future test values.
 """
 
 from abc import ABC, abstractmethod

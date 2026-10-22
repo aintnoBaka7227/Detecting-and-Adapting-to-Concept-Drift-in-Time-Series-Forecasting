@@ -1,31 +1,16 @@
-"""Bernstein Online Aggregation run by the R package opera.
+"""Bernstein Online Aggregation via the R package opera (AgACI's aggregator).
 
-AgACI's endpoint aggregator (Zaffran et al. 2022, Section 4 / Algorithm 1 /
-Appendix C.1). The authors aggregate with
+Calls the authors' opera::mixture(model = "BOA", loss.gradient = TRUE,
+pinball loss) instead of re-implementing it: one background Rscript
+(opera_boa.R) hosts every model and is driven over line-delimited JSON.
 
-    opera::mixture(model = "BOA", loss.gradient = TRUE,
-                   loss.type = list(name = "pinball", tau = ...))
+Requires R (`Rscript` on PATH) and opera 1.2.2 from the pinned commit:
+    Rscript -e 'install.packages(c("remotes", "jsonlite"));
+      remotes::install_github("Dralliag/opera@24070db")'
 
-and this module calls that same code instead of re-implementing it: one
-background `Rscript` process (opera_boa.R) hosts every model, and each
-`OperaBOA` talks to it over line-delimited JSON.
-
-Requirements, on every machine that runs AgACI:
-
-    R            on PATH as `Rscript` (macOS: `brew install r`)
-    opera 1.2.2  no longer on CRAN for current R; install the pinned commit:
-                 Rscript -e 'install.packages(c("remotes", "jsonlite"));
-                   remotes::install_github("Dralliag/opera@24070db")'
-
-Feedback. Weights are read at issuance and stay fixed for every forecast
-of that issuance. `update` then hands the fed-back rows to opera, whose BOA
-loop processes them in order. With one row per update (the project's
-half-hourly issuance) this is exactly opera's online loop; with several,
-the state left behind is the same but the issued forecasts shared the
-weights from before the block.
-
-With a single expert there is nothing to aggregate: the weight is 1 and R
-is not started.
+Weights are read at issuance and fixed for that issuance; `update` feeds the
+outcomes to opera in order. A single expert needs no aggregation, so R is
+not started.
 """
 
 from __future__ import annotations

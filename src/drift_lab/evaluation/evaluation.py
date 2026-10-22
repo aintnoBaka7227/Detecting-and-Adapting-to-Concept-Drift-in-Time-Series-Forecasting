@@ -1,270 +1,28 @@
-"""
-Shared evaluation metrics for the concept-drift forecasting pipeline.
-
-This module provides common evaluation functions used across the
-project so that forecasting, drift detection, adaptation, and
-uncertainty components are assessed consistently.
-
-
-CURRENT METRICS
----------------
-
-Forecast evaluation:
-
-    calculate_mae()
-        Calculates Mean Absolute Error (MAE) between observed and
-        predicted demand.
-
-    calculate_rolling_mae()
-        Calculates rolling MAE over the forecast stream.
-
-        The default window is 336 observations:
-
-            48 half-hourly observations/day × 7 days = 336 observations.
-
-            Rolling MAE is used to track forecasting performance over time,
-            including degradation of frozen baseline models and comparison
-            of forecasting performance across the adaptation arms.
-
-
-Synthetic drift-detection evaluation:
-
-    calculate_detection_delay()
-        Calculates mean delay between known synthetic drift events and
-        successfully matched detector outputs.
-
-    calculate_false_alarms_per_10000()
-        Calculates unmatched detector outputs normalised per 10,000
-        observations.
-
-    calculate_missed_detections()
-        Counts known synthetic drift events for which no detector output
-        is successfully matched.
-
-    evaluate_detections()
-        Applies the shared synthetic event-matching protocol and returns
-        the required detection metrics together with diagnostic matching
-        information.
-
-
-SYNTHETIC DETECTION EVALUATION
-------------------------------
-Synthetic data provide known ground-truth changepoints and therefore
-support objective calculation of:
-
-    - detection delay
-    - false alarms per 10,000 observations
-    - missed detections
-
-The evaluation supports:
-
-    - no drift
-    - sudden drift
-    - gradual drift
-    - recurring drift
-
-These metrics are used to validate detector behaviour on controlled
-data before detectors are applied to real AEMO streams.
-
-
-EVENT-MATCHING PROTOCOL
------------------------
-Detector outputs must be associated with known synthetic drift events
-before delay, false alarms, and missed detections can be calculated.
-
-For sudden and recurring drift, detections are matched using a
-configurable post-changepoint tolerance.
-
-The default tolerance is 336 observations:
-
-    48 half-hourly observations/day × 7 days = 336 observations.
-
-A detection is considered matched when it occurs at or after the true
-changepoint and within the configured tolerance.
-
-The first unused detection inside the matching window is assigned to
-that drift event.
-
-The 336-observation tolerance is an evaluation design choice used to
-provide a fixed and reproducible event-association rule across
-detectors and experiments.
-
-It is not a detector threshold.
-
-The tolerance determines whether a detection can be associated with an
-event; it does not replace or redefine the measured detection delay.
-
-For a successfully matched point event:
-
-    detection_delay = detected_index - true_changepoint_index
-
-If no detection occurs within the matching window, the true event is
-counted as a missed detection.
-
-
-GRADUAL DRIFT
--------------
-Gradual drift is represented as one transition interval:
-
-    [drift_start, drift_end]
-
-rather than as two independent drift events.
-
-A detection occurring from drift_start through drift_end can therefore
-be associated with the same gradual-drift event.
-
-A configurable grace period is also allowed after drift_end. If no
-separate grace period is supplied, it defaults to the same value as the
-matching tolerance.
-
-Detection delay for a matched gradual event is measured from
-drift_start.
-
-
-RECURRING DRIFT
----------------
-Recurring drift contains two true transition points, for example:
-
-    A -> B -> A
-
-Each transition is evaluated as a separate drift event.
-
-A detector output can be matched to at most one true event.
-
-
-NO-DRIFT CONTROL
-----------------
-The no-drift synthetic stream contains no true drift events.
-
-Therefore:
-
-    - every detector output is treated as a false alarm
-    - detection delay is undefined
-    - missed detections are zero
-
-The no-drift control is used to verify that detectors do not raise
-unnecessary alarms on a stable stream.
-
-
-FALSE ALARMS
-------------
-Any synthetic detector output that is not matched to a known true drift
-event is treated as a false alarm.
-
-False alarms are normalised by stream length as:
-
-    false_alarms_per_10000 =
-        number_of_false_alarms
-        / number_of_observations
-        * 10000
-
-
-REAL-DATA DETECTION EVALUATION
-------------------------------
-Real-data detection evaluation for AEMO SA1 and NSW1 is planned.
-
-Unlike the synthetic benchmark, AEMO data do not provide ground-truth
-changepoints.
-
-Detected changepoints will therefore be compared with historically
-documented events as contextual reference points rather than treated as
-known true drift events.
-
-Planned real-data detection outputs include:
-
-    - delay from a documented event to a matched detection
-    - documented events with no matched detection
-    - detections unmatched to documented events
-
-Unmatched AEMO detections will not automatically be classified as false
-alarms because documented events are not exhaustive ground truth.
-
-A separate documented-event matching rule will be defined for AEMO
-evaluation rather than assuming that the synthetic 336-observation
-matching tolerance is appropriate for real events.
-
-AEMO detections are classified as Match, Unmatch, or Ignored. Before
-event matching runs, the raw detection stream is debounced
-chronologically by REFRACTORY_PERIOD (14 days): the earliest detection
-is kept and starts a 14-day window, every later detection inside that
-window is Ignored, and the next detection after the window elapses is
-kept and starts the next window, repeating for the whole stream. This
-applies to the raw stream generally, not only to detections following
-a matched one. Only kept detections are matched against documented
-events; Ignored detections are excluded from precision. Overall
-precision is matched / effective (Match + Unmatch) detections.
-precision_t1 and precision_t2 are each computed against only that
-tier's own matches plus the unmatched detections -- never against the
-other tier's matches -- so Tier 2, which has far more documented
-events than Tier 1, cannot dilute Tier 1's precision by sharing one
-pooled denominator.
-
-
-INPUT VALIDATION
-----------------
-The implemented evaluation functions verify that:
-
-    - y_true and y_pred have equal lengths
-    - y_true and y_pred contain no missing values
-    - changepoint indices are valid integer indices
-    - changepoint indices fall within the evaluated stream
-    - detected and true changepoints use the same coordinate system
-    - synthetic drift types contain the expected number of true events
-
-
-PIPELINE INTEGRATION
---------------------
-This module provides shared metric implementations for the full
-experimental pipeline.
-
-Different stages use different subsets of these metrics:
-
-    - Baseline degradation evaluation uses calculate_mae() and
-      calculate_rolling_mae().
-
-    - Synthetic drift-detection evaluation uses
-      calculate_detection_delay(),
-      calculate_false_alarms_per_10000(), and
-      calculate_missed_detections() through the shared
-      evaluate_detections() workflow.
-
-    - Real AEMO detection evaluation will extend this module with
-      documented-event matching because real data do not provide
-      ground-truth changepoints.
-
-    - Adaptation evaluation will reuse calculate_mae() and
-      calculate_rolling_mae() from this module to compare forecasting
-      performance across the four adaptation arms. Retraining count,
-      training samples, and wall-clock cost are recorded by the
-      experiment workflow rather than calculated as forecast-error
-      metrics here.
-
-    - Uncertainty evaluation will use the planned coverage and
-      interval-width metrics implemented in this module.
-
-Per-run evaluation metrics are calculated here. Aggregation across
-seeds, including mean ± standard deviation where required, is performed
-by the experiment workflow.
-
-Experiment results are recorded separately through the shared
-runs.csv logging component.
-
-PLANNED METRICS
----------------
-Real-data detection evaluation:
-
-    - documented-event matching
-    - delay from documented event to matched detection
-    - unmatched detections
-    - documented events with no matched detection
-
-
-Uncertainty evaluation:
-
-    - empirical coverage
-    - mean interval width
-    - normalised interval width
-    - worst 24-hour coverage
+"""Shared evaluation metrics: every project metric is computed here.
+
+Sections, in file order:
+    forecast      calculate_mae, calculate_rolling_mae (default 336 = 7 days)
+    synthetic     evaluate_detections: delay, false alarms per 10,000 and
+                  missed detections against known changepoints
+    AEMO events   build_event_windows, regime assignment, match_unmatch,
+                  calculate_event_metrics
+    adaptation    MAE by regime, adaptation gain, pinball loss
+    uncertainty   coverage, width, rolling and worst-window coverage (T5)
+    escalation    review rate, retained coverage, threshold sweep (T6, F5)
+
+Synthetic matching: a detection matches a changepoint when it falls in
+[cp, cp + tolerance] (default 336); a gradual drift is one event
+[drift_start, drift_end + grace], a recurring drift two events, and in the
+no-drift control every detection is a false alarm. Delay is measured from
+the changepoint (drift_start for gradual drift).
+
+AEMO matching: documented events are context, not ground truth, so an
+unmatched detection is "Unmatch", not a false alarm. Detections are first
+debounced (REFRACTORY_PERIOD), then matched one-to-one, Tier 1 before
+Tier 2. Precision is matched / accepted detections; precision_t1 and
+precision_t2 use the same pooled denominator.
+
+Metrics are per run; aggregation across seeds happens in the producers.
 """
 
 import math
@@ -386,56 +144,30 @@ def _match_detections(
     """
     Match detected changepoints to synthetic ground truth.
 
-    Matching rules
-    --------------
-    none
-        There are no true drift events. Every detection is a false alarm.
-
-    sudden / recurring
-        Each true point changepoint is matched to the first unused
-        detection in [true_cp, true_cp + tolerance].
-
-    gradual
-        The generator returns [drift_start, drift_end] for one gradual
-        transition window, not two separate drift events. The first unused
-        detection in [drift_start, drift_end + gradual_grace] is matched
-        to that single drift event. Delay is measured from drift_start.
-
-    A detection can match at most one true drift event.
+    none: no true events, every detection is a false alarm. sudden/recurring:
+    each changepoint takes the first unused detection in [cp, cp + tolerance].
+    gradual: the one transition [drift_start, drift_end] takes the first unused
+    detection in [drift_start, drift_end + gradual_grace]; delay is measured
+    from drift_start. A detection matches at most one event.
 
     Parameters
     ----------
-    detected_changepoints : array-like
-        Detector output indices, relative to the detector input stream.
-
-    true_changepoints : array-like
-        Ground-truth indices, expressed in the same index system as
-        detected_changepoints.
-
+    detected_changepoints, true_changepoints : array-like
+        Indices in the same detector-input coordinate system.
     n_observations : int
-        Number of observations in the detector input stream.
-
+        Length of the detector input stream.
     drift_type : str
-        One of: "none", "sudden", "gradual", "recurring".
-
+        "none", "sudden", "gradual" or "recurring".
     tolerance : int
-        Maximum allowed post-changepoint delay for sudden and recurring
-        point events. Default is 336 observations (7 days of half-hourly
-        data). The tolerance is configurable.
-
+        Maximum post-changepoint delay for point events (default 336, 7 days).
     gradual_grace : int, optional
-        Additional post-window allowance for gradual drift. If None,
-        the same value as tolerance is used.
+        Allowance after a gradual window; defaults to `tolerance`.
 
     Returns
     -------
     dict
-        Matching details containing:
-            matched_pairs
-            delays
-            false_alarm_indices
-            missed_true_events
-            n_true_events
+        matched_pairs, delays, false_alarm_indices, missed_true_events,
+        n_true_events.
     """
     drift_type = str(drift_type).lower()
 
@@ -709,13 +441,8 @@ DRIFT_END_BUFFER = pd.Timedelta(days=7)
 POINT_WINDOW = pd.Timedelta(days=7)
 INTERVAL_GRACE = pd.Timedelta(days=7)
 
-# Mandatory waiting time after a matched drift detection. Any further
-# detection that falls inside this window and does not itself match a
-# documented event is treated as a repeat of the same already-credited
-# drift rather than a fresh false alarm, and is labelled "Ignored"
-# instead of "Unmatch". Detections still get first crack at matching a
-# documented event before refractory suppression is applied, so a
-# detection inside the window can still match a different, later event.
+# Detections within this time after a kept detection are "Ignored" and never
+# matched: match_unmatch debounces the raw stream before matching.
 REFRACTORY_PERIOD = pd.Timedelta(days=14)
 
 _REQUIRED_EVENT_COLUMNS = ("event_id", "start_date", "end_date", "date_precision", "region")
@@ -773,149 +500,7 @@ def build_event_windows(
     ]
 
 
-# Commented out 2026-10-15: labelled detections with a regime, which no
-# table reports. Forecast timestamps now use assign_timestamp_global_regime
-# (official) and assign_event_local_regime (comparison).
-# def assign_detection_with_regime(detected_timestamps, event_windows):
-#     """
-#     Assign one regime and event ID to every detection timestamp.
-#
-#     Priority:
-#         drift > pre_drift > event-linked post_drift
-#         > general post_drift > pre_drift fallback
-#
-#     Attribution:
-#         - drift:
-#           Use the matching event ID.
-#         - pre_drift:
-#           Use the upcoming event ID.
-#         - event-linked post_drift:
-#           Use the event ID when the timestamp falls between that
-#           event's drift_end and post_drift_end.
-#         - general post_drift:
-#           If an earlier event exists but the timestamp falls outside
-#           every event window, use event_id="unassigned".
-#         - before all events:
-#           Use regime="pre_drift" and event_id="unassigned".
-#
-#     When multiple windows overlap:
-#         - drift and pre_drift use the earliest event by drift_start;
-#         - post_drift uses the most recently started applicable event.
-#     """
-#     required_columns = {
-#         "event_id",
-#         "drift_start",
-#         "drift_end",
-#         "pre_drift_start",
-#         "post_drift_end",
-#     }
-#
-#     missing_columns = required_columns - set(event_windows.columns)
-#     if missing_columns:
-#         raise ValueError(
-#             "event_windows is missing columns: "
-#             f"{sorted(missing_columns)}"
-#         )
-#
-#     timestamps = (
-#         pd.DatetimeIndex(
-#             pd.to_datetime(list(detected_timestamps))
-#         )
-#         .unique()
-#         .sort_values()
-#     )
-#
-#     windows = event_windows.copy()
-#
-#     for column in (
-#         "drift_start",
-#         "drift_end",
-#         "pre_drift_start",
-#         "post_drift_end",
-#     ):
-#         windows[column] = pd.to_datetime(windows[column])
-#
-#     windows = (
-#         windows
-#         .sort_values(["drift_start", "event_id"])
-#         .reset_index(drop=True)
-#     )
-#
-#     records = []
-#
-#     for timestamp in timestamps:
-#         # Priority 1: inside a documented drift window.
-#         drift_matches = windows[
-#             (windows["drift_start"] <= timestamp)
-#             & (timestamp < windows["drift_end"])
-#         ]
-#
-#         if not drift_matches.empty:
-#             selected_event = drift_matches.iloc[0]
-#
-#             regime = "drift"
-#             event_id = selected_event["event_id"]
-#
-#         else:
-#             # Priority 2: inside an upcoming event's pre-drift window.
-#             pre_drift_matches = windows[
-#                 (windows["pre_drift_start"] <= timestamp)
-#                 & (timestamp < windows["drift_start"])
-#             ]
-#
-#             if not pre_drift_matches.empty:
-#                 selected_event = pre_drift_matches.iloc[0]
-#
-#                 regime = "pre_drift"
-#                 event_id = selected_event["event_id"]
-#
-#             else:
-#                 # Priority 3: inside a bounded post-drift window.
-#                 post_drift_matches = windows[
-#                     (windows["drift_end"] <= timestamp)
-#                     & (timestamp < windows["post_drift_end"])
-#                 ]
-#
-#                 if not post_drift_matches.empty:
-#                     # Attribute overlapping post-drift windows to the
-#                     # most recently started applicable event.
-#                     selected_event = (
-#                         post_drift_matches
-#                         .sort_values(
-#                             ["drift_start", "event_id"],
-#                             ascending=[False, True],
-#                         )
-#                         .iloc[0]
-#                     )
-#
-#                     regime = "post_drift"
-#                     event_id = selected_event["event_id"]
-#
-#                 # Priority 4: outside all event windows, but at least
-#                 # one event has already occurred.
-#                 elif (windows["drift_start"] <= timestamp).any():
-#                     regime = "post_drift"
-#                     event_id = "unassigned"
-#
-#                 # Priority 5: before every event and outside an
-#                 # explicit pre-drift window.
-#                 else:
-#                     regime = "pre_drift"
-#                     event_id = "unassigned"
-#
-#         records.append(
-#             {
-#                 "timestamp": timestamp,
-#                 "regime": regime,
-#                 "event_id": event_id,
-#             }
-#         )
-#
-#     return pd.DataFrame(
-#         records,
-#         columns=["timestamp", "regime", "event_id"],
-#     )
-
+# assign_detection_with_regime (retired 2026-10-15; no table used it) is in git history.
 
 
 def assign_timestamp_global_regime(
@@ -924,43 +509,26 @@ def assign_timestamp_global_regime(
     drift_end_buffer=DRIFT_END_BUFFER,
 ):
     """
-    Assign one global regime to every test-split timestamp.
+    Assign one global regime and event to every test timestamp (official rule).
 
-    The formal regime rule for T3 onwards. Only each event's drift window
-    from `build_event_windows` is used, extended at the end by
-    `drift_end_buffer`: `drift_start` to `drift_end + drift_end_buffer`.
-    The pre-drift and post-drift buffers are not used.
-
-    Rules:
-        - pre_drift: before the first event in the test split;
-        - drift: inside an event's drift window;
-        - post_drift: after an event's drift window ends, until the next
-          event starts.
-
-    Every timestamp gets exactly one regime and one event; none is left
-    unassigned.
-
-    Attribution:
-        - pre_drift: the first event in the test split;
-        - drift: the earliest event (by drift_start, event_id) whose
-          drift window contains the timestamp;
-        - post_drift: the most recently started event whose drift window
-          has ended.
+    pre_drift: before the first test event. drift: inside an event's window
+    [drift_start, drift_end + drift_end_buffer). post_drift: after that window
+    until the next event. Overlaps: drift goes to the earliest event (by
+    drift_start, event_id), post_drift to the most recently started one.
 
     Parameters
     ----------
     timestamps : array-like of datetime-like
-        Test-split timestamps to label.
+        Test-split timestamps.
     event_windows : pandas.DataFrame
-        Output from build_event_windows().
+        Output of build_event_windows().
     drift_end_buffer : pandas.Timedelta
-        Added to the end of every drift window. Default is 7 days.
+        Added to the end of every drift window (default 7 days).
 
     Returns
     -------
     pandas.DataFrame
-        One row per unique timestamp, sorted, with columns: timestamp,
-        regime, event_id.
+        One row per unique timestamp, sorted: timestamp, regime, event_id.
     """
     required_columns = {"event_id", "drift_start", "drift_end"}
 
@@ -1042,40 +610,25 @@ def assign_timestamp_global_regime(
 
 def assign_event_local_regime(timestamps, event_windows):
     """
-    Assign an event-local regime to test-split timestamps near an event.
+    Assign an event-local regime to test timestamps near an event (comparison rule).
 
-    For the event-local variant of T3 / T4, compared against the global
-    rule (`assign_timestamp_global_regime`). Uses all three windows from
-    `build_event_windows`, each left inclusive, right exclusive, with no
-    drift-end buffer:
-        - pre_drift: [pre_drift_start, drift_start);
-        - drift: [drift_start, drift_end);
-        - post_drift: [drift_end, post_drift_end).
-
-    Only timestamps inside some event's window are labelled; every other
-    timestamp is left out of the result.
-
-    Overlapping windows follow the same rules as the global regime:
-        - priority: drift > pre_drift > post_drift;
-        - drift and pre_drift: the earliest event (by drift_start,
-          event_id) wins;
-        - post_drift: the most recently started event wins.
-
-    Like the global rule, only events whose drift window overlaps the
-    supplied timestamps (the test split) count.
+    Uses build_event_windows' three windows, no drift-end buffer:
+    pre_drift [pre_drift_start, drift_start), drift [drift_start, drift_end),
+    post_drift [drift_end, post_drift_end). Timestamps outside every window are
+    left out. Overlaps follow the global rule: drift > pre_drift > post_drift;
+    earliest event for drift/pre_drift, most recent for post_drift.
 
     Parameters
     ----------
     timestamps : array-like of datetime-like
-        Test-split timestamps to label.
+        Test-split timestamps.
     event_windows : pandas.DataFrame
-        Output from build_event_windows().
+        Output of build_event_windows().
 
     Returns
     -------
     pandas.DataFrame
-        One row per labelled timestamp, sorted, with columns: timestamp,
-        regime, event_id. Timestamps outside every window are absent.
+        One row per labelled timestamp, sorted: timestamp, regime, event_id.
     """
     required_columns = {
         "event_id",
@@ -1194,67 +747,35 @@ def match_unmatch(
     refractory_period=REFRACTORY_PERIOD,
 ):
     """
-    Classify each detection as Match, Unmatch, or Ignored.
+    Classify each detection as Match, Unmatch or Ignored.
 
-    Matching rules:
-    - Match windows come from `calculate_match_window`: left inclusive,
-      right exclusive, the end date counting as a whole day, then the
-      tolerance. Single-date event: [start, start + 1 day +
-      point_window). Long event: [start, end + 1 day + interval_grace).
-    - Pre-event detections cannot match.
-    - Tier 1 events are ranked above Tier 2 and are allocated before any
-      Tier 2 event can take a detection. Matching within each tier is
-      chronological. A detection that could match both a Tier 1 and a
-      Tier 2 event is therefore always attributed to the Tier 1 event.
-    - Matching is one-to-one: the first unused detection inside a window
-      is assigned to that event.
-    - One detection matches at most one event. Matched Tier 1 and Tier 2
-      detections both count as Match.
-
-    Before event matching runs, the raw detection stream is passed
-    through a chronological refractory filter: the earliest detection
-    is kept and starts a `refractory_period` window
-    [kept, kept + refractory_period), left inclusive, right exclusive;
-    every later detection that falls inside that window is labelled
-    Ignored; the
-    first detection after the window elapses is kept and starts the
-    next window; and so on for the whole stream. Only surviving (kept)
-    detections are eligible for event matching. This applies uniformly
-    to the whole stream, not only to detections following a matched
-    one -- two detections 3 days apart are debounced to one even if
-    neither, either, or both would otherwise have matched a documented
-    event.
-
-    Output rows are tier-ranked: Tier 1 matches first, then Tier 2
-    matches, then Unmatch rows, then Ignored rows.
+    1. Debounce: keep the earliest detection and label every later one within
+       `refractory_period` of it Ignored; the next detection after that is kept,
+       and so on through the stream.
+    2. Match kept detections to events one-to-one: Tier 1 events first, then
+       Tier 2, each chronologically; an event takes the first unused detection
+       in its window (calculate_match_window), so pre-event detections never
+       match. Kept detections left over are Unmatch.
 
     Parameters
     ----------
     detected_timestamps : array-like of datetime-like
         Detector output timestamps.
     events : pandas.DataFrame
-        Must contain: event_id, start_date, end_date, date_precision,
-        region. If it contains a tier column, tiers must be 1 or 2;
-        otherwise every event is treated as Tier 2.
+        event_id, start_date, end_date, date_precision, region, and optionally
+        tier (1 or 2; every event is Tier 2 without it).
     region : str
-        Filter events to this region.
-    point_window : pandas.Timedelta
-        Window for matching point events.
-    interval_grace : pandas.Timedelta
-        Grace period for matching interval events.
+        Region filter (NEM events always included).
+    point_window, interval_grace : pandas.Timedelta
+        Match-window tolerances for single-date and long events.
     refractory_period : pandas.Timedelta
-        Mandatory waiting time after a kept detection during which
-        further detections in the raw stream are ignored, regardless of
-        whether they would otherwise match, before event matching runs.
-        Default is 14 days.
+        Debounce window (default 14 days).
 
     Returns
     -------
     pandas.DataFrame
-        Columns: timestamp, label (Match/Unmatch/Ignored), event_id
-        (event_id or None), tier (1 or 2 for a Match, None otherwise),
-        delay_days (float or NaN). Rows are sorted by tier (Tier 1
-        before Tier 2, Unmatch/Ignored last), then timestamp.
+        timestamp, label, event_id, tier (1/2 for a Match), delay_days; Tier 1
+        matches first, then Tier 2, then Unmatch and Ignored rows.
     """
     missing = [c for c in _REQUIRED_EVENT_COLUMNS if c not in events.columns]
     if missing:
@@ -1367,84 +888,8 @@ def match_unmatch(
     ).reset_index(drop=True)
 
 
-# Commented out 2026-10-15: unused. T2 calls match_unmatch and
-# calculate_event_metrics directly (run_harness.record_run), and the
-# per-detection regime tags this added are not reported anywhere.
-# def evaluate_aemo_detections(
-#     detected_timestamps,
-#     events,
-#     region,
-#     point_window=POINT_WINDOW,
-#     interval_grace=INTERVAL_GRACE,
-#     refractory_period=REFRACTORY_PERIOD,
-#     pre_drift_days=REGIME_PRE_DRIFT_DAYS,
-#     post_drift_days=REGIME_POST_DRIFT_DAYS,
-# ):
-#     """
-#     Full evaluation pipeline: regime labels, match/unmatch, metrics.
-#
-#     Parameters
-#     ----------
-#     detected_timestamps : array-like of datetime-like
-#         Detector output timestamps.
-#     events : pandas.DataFrame
-#         Full events catalogue with region column.
-#     region : str
-#         Filter events to this region.
-#     point_window : pandas.Timedelta
-#         Window for matching point events.
-#     interval_grace : pandas.Timedelta
-#         Grace period for matching interval events.
-#     refractory_period : pandas.Timedelta
-#         Mandatory waiting time after a kept detection during which
-#         further detections in the raw stream are ignored, regardless of
-#         whether they would otherwise match, before event matching runs.
-#         Default is 14 days.
-#     pre_drift_days : int
-#         Days before event for pre-drift window.
-#     post_drift_days : int
-#         Days after event for post-drift window.
-#
-#     Returns
-#     -------
-#     dict
-#         match_results : pandas.DataFrame from match_unmatch()
-#         regime_labels : pandas.DataFrame from assign_detection_with_regime()
-#         metrics : dict from calculate_event_metrics()
-#     """
-#     match_results = match_unmatch(
-#     detected_timestamps,
-#     events,
-#     region,
-#     point_window=point_window,
-#     interval_grace=interval_grace,
-#     refractory_period=refractory_period,
-#     )
-#
-#     event_windows = build_event_windows(
-#         events,
-#         region,
-#         pre_drift_days,
-#         post_drift_days,
-#     )
-#
-#     regime_results = assign_detection_with_regime(
-#         detected_timestamps,
-#         event_windows,
-#     )
-#
-#     event_metrics = calculate_event_metrics(
-#         match_results,
-#         events,
-#         region,
-#     )
-#
-#     return {
-#         "match_results": match_results,
-#         "regime_results": regime_results,
-#         "event_metrics": event_metrics,
-#     }
-
+# evaluate_aemo_detections (retired 2026-10-15; T2 calls match_unmatch and
+# calculate_event_metrics directly) is in git history.
 
 
 def calculate_event_metrics(match_results, events, region):
@@ -1532,15 +977,6 @@ def calculate_event_metrics(match_results, events, region):
             else float("nan")
         ),
     }
-
-# Planned evaluation metrics
-#
-# Uncertainty evaluation (Step 6):
-# - empirical coverage
-# - mean interval width
-# - normalised interval width
-# - worst 24-hour coverage
-
 
 # Adaptation (Step 5) and interval (Step 6) metrics
 
@@ -2598,3 +2034,79 @@ def calculate_escalation_operating_points(
     points["n_operating_points"] = int(escalation_curve["review_rate"].nunique())
 
     return points
+
+
+# Detection periodicity (validation): are alarms tied to the clock or calendar
+# rather than to change? Alarm times are in days unless stated.
+
+def calculate_alarm_gaps(alarm_days):
+    """
+    Days between consecutive alarms (sorted); empty for fewer than two.
+    """
+    days = np.sort(np.asarray(alarm_days, dtype=float))
+    return np.diff(days)
+
+
+def calculate_gap_cv(alarm_days):
+    """
+    Coefficient of variation (population sd / mean) of the gaps between
+    alarms: ~1 for alarms at random times, well below 1 for evenly spaced
+    (periodic) alarms, above 1 for clustered alarms. NaN with fewer than
+    two gaps.
+    """
+    gaps = calculate_alarm_gaps(alarm_days)
+    if len(gaps) < 2 or gaps.mean() == 0:
+        return float("nan")
+    return float(gaps.std() / gaps.mean())
+
+
+def calculate_gap_share(alarm_days, low, high):
+    """
+    Share of gaps between alarms in [low, high) days; NaN without gaps.
+    """
+    gaps = calculate_alarm_gaps(alarm_days)
+    if len(gaps) == 0:
+        return float("nan")
+    return float(((gaps >= low) & (gaps < high)).mean())
+
+
+def calculate_phase_concentration(timestamps, period_days, origin):
+    """
+    Rayleigh test: do alarms fall at the same phase of a cycle?
+
+    Each alarm's phase is its time since `origin`, modulo `period_days`
+    (e.g. 7 with a Monday origin for day of week; 365.2425 with a 1 January
+    origin for day of year). Returns (R, p): R is the mean resultant length
+    (0 = spread evenly, 1 = all at one phase) and p the Rayleigh test p-value
+    for uniform phases (Zar's approximation). (NaN, NaN) for fewer than three
+    alarms.
+    """
+    times = pd.DatetimeIndex(pd.to_datetime(list(timestamps)))
+    n = len(times)
+    if n < 3:
+        return float("nan"), float("nan")
+
+    days = (times - pd.Timestamp(origin)) / pd.Timedelta(days=1)
+    angles = 2 * np.pi * np.mod(np.asarray(days, dtype=float), period_days) / period_days
+    resultant = float(np.abs(np.exp(1j * angles).mean()))
+    z = n * resultant**2
+    p = math.exp(math.sqrt(1 + 4 * n + 4 * (n**2 - n * z)) - (1 + 2 * n))
+    return resultant, float(min(max(p, 0.0), 1.0))
+
+
+def simulate_random_alarm_days(n_alarms, span_days, min_gap_days=0.0, n_sim=5000, seed=0):
+    """
+    Random-timing baseline: `n_sim` sequences of `n_alarms` alarm times in
+    [0, span_days], uniform over every arrangement at least `min_gap_days`
+    apart (the refractory debounce). Returns an (n_sim, n_alarms) array of
+    sorted days.
+    """
+    if n_alarms < 1:
+        raise ValueError("n_alarms must be positive.")
+    free = span_days - (n_alarms - 1) * min_gap_days
+    if free < 0:
+        raise ValueError("n_alarms alarms do not fit in span_days at min_gap_days apart.")
+
+    rng = np.random.default_rng(seed)
+    base = np.sort(rng.uniform(0, free, size=(n_sim, n_alarms)), axis=1)
+    return base + np.arange(n_alarms) * min_gap_days

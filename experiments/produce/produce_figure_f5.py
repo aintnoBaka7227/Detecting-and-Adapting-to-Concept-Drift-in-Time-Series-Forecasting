@@ -1,30 +1,16 @@
-"""F5 -- escalation curve: review rate against retained-set coverage.
+"""F5 -- escalation curve: review rate against coverage of the forecasts kept.
 
-One figure per model x region, AgACI intervals only: the required-outputs
-spec asks for one curve per regime, not per UQ method, and fixed split
-conformal has a constant width, so its only operating points are 0% and
-100% review (T6 reports it). Columns are the adaptation arms (A, B, C and
-arm D at the 180-day window, as in T4/T5). Each panel has one curve per regime -- pre-drift
-(stable), drift, post-drift -- so the stable and drift curves stay
-separate. The x axis is the fraction of forecasts escalated for review
-(width > tau), the y axis the empirical coverage of the forecasts kept.
+One figure per detector x escalation signal x model x region; columns are
+arms A, B, C and D (180 days), with one curve per regime (pre-drift,
+drift, post-drift). Width figures show AgACI only (fixed split conformal's
+constant width gives just 0% and 100% review); nonconformity figures show
+both UQ methods. Each seed's curve is read on a 0.1% review-rate grid and
+averaged (± 1 sd); curves stop once fewer than 48 forecasts are kept. The
+0.90 crossing is the logged review_rate_for_coverage_0.90, marked and
+stated in each panel.
 
-Seeds: each seed's curve is read as a step function of review rate (the
-coverage at the largest attainable review rate not above x, the T6 budget
-convention) and the line is the mean across seeds with a ±1 sd band.
-
-The 0.90 crossing is the logged review_rate_for_coverage_0.90 (mean across
-seeds), marked on the target line and stated in each panel. A constant-
-width method has only the 0% and 100% review points, so it is drawn as its
-0% point only, not as a curve.
-
-Reads the escalation runs.csv rows and, through their config_hash, the
-curve files written by run_aemo_escalation_sweep.py; no metric is
-recalculated here.
-
-Every output is written once per trigger detector (experiments.trigger_detectors:
-ADWIN, Page-Hinkley) with the detector in the file name; arms A and B are the
-shared controls, arms C and D are that detector's runs.
+Outputs go to <table|figure>/<detector>/[<model>/[<signal>/]] (results_io.output_path);
+arms A and B are the shared controls, C and D that detector's runs.
 
 Usage:
     python -m experiments.produce.produce_figure_f5

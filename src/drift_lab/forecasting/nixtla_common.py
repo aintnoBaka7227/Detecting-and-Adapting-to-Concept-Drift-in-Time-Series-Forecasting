@@ -35,21 +35,14 @@ def roll_forecast(
     input_size: int,
     observed: pd.Series | None = None,
 ) -> dict[pd.Timestamp, float]:
-    """Forecast every timestamp in `index` (chronological) by rolling the
-    frozen `nf` forward `horizon` steps at a time. Returns a
-    timestamp -> value dict (mirrors `XGBoostForecaster.predict`'s internal
-    convention) so the caller can re-index it back into any row order.
+    """
+    Forecast every timestamp in `index` by rolling the frozen `nf` forward
+    `horizon` steps at a time; returns {timestamp: value}.
 
-    `observed`, if given, is consulted after each chunk: timestamps it
-    covers extend `history` with the real value (walk-forward); timestamps
-    it doesn't (including all-NaN, or simply absent from `observed`'s
-    index) fall back to the chunk's own forecast (frozen-blind). `observed`
-    need not be dense — a *sparse* series (real values on some chunks,
-    NaN/missing elsewhere) gives periodic re-grounding rather than either
-    extreme: bounds how long the model can run purely on its own compounding
-    forecasts without forcing daily feedback the way seasonal_naive gets
-    (see run_aemo_nhits.py::reground_column for why fully blind, indefinite
-    autoregression isn't safe to run this way — it can diverge).
+    After each chunk, timestamps covered by `observed` extend the history with
+    the real value (walk-forward); the rest use the chunk's own forecast
+    (blind). A sparse `observed` re-grounds the model periodically; fully blind
+    autoregression can diverge (see run_aemo_nhits.py::reground_column).
     """
     history = history.sort_index()
     forecasts: dict[pd.Timestamp, float] = {}
