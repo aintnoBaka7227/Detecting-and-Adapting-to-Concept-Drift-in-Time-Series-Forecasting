@@ -7,7 +7,7 @@ cost fields, after recomputing:
 
     regimes     the documented-event regime of every TEST timestamp, from
                 the current `evaluation.assign_regime`;
-    intervals   90% fixed split conformal bounds (`FixedSplitConformal`),
+    intervals   90% split conformal bounds (`SplitConformal`),
                 calibrated once on that model x region x seed's
                 Calibration-window residuals from
                 run_aemo_calibration_forecasts.py. Every arm of a stream
@@ -32,7 +32,7 @@ import json
 
 import pandas as pd
 
-from drift_lab.uncertainty import FixedSplitConformal
+from drift_lab.uncertainty.split_conformal import SplitConformal
 from experiments import results_io
 from experiments.produce.table_adaptation_common import latest_adaptation_rows
 from experiments.run.adaptation.run_aemo_adaptation_arms import SPLIT_ID, regime_labels
@@ -48,7 +48,7 @@ def fixed_radius(model: str, region: str, seed: int | None) -> float | None:
     if not path.exists():
         return None
     residuals = pd.read_csv(path)["residual"]
-    return FixedSplitConformal(alpha=INTERVAL_ALPHA).calibrate(residuals).radius
+    return SplitConformal(coverage=1 - INTERVAL_ALPHA).radius(residuals.to_numpy())
 
 
 def main() -> None:
