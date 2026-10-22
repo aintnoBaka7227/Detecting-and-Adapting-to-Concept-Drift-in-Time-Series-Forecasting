@@ -1708,6 +1708,168 @@ def calculate_rolling_coverage(
     return covered.astype(float).rolling(window=window).mean()
 
 
+def calculate_width_scale(y_train):
+    """
+    Denominator for the normalised interval width: mean actual demand over
+    the TRAIN window.
+
+    Compute it once per region from TRAIN only and pass the same value to
+    every method and regime; never recompute it on calibration, test or a
+    single regime.
+
+    Parameters
+    ----------
+    y_train : array-like
+        Actual values in the TRAIN window. Missing values are ignored.
+
+    Returns
+    -------
+    float
+        Mean of the TRAIN actuals.
+    """
+    y_train = pd.Series(y_train, dtype=float).dropna()
+
+    if y_train.empty:
+        raise ValueError("y_train must contain at least one value.")
+
+    scale = float(y_train.mean())
+
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("width scale must be a positive finite number.")
+
+    return scale
+
+
+def calculate_normalised_interval_width(
+    lower_bound,
+    upper_bound,
+    scale,
+):
+    """
+    Calculate mean prediction-interval width divided by a fixed scale.
+
+    NormalisedMeanWidth = mean(upper - lower) / scale. For AEMO the scale
+    is the region's mean TRAIN demand (`calculate_width_scale`); for the
+    synthetic simulation it is the fixed value 10.
+
+    Parameters
+    ----------
+    lower_bound : array-like
+        Lower prediction-interval bounds.
+
+    upper_bound : array-like
+        Upper prediction-interval bounds.
+
+    scale : float
+        Positive denominator, shared by every method and regime.
+
+    Returns
+    -------
+    float
+        Normalised mean interval width.
+    """
+    if isinstance(scale, bool) or not np.isfinite(scale) or scale <= 0:
+        raise ValueError("scale must be a positive finite number.")
+
+    return calculate_mean_interval_width(lower_bound, upper_bound) / float(scale)
+
+
+
+
+HALF_HOUR = pd.Timedelta(minutes=30)
+
+
+def _eligible_window_ends(
+    length,
+    window=48,
+    regime_labels=None,
+    regime=None,
+    timestamps=None,
+    interval=HALF_HOUR,
+):
+    """
+    Boolean mask over observations: True where the `window` observations
+    ending there form an eligible window.
+
+    A window is eligible when it is complete (`window` observations), when
+    every observation carries `regime` (if `regime_labels` is given), and
+    when its timestamps are consecutive -- the first and last are exactly
+    (window - 1) * interval apart -- so a window never spans a gap (if
+    `timestamps` is given).
+    """
+    if isinstance(window, bool) or not isinstance(window, (int, np.integer)) or window < 1:
+        raise ValueError("window must be a positive integer.")
+
+    if (regime_labels is None) != (regime is None):
+        raise ValueError("regime_labels and regime must be given together.")
+
+    eligible = pd.Series(np.arange(length) >= window - 1)
+
+    if regime_labels is not None:
+        labels = pd.Series(regime_labels).reset_index(drop=True)
+
+        if len(labels) != length:
+            raise ValueError(
+                "regime_labels must have the same length as y_true."
+            )
+
+        if labels.isna().any():
+            raise ValueError("regime_labels must not contain missing values.")
+
+        labels = labels.astype(str).str.replace("-", "_", regex=False)
+        in_regime = labels == str(regime).replace("-", "_")
+        eligible &= in_regime.astype(float).rolling(window=window).sum() == window
+
+    if timestamps is not None:
+        stamps = pd.Series(pd.to_datetime(timestamps)).reset_index(drop=True)
+
+        if len(stamps) != length:
+            raise ValueError("timestamps must have the same length as y_true.")
+
+        span = stamps - stamps.shift(window - 1)
+        eligible &= span == (window - 1) * pd.Timedelta(interval)
+
+    return eligible
+
+
+def calculate_complete_window_count(
+    length,
+    window=48,
+    regime_labels=None,
+    regime=None,
+    timestamps=None,
+):
+    """
+    Number of eligible rolling windows (T5 "complete 24-hour windows").
+
+    Uses exactly the eligibility rule of `calculate_worst_rolling_coverage`:
+    complete, inside one regime, consecutive timestamps. For one continuous
+    segment of n observations this is max(0, n - window + 1), summed over
+    segments. Windows overlap, so the count is not a number of independent
+    days.
+
+    Parameters
+    ----------
+    length : int
+        Number of observations in the full chronological stream.
+    window, regime_labels, regime, timestamps
+        As in `calculate_worst_rolling_coverage`.
+
+    Returns
+    -------
+    int
+    """
+    return int(
+        _eligible_window_ends(
+            length,
+            window=window,
+            regime_labels=regime_labels,
+            regime=regime,
+            timestamps=timestamps,
+        ).sum()
+    )
+
+
 def calculate_worst_rolling_coverage(
     y_true,
     lower_bound,
@@ -1781,3 +1943,409 @@ def calculate_worst_rolling_coverage(
         return float("nan")
 
     return float(rolling.min())
+
+
+def calculate_uq_metrics_by_regime(
+    y_true,
+    lower_bound,
+    upper_bound,
+    regime_labels,
+    window=48,
+    width_scale=None,
+    timestamps=None,
+):
+    """
+    Coverage, mean interval width and worst rolling coverage per regime (T5).
+
+    Pass the full chronological stream. Coverage and width are pooled over
+    every timestamp of the regime; the worst rolling coverage only counts
+    windows lying entirely inside it (NaN when none does). `regime_labels`
+    follows `calculate_forecast_metrics_by_regime`: "pre_drift" and
+    "pre-drift" are both accepted and empty regimes are omitted. With
+    `width_scale` (see `calculate_width_scale`), each regime also gets a
+    "normalised_interval_width" over that same fixed denominator. With
+    `timestamps`, windows spanning a gap in timestamps are not eligible.
+    "n_complete_windows" counts the eligible windows behind the worst
+    rolling coverage (`calculate_complete_window_count`).
+
+    Returns
+    -------
+    dict
+        {regime: {"coverage", "mean_interval_width",
+        ["normalised_interval_width",] "worst_rolling_coverage",
+        "n_complete_windows", "n_observations"}} keyed pre_drift / drift /
+        post_drift.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+    labels = pd.Series(regime_labels).reset_index(drop=True)
+
+    if not (len(y_true) == len(lower_bound) == len(labels)):
+        raise ValueError(
+            "y_true, lower_bound, upper_bound and regime_labels "
+            "must have the same length."
+        )
+
+    if labels.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    labels = labels.astype(str).str.replace("-", "_", regex=False)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES) - {UNASSIGNED_REGIME}
+    if unexpected:
+        raise ValueError(
+            f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
+        )
+
+    metrics = {}
+    for regime in FORECAST_REGIMES:
+        mask = (labels == regime).to_numpy()
+        if not mask.any():
+            continue
+        metrics[regime] = {
+            "coverage": calculate_empirical_coverage(
+                y_true[mask], lower_bound[mask], upper_bound[mask]
+            ),
+            "mean_interval_width": calculate_mean_interval_width(
+                lower_bound[mask], upper_bound[mask]
+            ),
+            "worst_rolling_coverage": calculate_worst_rolling_coverage(
+                y_true,
+                lower_bound,
+                upper_bound,
+                window=window,
+                regime_labels=labels,
+                regime=regime,
+                timestamps=timestamps,
+            ),
+            "n_complete_windows": calculate_complete_window_count(
+                len(labels),
+                window=window,
+                regime_labels=labels,
+                regime=regime,
+                timestamps=timestamps,
+            ),
+            "n_observations": int(mask.sum()),
+        }
+        if width_scale is not None:
+            metrics[regime]["normalised_interval_width"] = (
+                calculate_normalised_interval_width(
+                    lower_bound[mask], upper_bound[mask], width_scale
+                )
+            )
+    return metrics
+
+
+# Step 6: escalation metrics (T6, F5)
+# review rate, retained coverage, escalation curve, review rate for a target
+# coverage, coverage at a review budget
+#
+# A forecast is escalated when its interval width is strictly greater than
+# the threshold tau -- the rule the UQ classes apply to their own escalate
+# flag (uncertainty.conformal_common.escalation_flags, AgACI.predict). Here
+# it is evaluated at many tau over intervals already issued: escalation
+# hands a forecast to a human and never feeds back into the UQ state, so the
+# bounds do not depend on tau.
+
+# Widths are rounded to this many decimals (MW) before ranking, so float
+# noise in a recomputed upper - lower (about 1e-12 MW for a constant-width
+# method) is not mistaken for distinct operating points. Well below the
+# smallest real AgACI width step (about 1e-3 MW).
+ESCALATION_WIDTH_DECIMALS = 6
+ESCALATION_TARGET_COVERAGES = (0.90, 0.95)
+ESCALATION_REVIEW_BUDGETS = (0.05, 0.10, 0.20)
+ESCALATION_CURVE_COLUMNS = [
+    "threshold",
+    "review_rate",
+    "retained_coverage",
+    "n_retained",
+    "n_reviewed",
+    "n_observations",
+]
+
+
+def _escalation_widths(
+    lower_bound,
+    upper_bound,
+    decimals=ESCALATION_WIDTH_DECIMALS,
+):
+    """
+    Interval widths rounded to `decimals`, so tied widths compare equal.
+    """
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+
+    return np.round((upper_bound - lower_bound).to_numpy(), decimals)
+
+
+def calculate_review_rate(
+    lower_bound,
+    upper_bound,
+    threshold,
+    decimals=ESCALATION_WIDTH_DECIMALS,
+):
+    """
+    Fraction of forecasts escalated for review at width threshold `threshold`.
+
+    A forecast is escalated when its interval width is strictly greater
+    than `threshold`.
+
+    Returns
+    -------
+    float
+        Review rate in [0, 1].
+    """
+    width = _escalation_widths(lower_bound, upper_bound, decimals)
+
+    return float((width > threshold).mean())
+
+
+def calculate_retained_coverage(
+    y_true,
+    lower_bound,
+    upper_bound,
+    threshold,
+    decimals=ESCALATION_WIDTH_DECIMALS,
+):
+    """
+    Empirical coverage among the forecasts kept (width <= `threshold`).
+
+    Returns
+    -------
+    float
+        Retained coverage; NaN when every forecast is escalated (an empty
+        retained set has no coverage, not 100%).
+    """
+    covered = _interval_covered(y_true, lower_bound, upper_bound).to_numpy()
+    kept = _escalation_widths(lower_bound, upper_bound, decimals) <= threshold
+
+    if not kept.any():
+        return float("nan")
+
+    return float(covered[kept].mean())
+
+
+def calculate_escalation_curve(
+    y_true,
+    lower_bound,
+    upper_bound,
+    thresholds=None,
+    decimals=ESCALATION_WIDTH_DECIMALS,
+):
+    """
+    Review rate and retained coverage at every width threshold (F5).
+
+    Parameters
+    ----------
+    y_true, lower_bound, upper_bound : array-like
+        Observed values and the intervals as issued.
+
+    thresholds : array-like, optional
+        Width thresholds to evaluate. Default: every distinct (rounded)
+        width. -inf (review everything) is always added. The largest width
+        is the no-review point. Pass a shared grid to compare regimes at
+        the same thresholds.
+
+    decimals : int
+        Rounding applied to the widths before ranking; tied widths are
+        reviewed together.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per threshold, ascending: threshold, review_rate,
+        retained_coverage (NaN when nothing is retained), n_retained,
+        n_reviewed, n_observations.
+    """
+    covered = _interval_covered(y_true, lower_bound, upper_bound).to_numpy()
+    width = _escalation_widths(lower_bound, upper_bound, decimals)
+
+    # Cumulative counts over the widths in ascending order: `positions[i]`
+    # forecasts have width <= thresholds[i] and are kept.
+    order = np.argsort(width, kind="stable")
+    sorted_width = width[order]
+    cumulative_hits = np.r_[0, np.cumsum(covered[order])]
+
+    if thresholds is None:
+        thresholds = np.unique(sorted_width)
+    thresholds = np.unique(np.r_[-np.inf, np.asarray(thresholds, dtype=float)])
+    n_retained = np.searchsorted(sorted_width, thresholds, side="right")
+
+    n_observations = len(width)
+    retained_coverage = np.divide(
+        cumulative_hits[n_retained],
+        n_retained,
+        out=np.full(len(n_retained), np.nan),
+        where=n_retained > 0,
+    )
+
+    return pd.DataFrame(
+        {
+            "threshold": thresholds,
+            "review_rate": (n_observations - n_retained) / n_observations,
+            "retained_coverage": retained_coverage,
+            "n_retained": n_retained,
+            "n_reviewed": n_observations - n_retained,
+            "n_observations": n_observations,
+        },
+        columns=ESCALATION_CURVE_COLUMNS,
+    )
+
+
+def calculate_escalation_curves_by_regime(
+    y_true,
+    lower_bound,
+    upper_bound,
+    regime_labels,
+    decimals=ESCALATION_WIDTH_DECIMALS,
+):
+    """
+    Escalation curve within each regime, on one shared threshold grid (F5).
+
+    Pass the full chronological stream. The grid is every distinct width
+    of the full stream plus -inf; each regime's rates use that regime's
+    forecasts only. `regime_labels` follows
+    `calculate_forecast_metrics_by_regime`: "pre_drift" and "pre-drift"
+    are both accepted and empty regimes are omitted.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The curves stacked, with a leading "regime" column keyed
+        pre_drift / drift / post_drift.
+    """
+    y_true = pd.Series(y_true, dtype=float).reset_index(drop=True)
+    lower_bound, upper_bound = _validate_interval_inputs(
+        lower_bound,
+        upper_bound,
+    )
+    labels = pd.Series(regime_labels).reset_index(drop=True)
+
+    if not (len(y_true) == len(lower_bound) == len(labels)):
+        raise ValueError(
+            "y_true, lower_bound, upper_bound and regime_labels "
+            "must have the same length."
+        )
+
+    if labels.isna().any():
+        raise ValueError("regime_labels must not contain missing values.")
+
+    labels = labels.astype(str).str.replace("-", "_", regex=False)
+    unexpected = set(labels.unique()) - set(FORECAST_REGIMES)
+    if unexpected:
+        raise ValueError(
+            f"regime_labels contains unsupported regimes: {sorted(unexpected)}."
+        )
+
+    grid = np.unique(_escalation_widths(lower_bound, upper_bound, decimals))
+    curves = []
+    for regime in FORECAST_REGIMES:
+        mask = (labels == regime).to_numpy()
+        if not mask.any():
+            continue
+        curve = calculate_escalation_curve(
+            y_true[mask],
+            lower_bound[mask],
+            upper_bound[mask],
+            thresholds=grid,
+            decimals=decimals,
+        )
+        curve.insert(0, "regime", regime)
+        curves.append(curve)
+
+    return pd.concat(curves, ignore_index=True)
+
+
+def calculate_review_rate_for_coverage(
+    escalation_curve,
+    target_coverage,
+    min_retained=1,
+):
+    """
+    Smallest review rate whose retained coverage reaches `target_coverage` (T6).
+
+    Only thresholds keeping at least `min_retained` forecasts count, so a
+    handful of retained forecasts cannot reach the target by chance.
+
+    Returns
+    -------
+    float
+        The review rate; 0.0 when no review already reaches the target; NaN
+        when no threshold does (report "unreachable").
+    """
+    if min_retained < 1:
+        raise ValueError(
+            "min_retained must be at least 1: an empty retained set has no coverage."
+        )
+
+    reaching = escalation_curve[
+        (escalation_curve["retained_coverage"] >= target_coverage)
+        & (escalation_curve["n_retained"] >= min_retained)
+    ]
+    if reaching.empty:
+        return float("nan")
+
+    return float(reaching["review_rate"].min())
+
+
+def calculate_coverage_at_review_rate(
+    escalation_curve,
+    review_budget,
+):
+    """
+    Retained coverage at a review budget (T6 "coverage @ 5%" etc.).
+
+    Uses the largest attainable review rate not above `review_budget`; the
+    threshold is chosen by review rate, never by which coverage is best.
+    The no-review point always qualifies.
+
+    Returns
+    -------
+    tuple of float
+        (retained coverage, the review rate actually used).
+    """
+    within = escalation_curve[escalation_curve["review_rate"] <= review_budget]
+    row = within.loc[within["review_rate"].idxmax()]
+
+    return float(row["retained_coverage"]), float(row["review_rate"])
+
+
+def calculate_escalation_operating_points(
+    escalation_curve,
+    target_coverages=ESCALATION_TARGET_COVERAGES,
+    review_budgets=ESCALATION_REVIEW_BUDGETS,
+    min_retained=1,
+):
+    """
+    T6 operating points of one escalation curve (one run, one regime).
+
+    Returns
+    -------
+    dict
+        "review_rate_for_coverage_<target>" per target (NaN = unreachable);
+        "coverage_at_review_<budget>" and "actual_review_at_<budget>" per
+        budget; "n_operating_points", the number of distinct review rates
+        on the curve. Targets and budgets are formatted to two decimals,
+        e.g. review_rate_for_coverage_0.90, coverage_at_review_0.05.
+    """
+    points = {}
+    for target in target_coverages:
+        points[f"review_rate_for_coverage_{target:.2f}"] = (
+            calculate_review_rate_for_coverage(
+                escalation_curve, target, min_retained
+            )
+        )
+    for budget in review_budgets:
+        coverage, review_rate = calculate_coverage_at_review_rate(
+            escalation_curve, budget
+        )
+        points[f"coverage_at_review_{budget:.2f}"] = coverage
+        points[f"actual_review_at_{budget:.2f}"] = review_rate
+    points["n_operating_points"] = int(escalation_curve["review_rate"].nunique())
+
+    return points
