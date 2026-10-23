@@ -20,22 +20,24 @@ def test_every_step_module_exists():
             assert importlib.util.find_spec(step.module) is not None, step.module
 
 
-def test_stage_order_is_data_detect_adapt_produce():
+def test_stage_order_follows_the_readme():
     names = [s.name for s in STAGES]
-    assert names.index("forecast") < names.index("detect") < names.index("adapt")
-    assert names.index("adapt") < names.index("uncertainty") < names.index("produce")
+    assert names == [
+        "data", "synthetic", "detect", "forecast", "adapt",
+        "uncertainty", "escalation", "produce",
+    ]
 
 
 def test_default_runs_cheap_stages_and_reports_heavy_ones_skipped():
     to_run, skipped = rp.select_stages(STAGES, None, include_heavy=False)
-    assert [s.name for s in to_run] == ["forecast", "synthetic", "detect", "produce"]
-    assert {s.name for s in skipped} == {"adapt"}
+    assert [s.name for s in to_run] == ["data", "synthetic", "detect", "forecast", "produce"]
+    assert {s.name for s in skipped} == {"adapt", "uncertainty", "escalation"}
 
 
 def test_all_without_heavy_skips_heavy_stages():
     to_run, skipped = rp.select_stages(STAGES, ["all"], include_heavy=False)
     assert "adapt" not in [s.name for s in to_run]
-    assert {"adapt", "uncertainty"} <= {s.name for s in skipped}
+    assert {"adapt", "uncertainty", "escalation"} <= {s.name for s in skipped}
 
 
 def test_naming_a_heavy_stage_runs_it():
@@ -81,3 +83,34 @@ def test_tuning_sweep_only_with_retune():
     assert "run_fine_tune_on_synthetic" not in names(STAGES)
     retuned = rp.build_stages(rp.MODELS, ("SA1",), (1,), retune=True)
     assert "run_fine_tune_on_synthetic" in names(retuned)
+
+
+def test_adapt_runs_both_detectors_then_rescores():
+    adapt = next(s for s in STAGES if s.name == "adapt")
+    detectors = {s.args[1] for s in adapt.steps if s.args and s.args[0] == "--detector"}
+    assert detectors == {"adwin", "page_hinkley"}
+    assert adapt.steps[-1].module.endswith("rescore_adaptation_runs")
+
+
+def test_detectors_option_limits_the_adapt_stage():
+    stages = rp.build_stages(("dhr_arima",), ("SA1",), (1,), detectors=("page_hinkley",))
+    adapt = next(s for s in stages if s.name == "adapt")
+    assert [s.args[:2] for s in adapt.steps[:-1]] == [("--detector", "page_hinkley")]
+
+
+def test_calibration_forecasts_seed_only_stochastic_models():
+    steps = rp.calibration_steps(("xgboost", "dhr_arima"), ("SA1",), (1, 2))
+    assert [" ".join(s.args) for s in steps] == [
+        "--model xgboost --region SA1 --seed 1",
+        "--model xgboost --region SA1 --seed 2",
+        "--model dhr_arima --region SA1",
+    ]
+
+
+def test_produce_stage_covers_every_table_and_figure():
+    produce = next(s for s in STAGES if s.name == "produce")
+    names = {s.module.rsplit(".", 1)[-1] for s in produce.steps}
+    for t in ("t1_post_tune", "t3", "t4", "t5", "t6", "t7"):
+        assert f"produce_table_{t}" in names or any(n.startswith(f"produce_table_{t}") for n in names)
+    for f in ("f1", "f3", "f4", "f5", "f6"):
+        assert f"produce_figure_{f}" in names
