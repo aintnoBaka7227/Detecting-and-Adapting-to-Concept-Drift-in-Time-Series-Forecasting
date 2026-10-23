@@ -1,0 +1,5 @@
+model,region,seed,arm,method,gamma,calibration_rows,test_rows,feedback_block,rolling_window,coverage,mean_width,worst_7d_coverage,infinite_interval_count
+xgboost,SA1,1,A_never_retrain,fixed_split,,2880,67249,48,336,0.8723698493657899,924.401201171875,0.5565476190476191,0
+xgboost,SA1,1,A_never_retrain,aci,0.001,2880,67249,48,336,0.8994929292628887,1020.499729420107,0.7142857142857143,0
+nhits,SA1,1,A_never_retrain,fixed_split,,2880,67249,48,336,0.9269728917902125,845.8588281249995,0.5,0
+nhits,SA1,1,A_never_retrain,aci,0.001,2880,67249,48,336,0.8996862406875938,809.6468046869869,0.7351190476190477,0
