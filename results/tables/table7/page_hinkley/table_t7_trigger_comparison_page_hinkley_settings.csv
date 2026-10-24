@@ -1,0 +1,10 @@
+Setting,Team 41 (Group A),Team 42 (Group B)
+Trigger approach,Distribution shift,Forecast error
+Detector,Page–Hinkley,Page–Hinkley available
+Forecaster,XGBoost (gradient boosting),Gradient Boosting (current Team 42)
+Adaptation,Arm D · 180 days,Arm D · 180 days
+Dataset / regions,SA1 and NSW1,SA1 and NSW1
+Seeds,1–5,1–5
+UQ method,AgACI,AgACI available
+Escalation signals,"Interval width, Lagged 30-minute nonconformity","Interval width, Lagged 30-minute nonconformity"
+Regime definition,Documented event + 7-day post-event buffer,Documented event + 7-day post-event buffer

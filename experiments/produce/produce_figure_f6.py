@@ -3,7 +3,7 @@
 One panel per region, one row per trigger:
     Group A   Team 41's distribution-shift trigger (TRIGGER): its accepted
               change points from run_detector_changepoints.py, i.e. the days
-              arm C retrains on;
+              arms C and D retrain on;
     Group B   Team 42's error-based trigger, read from GROUP_B_CSV (columns:
               timestamp, region) once they provide it; an empty row until then.
 An alarm is a disagreement when the other trigger has no alarm within
@@ -155,7 +155,7 @@ def main() -> None:
     title = "F6 — Where each trigger type fires, and where the two disagree"
     subtitle = (
         f"TEST period (Mar 2020 – Dec 2023). Group A: accepted {DETECTOR_LABELS[TRIGGER]} alarms on the "
-        "standard-half-hourly seasonal residual (14-day refractory), the days arm C retrains on. Group B: "
+        "standard-half-hourly seasonal residual (14-day refractory), the days arms C and D retrain on (T7 uses arm D, 180 days). Group B: "
         f"Team 42's error-based trigger. An alarm is a disagreement if the other trigger has no alarm within "
         f"±{AGREE_DAYS} days. Count per row in brackets. {counts}"
     )
