@@ -46,25 +46,52 @@ GROUP_B_CSV = TABLE7_DIR / "group_b_team42.csv"
 # (its forecaster row follows MODEL).
 SETTINGS = pd.DataFrame(
     [
-        ("Trigger approach", "Distribution shift", "Forecast error"),
-        ("Detector", "Page–Hinkley", "Page–Hinkley available"),
-        ("Forecaster", MODEL_LABELS[MODEL], "Gradient Boosting (current Team 42)"),
-        ("Adaptation", "Arm D · 180 days", "Arm D · 180 days"),
-        ("Dataset / regions", "SA1 and NSW1", "SA1 and NSW1"),
-        ("Seeds", "1–5", "1–5"),
-        ("UQ method", "AgACI", "AgACI available"),
+        (
+            "Drift trigger",
+            "Distribution shift",
+            "Forecast error",
+            "Primary variable: distribution shift vs forecast error",
+        ),
+        ("Detector", "Page–Hinkley", "Page–Hinkley", "Consistent Page–Hinkley detection algorithm"),
+        (
+            "Forecasting model",
+            MODEL_LABELS[MODEL],
+            "HistGradientBoostingRegressor",
+            "Same gradient-boosting family; different model implementations",
+        ),
+        (
+            "Adaptation policy",
+            "Arm D · recent 180 days",
+            "Arm D · recent 180 days",
+            "Common Arm D, 180-day retraining window",
+        ),
+        (
+            "Dataset / regions",
+            "SA1 and NSW1",
+            "SA1 and NSW1",
+            "Identical AEMO datasets (SA1 and NSW1) and evaluation periods",
+        ),
+        ("Experiment seeds", "1–5", "1–5", "Five-seed experimental protocol"),
+        (
+            "UQ method",
+            "AgACI",
+            "AgACI",
+            "AgACI-based methods; implementation equivalence unverified",
+        ),
         (
             "Escalation signals",
-            "Interval width, Lagged 30-minute nonconformity",
-            "Interval width, Lagged 30-minute nonconformity",
+            "Interval width; lagged nonconformity",
+            "Interval width; lagged 30-minute error",
+            "Comparable review criteria; methodological differences remain",
         ),
         (
             "Regime definition",
-            "Documented event + 7-day post-event buffer",
-            "Documented event + 7-day post-event buffer",
+            "Documented events + 7-day post-event buffer",
+            "Documented events + 7-day post-event buffer",
+            "Consistent event-based definition with a seven-day buffer",
         ),
     ],
-    columns=["Setting", "Team 41 (Group A)", "Team 42 (Group B)"],
+    columns=["Setting", "Team 41 (Group A)", "Team 42 (Group B)", "Comparison status"],
 )
 PENDING = "awaiting Team 42"
 
