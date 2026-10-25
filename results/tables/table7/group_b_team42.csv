@@ -1,0 +1,13 @@
+metric,region,value
+MAE during drift (MW),SA1,186.48 ± 0.05
+MAE during drift (MW),NSW1,430.59 ± 0.65
+Worst 24h coverage,SA1,0.675 ± 0.032
+Worst 24h coverage,NSW1,0.658 ± 0.011
+Review rate for 0.90 coverage (interval width),SA1,0.0%
+Review rate for 0.90 coverage (interval width),NSW1,0.0%
+"Review rate for 0.90 coverage (nonconformity, 30 min)",SA1,0.0%
+"Review rate for 0.90 coverage (nonconformity, 30 min)",NSW1,0.0%
+Detections raised,SA1,5
+Detections raised,NSW1,5
+Retrains triggered,SA1,5
+Retrains triggered,NSW1,5
