@@ -55,7 +55,7 @@ tables and figures.
 | 6 | Detection | `experiments.run.detection.run_detector_changepoints` | — | `results/runs/changepoints/<detector>_standard_half_hourly_post_tune_<region>.csv` |
 | 7 | Detection | `experiments.run.detection.check_detection_periodicity` | — | `results/tables/detection_periodicity/` |
 | 8 | Forecasting | `experiments.run.forecasting.run_aemo_baselines`, `experiments.run.forecasting.run_aemo_nhits` | `produce_figure_f1` | **F1** |
-| 9 | Forecasting | `experiments.run.forecasting.run_aemo_calibration_forecasts` | `produce_table_forecaster_selection` | forecaster-selection table; `calibration_forecast_aemo_<region>_<seed>.csv` residuals |
+| 9 | Forecasting | `experiments.run.forecasting.run_aemo_holdout_selection`, `experiments.run.forecasting.run_aemo_calibration_forecasts` | `produce_table_forecaster_selection` | forecaster-selection tables (held-out Nov–Dec 2019 from TRAIN; Calibration window); `calibration_forecast_aemo_<region>_<seed>.csv` residuals |
 | 10 | Adaptation | `experiments.run.adaptation.run_aemo_adaptation_arms` (once per detector × model × region × seed) | — | adaptation forecasts per run |
 | 11 | Adaptation | `experiments.run.adaptation.rescore_adaptation_runs` | `produce_table_t3`, `produce_table_t4`, `produce_figure_f3`, `produce_table_arm_d_sweep` | **T3**, **T4**, **F3**, arm D sweep table (all four windows, winner per model × region) |
 | 12 | Uncertainty | `experiments.run.uncertainty.run_aemo_uq_replay` | `produce_table_t5`, `produce_figure_f4` | **T5**, **F4** |
@@ -89,6 +89,7 @@ python -m experiments.produce.produce_figure_f2_aemo_standard_half_hourly_post_t
 # 3. Forecasting
 python -m experiments.run.forecasting.run_aemo_baselines
 python -m experiments.run.forecasting.run_aemo_nhits
+python -m experiments.run.forecasting.run_aemo_holdout_selection
 python -m experiments.run.forecasting.run_aemo_calibration_forecasts
 python -m experiments.produce.produce_figure_f1
 python -m experiments.produce.produce_table_forecaster_selection
@@ -216,7 +217,8 @@ there is no download step.
 │   │   ├── forecasting/                stage 3
 │   │   │   ├── run_aemo_baselines.py              seasonal naive, XGBoost, DHR + ARIMA -> F1
 │   │   │   ├── run_aemo_nhits.py                  NHITS -> F1
-│   │   │   ├── run_aemo_calibration_forecasts.py  forecaster selection + calibration residuals
+│   │   │   ├── run_aemo_holdout_selection.py      forecaster selection on Nov–Dec 2019 held out from TRAIN
+│   │   │   ├── run_aemo_calibration_forecasts.py  calibration residuals (+ selection on the Calibration window)
 │   │   │   └── ⚠ run_aemo_nhits_retrain3mo_kswin_{nsw,sa}.py   commented out, superseded by arm D
 │   │   ├── adaptation/                 stage 4
 │   │   │   ├── run_aemo_adaptation_arms.py        arms A-D -> T3, T4, F3

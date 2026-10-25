@@ -1,9 +1,15 @@
-"""Forecaster selection -- stage 4's Calibration-window evidence, and the pick.
+"""Forecaster selection -- one table per selection experiment, and the pick.
 
-Reads run_aemo_calibration_forecasts.py's rows (latest run per model x region
-x seed) and reports per model and region: 7-day rolling MAE (mean over the
-Calibration window), MAE, fit time on TRAIN, predict time on Calibration and
-their total, as mean ± sd across seeds (dhr_arima: one deterministic run).
+SELECTIONS lists the experiments, each read from its own runs.csv rows
+(latest run per model x region x seed):
+    holdout       run_aemo_holdout_selection.py: fitted on TRAIN to Oct 2019,
+                  validated on Nov-Dec 2019 (the supervisor's protocol);
+    calibration   run_aemo_calibration_forecasts.py (stage 4): fitted on
+                  TRAIN, validated on the Calibration window (Jan-Feb 2020).
+Per model and region: 7-day rolling MAE (mean over the validation window),
+MAE, fit time, predict time and their total, as mean ± sd across seeds
+(deterministic models: one run). Seasonal naive is the baseline, not a
+candidate: CANDIDATES drops its rows (logged by an earlier holdout run).
 
 Selection rule, fixed before the run:
     1. per region, the lowest mean 7-day rolling MAE wins;
@@ -11,9 +17,8 @@ Selection rule, fixed before the run:
        larger of the two sds), the lower mean train + predict time wins;
     3. the selected forecaster is the model picked in every region; if the
        regions disagree, no single model is selected and the table says so.
-Seasonal naive is not a candidate.
 
-Writes results/tables/forecaster_selection/forecaster_selection.{csv,png}.
+Writes results/tables/forecaster_selection/<stem>.{csv,png} per experiment.
 
 Usage:
     python -m experiments.produce.produce_table_forecaster_selection
@@ -25,22 +30,51 @@ import pandas as pd
 
 from experiments.produce.table_image import save_table_image
 from experiments.results_io import RUNS_CSV, TABLES_DIR, output_path
-from experiments.run.forecasting.run_aemo_calibration_forecasts import SPLIT_ID
+from experiments.run.forecasting import (
+    run_aemo_calibration_forecasts,
+    run_aemo_holdout_selection,
+)
 
 METRICS = ("rolling_mae_7d_mean", "mae", "fit_seconds", "predict_seconds")
 RUN_KEYS = ["method", "region", "seed_key"]
+CANDIDATES = ("nhits", "xgboost", "dhr_arima")
+SELECTIONS = {
+    "holdout": {
+        "split_id": run_aemo_holdout_selection.SPLIT_ID,
+        "runner": "run_aemo_holdout_selection.py",
+        "stem": "forecaster_selection_holdout_nov_dec_2019",
+        "title": "Forecaster selection on a validation window cut from TRAIN (Nov–Dec 2019)",
+        "setup": (
+            "Each model fitted on TRAIN up to 31 Oct 2019, then forecasting the held-out Nov–Dec 2019 "
+            "with its TEST protocol (NHITS: 48-step blocks with real context; xgboost / dhr_arima: blind). Neither the Calibration window nor TEST "
+            "is used."
+        ),
+    },
+    "calibration": {
+        "split_id": run_aemo_calibration_forecasts.SPLIT_ID,
+        "runner": "run_aemo_calibration_forecasts.py",
+        "stem": "forecaster_selection",
+        "title": "Forecaster selection on the Calibration window (Jan–Feb 2020)",
+        "setup": (
+            "Each model fitted on TRAIN, then forecasting the Calibration window with its TEST protocol "
+            "(NHITS: 48-step blocks with real context; xgboost / dhr_arima: blind)."
+        ),
+    },
+}
 
 
-def latest_runs() -> pd.DataFrame:
+def latest_runs(split_id: str, runner: str) -> pd.DataFrame:
     """One row per (model, region, seed): its metrics and total wall clock."""
     if not RUNS_CSV.exists():
-        raise SystemExit(f"{RUNS_CSV} not found -- run run_aemo_calibration_forecasts.py first")
+        raise SystemExit(f"{RUNS_CSV} not found -- run {runner} first")
     runs = pd.read_csv(RUNS_CSV)
-    rows = runs[runs["split_id"] == SPLIT_ID].copy()
+    rows = runs[(runs["split_id"] == split_id) & runs["method"].isin(CANDIDATES)].copy()
     if rows.empty:
-        raise SystemExit(f"no rows for split_id={SPLIT_ID!r} -- run run_aemo_calibration_forecasts.py first")
+        raise SystemExit(f"no rows for split_id={split_id!r} -- run {runner} first")
     rows["seed_key"] = rows["seed"].fillna(-1)
-    rows = rows[rows["timestamp"] == rows.groupby(RUN_KEYS)["timestamp"].transform("max")]
+    rows = rows[
+        rows["timestamp"] == rows.groupby(RUN_KEYS)["timestamp"].transform("max")
+    ]
     per_run = rows[rows["metric_name"].isin(METRICS)].pivot_table(
         index=RUN_KEYS, columns="metric_name", values="metric_value"
     )
@@ -71,17 +105,25 @@ def pick(region_stats: pd.DataFrame) -> tuple[str, str]:
     leader = ranked.iloc[0]
     for row in ranked.iloc[1:].itertuples():
         tolerance = max(pd.Series([leader.rolling_sd, row.rolling_sd]).fillna(0))
-        if row.rolling_mean - leader.rolling_mean <= tolerance and row.total_mean < leader.total_mean:
-            return row.method, f"within one sd of {leader.method} on rolling MAE, and faster"
+        if (
+            row.rolling_mean - leader.rolling_mean <= tolerance
+            and row.total_mean < leader.total_mean
+        ):
+            return (
+                row.method,
+                f"within one sd of {leader.method} on rolling MAE, and faster",
+            )
     return leader.method, "lowest 7-day rolling MAE"
 
 
 def mean_sd(mean: float, sd: float, digits: int) -> str:
-    return f"{mean:.{digits}f}" if pd.isna(sd) else f"{mean:.{digits}f} ± {sd:.{digits}f}"
+    return (
+        f"{mean:.{digits}f}" if pd.isna(sd) else f"{mean:.{digits}f} ± {sd:.{digits}f}"
+    )
 
 
-def build_table() -> tuple[pd.DataFrame, str]:
-    stats = summarise(latest_runs())
+def build_table(selection: dict) -> tuple[pd.DataFrame, str]:
+    stats = summarise(latest_runs(selection["split_id"], selection["runner"]))
     picks = {region: pick(g) for region, g in stats.groupby("region")}
     chosen = {model for model, _ in picks.values()}
     verdict = (
@@ -100,7 +142,7 @@ def build_table() -> tuple[pd.DataFrame, str]:
                 "7-day rolling MAE (MW)": mean_sd(r.rolling_mean, r.rolling_sd, 1),
                 "MAE (MW)": mean_sd(r.mae_mean, r.mae_sd, 1),
                 "fit on TRAIN (s)": mean_sd(r.fit_mean, r.fit_sd, 1),
-                "predict on Calibration (s)": mean_sd(r.predict_mean, r.predict_sd, 2),
+                "predict on validation (s)": mean_sd(r.predict_mean, r.predict_sd, 2),
                 "train + predict (s)": mean_sd(r.total_mean, r.total_sd, 1),
                 "seeds": int(r.seeds),
                 "pick": f"✓ ({reason})" if r.method == model else "",
@@ -110,24 +152,26 @@ def build_table() -> tuple[pd.DataFrame, str]:
 
 
 def main() -> None:
-    table, verdict = build_table()
-    out = output_path(TABLES_DIR, "forecaster_selection", name="forecaster_selection.csv")
-    table.to_csv(out, index=False)
-    print(table.to_string(index=False))
-    print(f"\n{verdict}\nwrote {out}")
-    image = save_table_image(
-        table,
-        out.with_suffix(".png"),
-        title="Forecaster selection on the Calibration window (Jan–Feb 2020)",
-        subtitle=(
-            "Each model fitted on TRAIN, then forecasting the Calibration window with its TEST protocol "
-            "(NHITS: 48-step blocks with real context; xgboost / dhr_arima: blind). Rule, fixed before "
-            "the run: lowest mean 7-day rolling MAE per region; within one seed sd, the lower "
-            "train + predict wall clock wins; the forecaster is the model picked in every region. "
-            f"Mean ± sd across seeds (dhr_arima is deterministic: 1 run). {verdict}."
-        ),
-    )
-    print(f"wrote {image}")
+    for selection in SELECTIONS.values():
+        table, verdict = build_table(selection)
+        out = output_path(
+            TABLES_DIR, "forecaster_selection", name=f"{selection['stem']}.csv"
+        )
+        table.to_csv(out, index=False)
+        print(f"\n{selection['title']}\n{table.to_string(index=False)}")
+        print(f"{verdict}\nwrote {out}")
+        image = save_table_image(
+            table,
+            out.with_suffix(".png"),
+            title=selection["title"],
+            subtitle=(
+                f"{selection['setup']} Rule, fixed before the run: lowest mean 7-day rolling MAE per "
+                "region; within one seed sd, the lower train + predict wall clock wins; the forecaster "
+                "is the model picked in every region. Mean ± sd across seeds (deterministic models: "
+                f"1 run). {verdict}."
+            ),
+        )
+        print(f"wrote {image}")
 
 
 if __name__ == "__main__":

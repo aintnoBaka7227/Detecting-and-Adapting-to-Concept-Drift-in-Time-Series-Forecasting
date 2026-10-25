@@ -10,8 +10,10 @@ is read from runs.csv, mean ± sd across seeds per region:
     Retrains triggered            n_retrains of the arm (as T4)
 Group B is filled from GROUP_B_CSV when Team 42 provides it (columns:
 metric, region, value -- metric as in the first column here); until then it
-reads "awaiting Team 42". T7 is only a fair comparison if both groups share
-the forecaster, data, arm, UQ method and escalation signal.
+reads "awaiting Team 42". SETTINGS (each team's trigger, forecaster, arm,
+UQ method, escalation signals, regimes) is drawn above the metrics in the
+image and saved next to it as a CSV, so differences between the two teams'
+setups are visible rather than buried in a caption.
 
 Usage:
     python -m experiments.produce.produce_table_t7
@@ -28,17 +30,69 @@ from experiments.produce.table_adaptation_common import (
     latest_adaptation_rows,
     mae_by_run,
 )
-from experiments.produce.table_image import save_table_image
+from experiments.produce.table_image import save_tables_image
 from experiments.results_io import RUNS_CSV, TABLE7_DIR, output_path
 from experiments.trigger_detectors import DETECTOR_LABELS
 
 TRIGGER = "page_hinkley"
-MODEL = "nhits"
-ARM = "C_drift_full_history"
+MODEL = "xgboost"
+MODEL_LABELS = {"nhits": "NHITS", "xgboost": "XGBoost (gradient boosting)", "dhr_arima": "DHR + ARIMA"}
+ARM = "D_drift_recent_180d"
 UQ_METHOD = "agaci"
 SIGNALS = {"width": "interval width", "nonconformity_30min": "nonconformity, 30 min"}
 DETECTION_SPLIT_ID = "aemo_detect_standard_half_hourly_post_tune_v1"
 GROUP_B_CSV = TABLE7_DIR / "group_b_team42.csv"
+# Agreed setups of the two teams; the Team 41 column must match the constants above
+# (its forecaster row follows MODEL).
+SETTINGS = pd.DataFrame(
+    [
+        (
+            "Drift trigger",
+            "Distribution shift",
+            "Forecast error",
+            "Primary variable: distribution shift vs forecast error",
+        ),
+        ("Detector", "Page–Hinkley", "Page–Hinkley", "Consistent Page–Hinkley detection algorithm"),
+        (
+            "Forecasting model",
+            MODEL_LABELS[MODEL],
+            "HistGradientBoostingRegressor",
+            "Same gradient-boosting family; different model implementations",
+        ),
+        (
+            "Adaptation policy",
+            "Arm D · recent 180 days",
+            "Arm D · recent 180 days",
+            "Common Arm D, 180-day retraining window",
+        ),
+        (
+            "Dataset / regions",
+            "SA1 and NSW1",
+            "SA1 and NSW1",
+            "Identical AEMO datasets (SA1 and NSW1) and evaluation periods",
+        ),
+        ("Experiment seeds", "1–5", "1–5", "Five-seed experimental protocol"),
+        (
+            "UQ method",
+            "AgACI",
+            "AgACI",
+            "AgACI-based methods; implementation equivalence unverified",
+        ),
+        (
+            "Escalation signals",
+            "Interval width; lagged nonconformity",
+            "Interval width; lagged 30-minute error",
+            "Comparable review criteria; methodological differences remain",
+        ),
+        (
+            "Regime definition",
+            "Documented events + 7-day post-event buffer",
+            "Documented events + 7-day post-event buffer",
+            "Consistent event-based definition with a seven-day buffer",
+        ),
+    ],
+    columns=["Setting", "Team 41 (Group A)", "Team 42 (Group B)", "Comparison status"],
+)
 PENDING = "awaiting Team 42"
 
 
@@ -131,18 +185,19 @@ def main() -> None:
     table = build_table()
     out = output_path(TABLE7_DIR, TRIGGER, name=f"table_t7_trigger_comparison_{TRIGGER}.csv")
     table.to_csv(out, index=False)
+    settings_out = out.with_name(f"{out.stem}_settings.csv")
+    SETTINGS.to_csv(settings_out, index=False)
+    print(SETTINGS.to_string(index=False), "\n")
     print(table.to_string(index=False))
-    print(f"wrote {out}")
-    image = save_table_image(
-        table,
+    print(f"wrote {out}\nwrote {settings_out}")
+    image = save_tables_image(
+        [("Settings", SETTINGS), ("Results", table)],
         out.with_suffix(".png"),
         title="T7 — Trigger comparison: which trigger gives better-calibrated forecasts with less human work?",
         subtitle=(
-            f"Group A: distribution-shift trigger, {DETECTOR_LABELS[TRIGGER]} on the standard-half-hourly seasonal residual; forecaster "
-            f"{MODEL.upper()} (7 days -> 1 day ahead), arm C (retrain on all history at each accepted alarm), "
-            f"{'AgACI' if UQ_METHOD == 'agaci' else 'fixed split conformal'} 90% intervals; drift = global "
-            "drift regime; mean ± sd across 5 seeds; detections = accepted test-period alarms (14-day "
-            "refractory). Group B: Team 42's error-based trigger. Same forecaster, data and conformal layer for both groups; only the trigger differs."
+            "Results: mean ± sd across seeds per region; drift = global drift regime; review rate = the "
+            "smallest share of drift-regime forecasts sent to review for the kept forecasts to reach 90% "
+            "coverage; detections = accepted TEST-period alarms (14-day refractory)."
         ),
     )
     print(f"wrote {image}")
