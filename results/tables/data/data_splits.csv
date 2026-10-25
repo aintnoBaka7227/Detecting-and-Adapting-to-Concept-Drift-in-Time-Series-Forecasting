@@ -1,0 +1,4 @@
+split,from,to,SA1 half-hours,NSW1 half-hours,role
+Train,2018-01-01,2019-12-31,"35,039","35,039",Fit forecasters and the seasonal profile; tune
+Calibration,2020-01-01,2020-02-29,"2,880","2,880",Select the forecaster; calibrate the conformal intervals
+Test,2020-03-01,end of data (2023-12-31),"67,249","67,249",All evaluation; every documented drift event falls here

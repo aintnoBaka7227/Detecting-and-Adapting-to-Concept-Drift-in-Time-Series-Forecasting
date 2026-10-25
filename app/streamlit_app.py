@@ -5,15 +5,15 @@ Run from the repo root:
     python -m streamlit run app/streamlit_app.py
 
 Read-only: it never runs a model or recomputes a metric. It shows the tables
-and figures the produce_* scripts have already written to results/, and
-reads results/runs.csv for the overview counts and the cross-check. Every
-table and figure has a short "what this shows" note, and the Method and
-settings tab lists the settings behind the results (detector parameters, the
-four arms, the models, the data split, the uncertainty and escalation
-methods).
+and figures the run/produce scripts have already written to results/. The
+only thing drawn live is the synthetic benchmark preview on the Data tab,
+which is instant. Every table and figure has a short "what this shows" note.
 
-Both trigger detectors are available wherever a table depends on one:
-ADWIN (the control, which also runs arms A and B) and Page-Hinkley.
+Tabs follow the pipeline, in the order the report presents it, so tables
+T1-T7 and figures F1-F6 appear in sequence: Data -> Forecast -> Detection ->
+Adaptation -> Uncertainty -> Escalation, then the shared comparison with
+Team 42. Pickers default to the reported setup (Page-Hinkley, NHITS, global
+regimes); ADWIN stays selectable wherever a table depends on the detector.
 
 A missing file shows a hint about which script creates it instead of
 crashing the page. Rerun the pipeline (python -m experiments.run_pipeline)
@@ -37,8 +37,7 @@ RESULTS = ROOT / "results"
 TABLES = RESULTS / "tables"
 FIGURES = RESULTS / "figures"
 
-ADAPT_SPLIT_ID = "aemo_adapt_adwin_std_hh_v1"
-MODELS = ("nhits", "xgboost", "dhr_arima")
+MODELS =("nhits", "xgboost", "dhr_arima")
 REGIONS = ("SA1", "NSW1")
 DETECTORS = {"adwin": "ADWIN", "page_hinkley": "Page-Hinkley"}
 SIGNALS = {
@@ -79,6 +78,12 @@ def num(value) -> float:
     """The leading number of a cell such as '659.0 ± 3.1' or '0.93 ± n/a'."""
     match = re.match(r"\s*(-?\d+(?:\.\d+)?)", str(value))
     return float(match.group(1)) if match else float("nan")
+
+
+def method(text: str) -> None:
+    """The stage's method and settings, at the top of its tab."""
+    with st.expander("Method: how this stage works"):
+        st.markdown(text)
 
 
 def explain(what: str, how: str | None = None) -> None:
@@ -206,6 +211,20 @@ T7 = TABLES / "table7" / "page_hinkley" / "table_t7_trigger_comparison_page_hink
 F6 = FIGURES / "figure6" / "page_hinkley" / "figure_f6_trigger_timeline_page_hinkley.png"
 SELECTION = TABLES / "forecaster_selection" / "forecaster_selection.csv"
 WINNERS = TABLES / "fine_tune_on_synthetic_winners.csv"
+DATA_AUDIT = TABLES / "data" / "data_audit.csv"
+DATA_SPLITS = TABLES / "data" / "data_splits.csv"
+# The synthetic benchmark's four series (drift_lab/synthetic/generator.py, n = 20,000).
+SYNTHETIC_KINDS = pd.DataFrame(
+    [
+        ("None", "No drift", "none", "False alarms: any alarm is one"),
+        ("Sudden", "+8 at once at t = 5,000", "5,000", "Delay on an abrupt change"),
+        ("Gradual", "Ramp from 0 to +8 over t = 5,000-6,000", "5,000-6,000 (one interval)",
+         "Whether a slow drift is caught, and how late"),
+        ("Recurring", "+8 from t = 6,666 to 13,333, then back", "6,666 and 13,333",
+         "Whether the return to the old pattern is caught too"),
+    ],
+    columns=["kind", "drift", "true change points", "what it tests"],
+)
 
 
 # ------------------------------------------------------ headline findings
@@ -276,41 +295,30 @@ checks how far the forecasts can be trusted, and when a person should step in.
     st.markdown(
         """
 ```
-Data -> Detect -> Forecast -> Adapt -> Uncertainty -> Escalation
+Data -> Forecast -> Detect -> Adapt -> Uncertainty -> Escalation -> Comparison
 ```
 """
     )
     st.markdown(
-        "| Stage | The question it answers | Where to look |\n"
+        "| Stage | The question it answers | Tab |\n"
         "|---|---|---|\n"
-        "| Data | Is the demand series clean? | Method and settings |\n"
-        "| Detect | Which detector finds real changes without false alarms? | Detection (T1, T2, F2) |\n"
-        "| Forecast | How fast do frozen forecasters degrade? Which one do we use? | Baselines (F1) |\n"
+        "| Data | How is the demand series audited, cleaned, split and deseasonalised? How is the synthetic benchmark built? | Data |\n"
+        "| Forecast | How fast do frozen forecasters degrade? Which one do we use? | Forecast (F1) |\n"
+        "| Detect | Which detector finds real changes without false alarms? | Detection (T1, F2, T2) |\n"
         "| Adapt | Does retraining on drift alarms beat never or scheduled retraining? | Adaptation (T3, T4, F3) |\n"
         "| Uncertainty | Do the 90% intervals keep their coverage through drift? | Uncertainty (T5, F4) |\n"
-        "| Escalation | How much human review keeps coverage on target? | Escalation (T6, F5, T7, F6) |"
+        "| Escalation | How much human review keeps coverage on target? | Escalation (T6, F5) |\n"
+        "| Comparison | Our distribution-shift trigger vs Team 42's error-based trigger | Comparison (T7, F6) |"
     )
-
-    runs_path = RESULTS / "runs.csv"
-    if runs_path.exists():
-        runs = load_csv(str(runs_path), runs_path.stat().st_mtime)
-        sid = runs["split_id"].astype(str) if "split_id" in runs.columns else pd.Series(dtype=str)
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Rows in runs.csv", f"{len(runs):,}")
-        c2.metric("Adaptation rows", f"{int(sid.str.startswith('aemo_adapt_').sum()):,}")
-        c3.metric("Uncertainty rows", f"{int(sid.str.startswith('aemo_uq_').sum()):,}")
-        c4.metric("Escalation rows", f"{int(sid.str.startswith('aemo_escalation_').sum()):,}")
-    else:
-        st.warning("results/runs.csv not found.")
 
     st.subheader("Main findings so far")
     chosen = selected_forecaster()
     if chosen:
         st.markdown(f"- Forecaster selected on the Calibration window: **{chosen}**.")
-    for det in DETECTORS:
+    for det, label in DETECTORS.items():
         lines = adaptation_findings(det)
         if lines:
-            with st.expander(f"Trigger detector: {DETECTORS[det]}", expanded=det == "adwin"):
+            with st.expander(f"Trigger detector: {label}", expanded=det == "page_hinkley"):
                 for line in lines:
                     st.markdown(f"- {line}")
     st.caption(
@@ -318,94 +326,6 @@ Data -> Detect -> Forecast -> Adapt -> Uncertainty -> Escalation
         "regenerated. Arm D is read at its 180-day window. DHR+ARIMA is deterministic, so it has "
         "one run per region; NHITS and XGBoost have five seeds."
     )
-
-
-def tab_method() -> None:
-    st.header("Method and settings")
-    st.caption("What was run and with which settings, so every table and figure can be read in context.")
-
-    with st.expander("Data and splits", expanded=True):
-        try:
-            from drift_lab.config import REGIME_DRIFT_MARGIN, SEEDS, SPLIT
-
-            split, margin, seeds = SPLIT, REGIME_DRIFT_MARGIN, SEEDS
-        except Exception:  # noqa: BLE001 - the page still works without the package
-            split = {"train": ("2018-01-01", "2019-12-31"), "calibration": ("2020-01-01", "2020-02-29"),
-                     "test": ("2020-03-01", None)}
-            margin, seeds = 336, (1, 2, 3, 4, 5)
-        st.markdown(
-            f"- **Data:** AEMO electricity demand (TOTALDEMAND), half-hourly (48 readings a day), "
-            f"regions {', '.join(REGIONS)}.\n"
-            f"- **Train:** {split['train'][0]} to {split['train'][1]}. Models are fitted here.\n"
-            f"- **Calibration:** {split['calibration'][0]} to {split['calibration'][1]}. Used to "
-            f"select the forecaster and to calibrate the uncertainty intervals.\n"
-            f"- **Test:** from {split['test'][0]} to the end of the data (2023). Everything in the "
-            f"results is scored here.\n"
-            f"- **Seeds:** {', '.join(map(str, seeds))} for NHITS and XGBoost. DHR+ARIMA is "
-            f"deterministic, so it runs once.\n"
-            f"- **Regimes:** each test timestamp is labelled *pre-drift*, *drift* (a documented "
-            f"event plus a {margin // 48}-day buffer) or *post-drift*."
-        )
-
-    with st.expander("Drift detectors"):
-        st.markdown(
-            "Three detectors were tuned on the synthetic benchmark (where the true change points "
-            "are known) and then frozen. **ADWIN** and **Page-Hinkley** are the trigger detectors "
-            "for the adaptation arms. KSWIN is evaluated in the detection tables only. An alarm is "
-            "*accepted* if it survives a 14-day refractory filter."
-        )
-        winners = read(WINNERS)
-        if winners is not None:
-            keep = [c for c in ("detector", "detector_parameters", "mean_false_alarms_per_year",
-                                "mean_detection_delay", "status") if c in winners.columns]
-            show_df(winners[keep].rename(columns={
-                "detector_parameters": "frozen parameters",
-                "mean_false_alarms_per_year": "false alarms / year (synthetic, no drift)",
-                "mean_detection_delay": "mean detection delay (observations)",
-            }))
-
-    with st.expander("Forecasting models"):
-        st.markdown(
-            "- **NHITS:** a neural network. 7 days of input (336 half-hours), forecasts 1 day "
-            "(48 half-hours) ahead, 500 training steps.\n"
-            "- **XGBoost:** gradient-boosted trees.\n"
-            "- **DHR+ARIMA:** dynamic harmonic regression (Fourier terms for the daily and weekly "
-            "cycles) plus ARIMA on the leftover errors.\n"
-            "- **Seasonal naive:** the simple baseline. It is not a candidate for selection.\n\n"
-            "**Forecaster selection** (fixed before the run): per region the lowest 7-day rolling "
-            "MAE on the Calibration window wins. If another model is within one seed spread, the "
-            "faster one wins. A forecaster is selected only if the same model wins in every region."
-        )
-        sel = read(SELECTION)
-        if sel is not None:
-            show_df(sel)
-
-    with st.expander("Adaptation arms"):
-        st.markdown(
-            "| Arm | Policy |\n|---|---|\n"
-            "| A | Never retrain (control) |\n"
-            "| B | Retrain every 30 days on the last 30 days (scheduled control) |\n"
-            "| C | Retrain on each accepted drift alarm, on all history |\n"
-            "| D | Retrain on each accepted drift alarm, on the last 30, 60, 120 or 180 days "
-            "(180 is reported in the main tables; the sweep shows all four) |\n\n"
-            "Arms A and B use no detector, so they are the shared controls. ADWIN runs all four "
-            "arms. Page-Hinkley runs C and D."
-        )
-
-    with st.expander("Uncertainty and escalation"):
-        st.markdown(
-            "- **Interval:** a 90% prediction interval on every forecast, issued one half-hour at "
-            "a time.\n"
-            "- **Fixed split conformal:** one interval radius, set once from the Calibration "
-            "residuals and never updated.\n"
-            "- **AgACI:** an adaptive method. It keeps several candidate intervals and re-weights "
-            "them after every observed outcome.\n"
-            "- **Escalation:** a forecast is sent for human review when a signal passes a "
-            "threshold. Signals: the interval width, or a nonconformity score (the recent mean "
-            "absolute error over 30 minutes, 1 day or 7 days, lagged so it only uses past errors).\n"
-            "- **Operating points:** the review rate needed to reach 0.90 or 0.95 coverage, and the "
-            "coverage reached when only 5%, 10% or 20% of forecasts are reviewed."
-        )
 
     with st.expander("Metrics glossary"):
         st.markdown(
@@ -422,11 +342,143 @@ def tab_method() -> None:
             "| mean ± sd | Mean and spread across seeds. 'n/a' means there is only one run. |"
         )
 
-    st.caption("Source: README.md (pipeline and execution order), src/drift_lab/config.py and the tables in results/.")
+
+def synthetic_preview():
+    """The four synthetic series (seed 1) with their true change points marked,
+    drawn live from the generator."""
+    import matplotlib.pyplot as plt
+
+    from drift_lab.synthetic.generator import make_series
+
+    fig, axes = plt.subplots(4, 1, figsize=(11, 7), sharex=True)
+    for ax, kind in zip(axes, ("none", "sudden", "gradual", "recurring")):
+        y, cps = make_series(kind, seed=1)
+        ax.plot(y, color="#0D2C54", linewidth=0.3)
+        if kind == "gradual":
+            ax.axvspan(cps[0], cps[1], color="#E0A800", alpha=0.3)
+        for cp in cps:
+            ax.axvline(cp, color="#C1666B", linestyle="--", linewidth=1.2)
+        ax.set_title(kind, loc="left", fontsize=10, fontweight="bold")
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    axes[-1].set_xlabel("step (half-hour)")
+    fig.tight_layout()
+    return fig
+
+
+def tab_data() -> None:
+    st.header("Data")
+    st.caption("Two datasets: real AEMO demand, and a synthetic benchmark where the true change points are known.")
+
+    st.subheader("AEMO demand data")
+    st.markdown(
+        "Monthly AEMO CSVs for **SA1** and **NSW1**, January 2018 to December 2023, with five "
+        "columns: `REGION`, `SETTLEMENTDATE`, `TOTALDEMAND` (MW), `RRP` (price, $/MWh) and "
+        "`PERIODTYPE`.\n\n"
+        "**Scope:** price is loaded, audited and kept, but the project studies **total demand "
+        "only**. No detector, forecaster or interval method reads price."
+    )
+    st.markdown(
+        """
+```
+Read -> Audit and clean -> 30-minute grid -> Split -> Deseasonalise
+```
+"""
+    )
+
+    st.markdown("**1. Read, audit and clean** (`src/drift_lab/aemo/loader.py`)")
+    explain(
+        "Every check loader.py runs, in its order, with the action taken and what it found in "
+        "each region.",
+        "Cleaning is **non-destructive**: it only drops rows that cannot be placed in time "
+        "(invalid timestamps, duplicates) and never alters or clips a demand or price value. "
+        "Extremes such as SA1's negative demand (rooftop solar) and price spikes are real market "
+        "behaviour, so they are kept.",
+    )
+    audit = read(DATA_AUDIT)
+    if audit is None:
+        st.info("Not generated yet. Create it with `python -m experiments.run.detection.check_data_audit`.")
+    else:
+        show_df(audit, DATA_AUDIT)
+
+    st.markdown("**2. One 30-minute grid**")
+    st.markdown(
+        "AEMO moved from 30-minute to 5-minute settlement on **1 October 2021**. Every interval is "
+        "averaged onto one regular 30-minute grid, labelled by interval end, so the format change "
+        "is not mistaken for drift. A gap would become an empty (NaN) half-hour, never filled in."
+    )
+
+    st.markdown("**3. Split by time**")
+    explain(
+        "The frozen Train / Calibration / Test split and how many half-hours each holds.",
+        "Everything is fitted on Train only. Test starts in March 2020, so every documented drift "
+        "event falls in Test.",
+    )
+    splits = read(DATA_SPLITS)
+    if splits is None:
+        st.info("Not generated yet. Create it with `python -m experiments.run.detection.check_data_audit`.")
+    else:
+        show_df(splits, DATA_SPLITS)
+
+    st.markdown("**4. Deseasonalise** (`src/drift_lab/aemo/deseasonalise.py`): the detector's input")
+    st.markdown(
+        "Demand swings by season, weekday and time of day; a detector fed raw demand would alarm "
+        "every summer and every Monday. So the expected seasonal shape is removed first:\n\n"
+        "1. **Fit on Train only:** expected demand = base level × day-of-year factor × "
+        "(weekday, half-hour) factor. The base level is mean Train demand; the day-of-year factor "
+        "is smoothed with a 31-day rolling mean that wraps December into January (29 February is "
+        "interpolated); the weekday × half-hour factor has 7 × 48 = 336 slots.\n"
+        "2. **Apply it frozen** to Train, Calibration and Test: residual = actual − expected. Later "
+        "data never changes the profile.\n"
+        "3. **Standardise** the residual with Train's mean and standard deviation (z-score units).\n"
+        "4. **Detect** on one continuous stream: Train + Calibration warm the detector up, and only "
+        "Test alarms are scored.\n\n"
+        "What is left is what seasonality does not explain; a lasting shift in it is drift. The "
+        "residual feeds **detection only**. The forecasters use the 30-minute demand directly."
+    )
+
+    st.divider()
+    st.subheader("Synthetic benchmark")
+    st.markdown(
+        "AEMO has no exact ground truth for when drift starts. Synthetic series have known change "
+        "points, so detectors are tuned and scored exactly (false alarms, missed drifts, delay) "
+        "before they touch real data. Built in NumPy (`src/drift_lab/synthetic/generator.py`); "
+        "river provides the detectors that run on it.\n\n"
+        "**y(t) = 20 + 5·sin(2πt / 48) + drift(t) + noise**, noise ~ N(0, 1)\n\n"
+        "- A daily cycle of 48 steps, like half-hourly demand.\n"
+        "- 20,000 steps (about 417 days), seeds 1-5.\n"
+        "- Drift is a level shift of **+8**, eight times the noise standard deviation."
+    )
+    show_df(SYNTHETIC_KINDS)
+    try:
+        _stretch(st.pyplot, synthetic_preview())
+        st.caption("Seed 1. Dashed lines are the true change points; the shaded band is the gradual ramp.")
+    except Exception as exc:  # noqa: BLE001 - the page still works without the package
+        st.info(f"Synthetic preview unavailable: {exc}")
+    st.caption(
+        "Limits: one daily cycle, Gaussian noise and level shifts only. No weekly or annual "
+        "seasonality and no change in variance, which is why detectors are also validated on AEMO."
+    )
 
 
 def tab_forecasting() -> None:
-    st.header("Frozen baselines (Figure 1)")
+    st.header("Forecast: frozen baselines (Figure 1)")
+    method(
+        "**Models** (all forecast half-hourly demand in MW, from the 30-minute grid):\n"
+        "- **NHITS:** a neural network. 7 days of input (336 half-hours), forecasts 1 day "
+        "(48 half-hours) ahead, 500 training steps, seeds 1-5.\n"
+        "- **XGBoost:** gradient-boosted trees, seeds 1-5.\n"
+        "- **DHR+ARIMA:** dynamic harmonic regression (Fourier terms for the daily and weekly "
+        "cycles) plus ARIMA on the leftover errors. Deterministic, so one run.\n"
+        "- **Seasonal naive:** the simple baseline. It is not a candidate for selection.\n\n"
+        "**Frozen baselines (F1):** each model is fitted once on Train and never updated, then "
+        "run through the whole Test period. The 7-day rolling MAE shows how fast it degrades.\n\n"
+        "**Forecaster selection** (rule fixed before the run): each model is fitted on Train and "
+        "scored on the Calibration window. Per region the lowest 7-day rolling MAE wins; if another "
+        "model is within one seed spread, the faster one wins. A forecaster is selected only if the "
+        "same model wins in every region. The selected forecaster is the one carried through "
+        "Adaptation, Uncertainty and Escalation."
+    )
     explain(
         "Forecasters fitted once on the Train period and never updated, then run through the "
         "whole Test period. The line is the 7-day rolling MAE.",
@@ -455,21 +507,28 @@ def tab_forecasting() -> None:
     else:
         show_df(sel, SELECTION)
 
-    st.subheader("Forecaster selection: held-out Nov-Dec 2019")
-    explain(
-        "The same selection repeated on a period the models were not fitted or calibrated on, "
-        "as a check that the calibration-window pick holds up.",
-    )
-    holdout = TABLES / "forecaster_selection" / "forecaster_selection_holdout_nov_dec_2019.csv"
-    hold = read(holdout)
-    if hold is None:
-        st.info("Not generated yet. Create it with `python -m experiments.run.forecasting.run_aemo_holdout_selection`.")
-    else:
-        show_df(hold, holdout)
-
 
 def tab_detection() -> None:
     st.header("Drift detection")
+    method(
+        "**Detectors:** ADWIN, KSWIN and Page-Hinkley, from the river library.\n\n"
+        "**Tuning (synthetic only):** a grid of settings per detector is run on the synthetic "
+        "benchmark, seeds 1-5. A setting is *eligible* only if, on every seed, it raises no false "
+        "alarm on the no-drift series, stays at or below 2 false alarms per year on every series, "
+        "and misses no drift. The winner has the fewest false alarms per year, then the shortest "
+        "mean delay. Winners are frozen and used unchanged everywhere after.\n\n"
+        "**On AEMO:** each detector reads the deseasonalised, standardised demand residual (Data "
+        "tab) as one continuous stream. Train and Calibration warm it up; only Test alarms are "
+        "scored. An alarm is *accepted* if it comes at least 14 days after the previous accepted "
+        "one (refractory period); accepted alarms are what trigger retraining.\n\n"
+        "**Matching to documented events (T2):** an event's window runs from its start to its end "
+        "plus 7 days. An accepted alarm inside a window matches that event; alarms before an event "
+        "starts never match it; one alarm matches at most one event, and each event is credited "
+        "once. Events are not complete ground truth, so an alarm outside every window is "
+        "*unmatched*, not a false alarm. Tier 1 and Tier 2 events are scored separately, and a "
+        "chance baseline (the same number of alarms placed at random, at least 1,000 times) shows "
+        "what matching by luck looks like."
+    )
 
     st.subheader("Detector decision: tuning on synthetic data")
     explain(
@@ -539,7 +598,7 @@ def tab_detection() -> None:
         show_df(df, t2)
 
     c1, c2 = st.columns(2)
-    det = c1.selectbox("Detector (Figure 2, AEMO)", ["adwin", "kswin", "page_hinkley"])
+    det = c1.selectbox("Detector (Figure 2, AEMO)", ["adwin", "kswin", "page_hinkley"], index=2)
     reg = c2.selectbox("Region (Figure 2, AEMO)", list(REGIONS))
     show_image(
         FIGURES / "figure2" / f"f2_detection_standard_half_hourly_post_tune_{det}_{reg}.png",
@@ -559,52 +618,28 @@ def adaptation_filters(df: pd.DataFrame, key: str) -> pd.DataFrame:
     return out
 
 
-def cross_check_table(runs: pd.DataFrame) -> pd.DataFrame | None:
-    """Ishan's Arm A/B runner (experiments/run/forecasting/run_aemo_adaptation_arms.py,
-    split_id aemo_adaptation_arms_v1) against the team runner, whole-TEST MAE."""
-    mine_id = "aemo_adaptation_arms_v1"
-    team_id = ADAPT_SPLIT_ID
-    if "split_id" not in runs.columns or mine_id not in set(runs["split_id"]):
-        return None
-    mine = runs[(runs["split_id"] == mine_id) & (runs["metric_name"] == "mae")].copy()
-    latest = mine.groupby(["method", "region"])["timestamp"].transform("max")
-    mine = mine[mine["timestamp"] == latest]
-    parts = mine["method"].str.split("+", n=1, expand=True)
-    mine["model"] = parts[0]
-    mine["arm"] = parts[1].map({"never_retrain": "A", "scheduled_retrain_30d": "B"})
-    mine = mine.dropna(subset=["arm"]).groupby(["model", "arm", "region"], as_index=False).agg(
-        ishan_mae=("metric_value", "first"), ishan_retrains=("n_retrains", "first")
-    )
-
-    team = runs[
-        (runs["split_id"] == team_id) & (runs["metric_name"] == "mae") & (runs["regime"] == "full")
-    ].copy()
-    if team.empty:
-        return None
-    parts = team["method"].str.split("/", n=1, expand=True)
-    team["model"], team["arm"] = parts[0], parts[1].str[0]
-    team = team[team["arm"].isin(["A", "B"])]
-    team["seed_key"] = team["seed"].fillna(-1)
-    latest = team.groupby(["model", "arm", "region", "seed_key"])["timestamp"].transform("max")
-    team = team[team["timestamp"] == latest]
-    team = team.groupby(["model", "arm", "region"], as_index=False).agg(
-        team_mae=("metric_value", "mean"), team_seeds=("seed_key", "nunique")
-    )
-    both = mine.merge(team, on=["model", "arm", "region"], how="outer").sort_values(
-        ["model", "region", "arm"]
-    )
-    both["difference (%)"] = (both["ishan_mae"] / both["team_mae"] - 1) * 100
-    return both.round(1).reset_index(drop=True)
-
-
 def tab_adaptation() -> None:
     st.header("Adaptation arms")
-    st.markdown(
-        "- **A** never retrain  \n"
-        "- **B** retrain every 30 days, on the last 30 days  \n"
-        "- **C** retrain on each accepted drift alarm, on all history  \n"
-        "- **D** retrain on each accepted drift alarm, on a recent window "
-        "(30 / 60 / 120 / 180 days; 180 is reported in the main tables)"
+    method(
+        "**Four arms:**\n"
+        "- **A** never retrain (control)\n"
+        "- **B** retrain every 30 days, on the last 30 days (scheduled control)\n"
+        "- **C** retrain on each accepted drift alarm, on all history\n"
+        "- **D** retrain on each accepted drift alarm, on a recent window only. The window is "
+        "swept over 30, 60, 120 and 180 days; 180 is reported in the main tables.\n\n"
+        "Arms A and B use no detector, so they are shared by both detectors. Arms C and D retrain "
+        "on the detector's accepted alarms (Detection tab).\n\n"
+        "**Retraining boundary:** for an accepted alarm on day *d*, the old model forecasts "
+        "through the end of day *d*, retraining uses data up to day *d*, and the new model "
+        "forecasts from day *d* + 1.\n\n"
+        "**Regimes:** each Test timestamp is labelled pre-drift, drift or post-drift.\n"
+        "- **Global (primary):** drift is every documented event plus a 7-day buffer after it; "
+        "pre-drift is before the first event; post-drift runs from the end of one drift window "
+        "to the next event.\n"
+        "- **Event-local (extra comparison):** only the 7 days before an event, the event itself "
+        "and the 7 days after it; everything else is left out.\n\n"
+        "**Recorded per arm:** MAE by regime, number of retrains, training samples, wall-clock "
+        "time, drift MAE gain vs arm A, and gain per retrain."
     )
     det = pick_detector("adapt")
     local = pick_version("adapt")
@@ -612,6 +647,20 @@ def tab_adaptation() -> None:
         f"Arms C and D are triggered by **{DETECTORS[det]}** alarms. Arms A and B use no detector "
         "and are the same in both views."
     )
+
+    st.subheader("Arm D sweep: which recent window is best?")
+    explain(
+        "Arm D's four window lengths side by side. The *winner* column marks the window with the "
+        "lowest drift-period MAE for that model and region ('tie' if the runner-up is within one "
+        "seed spread).",
+        "The winner is chosen on test-period error, so treat it as a result to report, not as a "
+        "tuned setting.",
+    )
+    df = read(sweep_path(det, local))
+    if df is None:
+        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_arm_d_sweep`.")
+    else:
+        show_df(df, sweep_path(det, local))
 
     st.subheader("Table 3: forecast accuracy by regime")
     explain(
@@ -640,20 +689,6 @@ def tab_adaptation() -> None:
     else:
         show_df(adaptation_filters(df, "t4"), t4_path(det, local))
 
-    st.subheader("Arm D sweep: which recent window is best?")
-    explain(
-        "Arm D's four window lengths side by side. The *winner* column marks the window with the "
-        "lowest drift-period MAE for that model and region ('tie' if the runner-up is within one "
-        "seed spread).",
-        "The winner is chosen on test-period error, so treat it as a result to report, not as a "
-        "tuned setting.",
-    )
-    df = read(sweep_path(det, local))
-    if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_arm_d_sweep`.")
-    else:
-        show_df(df, sweep_path(det, local))
-
     st.subheader("Figure 3: four-arm comparison")
     explain(
         "The 7-day rolling MAE through the test period for arms A, B, C and the best arm-D window. "
@@ -671,24 +706,28 @@ def tab_adaptation() -> None:
         "experiments.produce.produce_figure_f3",
     )
 
-    runs_path = RESULTS / "runs.csv"
-    if runs_path.exists():
-        check = cross_check_table(load_csv(str(runs_path), runs_path.stat().st_mtime))
-        if check is not None:
-            with st.expander("Cross-check: Ishan's Arm A/B runner vs the team runner"):
-                st.caption(
-                    "Whole-test MAE (MW) of Arm A and B from the ADWIN runs. Ishan's runner refits "
-                    "Arm B on all history; the team runner refits on the last 30 days only, and "
-                    "averages seeds."
-                )
-                _stretch(st.dataframe, check, hide_index=True)
-
 
 def tab_uncertainty() -> None:
     st.header("Uncertainty")
     st.markdown(
         "Every forecast gets a 90% interval. Two methods are compared: **fixed split conformal** "
         "(one radius set once) and **AgACI** (adapts after every outcome)."
+    )
+    method(
+        "**Target:** a 90% prediction interval around every half-hourly forecast, issued one "
+        "half-hour at a time, replayed over each adaptation arm's saved forecasts.\n\n"
+        "**Calibration:** both methods start from the Calibration window's absolute errors "
+        "|actual − forecast|.\n\n"
+        "- **Fixed split conformal:** the radius is the conformal quantile of the Calibration "
+        "errors, set once and never updated on Test. Every interval is forecast ± radius. Its "
+        "coverage guarantee assumes the errors do not drift, so it is the non-adaptive baseline.\n"
+        "- **AgACI:** several candidate intervals, each adjusting its own level after every miss "
+        "or hit (adaptive conformal inference) from a rolling 7-day buffer of recent errors. Their "
+        "bounds are combined by online aggregation, re-weighted after every outcome, so the "
+        "interval can widen, narrow and be asymmetric. One instance per forecaster × region × "
+        "arm × seed; it is not reset when the forecaster is retrained.\n\n"
+        "**Metrics, by regime (T5):** coverage (target 0.90), mean and normalised width, and worst "
+        "24-hour coverage. The interval's pinball loss is reported with forecast accuracy in T3."
     )
     det = pick_detector("uq")
 
@@ -737,13 +776,34 @@ def tab_escalation() -> None:
         "When the intervals cannot be trusted, a person reviews the forecast. These pages show how "
         "much review it takes to keep coverage on target."
     )
+    method(
+        "**Rule:** a forecast is sent for human review when its signal is above a threshold τ. "
+        "Reviewed forecasts are taken out; coverage is then measured on the forecasts that are "
+        "kept, against the intervals as issued.\n\n"
+        "**Signals:**\n"
+        "- **Interval width:** upper − lower of the 90% interval.\n"
+        "- **Nonconformity:** the mean |actual − forecast| over the previous 30 minutes (reported), "
+        "1 day or 7 days (backup). Lagged, so a forecast only uses errors already observed.\n\n"
+        "**Threshold sweep:** every distinct signal value is tried as τ, giving the escalation "
+        "curve (F5): review rate against kept coverage. Under width, fixed split conformal has "
+        "one constant width, so only 0% or 100% review is possible.\n\n"
+        "**Operating points (T6):** the smallest review rate that keeps 0.90 or 0.95 coverage "
+        "(*unreachable* if none does), and the coverage reached when 5%, 10% or 20% of forecasts "
+        "are reviewed."
+    )
     det = pick_detector("esc")
     signal = st.radio(
         "Escalation signal",
         list(SIGNALS),
         format_func=SIGNALS.get,
         horizontal=True,
-        help="What decides that a forecast needs review: the interval width, or the recent error.",
+        help="What decides that a forecast needs review: the interval width, or the recent error. "
+        "Width and the 30-minute nonconformity are the reported signals; 1 day and 7 days are "
+        "backup, to show why the shortest look-back was kept.",
+    )
+    st.caption(
+        "Each operating point is found by sweeping the threshold on the same test data it is scored "
+        "on, so it is the best trade-off available in hindsight, not a threshold fixed in advance."
     )
 
     st.subheader("Table 6: escalation operating points")
@@ -786,31 +846,46 @@ def tab_escalation() -> None:
         "experiments.produce.produce_figure_f5",
     )
 
-    st.divider()
+
+def tab_comparison() -> None:
+    st.header("Comparison with Team 42")
+    st.markdown(
+        "A shared experiment, not one of this team's own findings: Group A is this team's "
+        "distribution-shift trigger (Page-Hinkley on the deseasonalised demand residual), Group B "
+        "is Team 42's error-based trigger (Page-Hinkley on forecast error). Both use arm D (180 "
+        "days), AgACI and the same regions, seeds and regimes. The forecasters differ: XGBoost "
+        "for Group A, HistGradientBoostingRegressor for Group B."
+    )
+
     st.subheader("Table 7: our trigger vs Team 42's trigger")
+    t7_settings = T7.with_name("table_t7_trigger_comparison_page_hinkley_settings.csv")
+    settings = read(t7_settings)
+    if settings is not None:
+        st.markdown("**Settings behind this comparison**")
+        show_df(settings, t7_settings)
     explain(
-        "A headline comparison of Group A (this team's distribution-shift trigger, Page-Hinkley) "
-        "and Group B (Team 42's error-based trigger) on the same forecaster, arm, UQ method and "
-        "escalation signal.",
-        "Group B is Team 42's error-based trigger. The comparison is only fair when both groups "
-        "share the same setup, so check the settings below the table.",
+        "Drift-period MAE, worst 24-hour coverage, review rates for both escalation signals, and "
+        "how many alarms and retrains each trigger produced, per region.",
+        "Read the settings first: the comparison is only fair where both groups share the setup, "
+        "and the last column says where they do not.",
     )
     df = read(T7)
     if df is None:
         st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t7`.")
     else:
         show_df(df, T7)
-    t7_settings = T7.with_name("table_t7_trigger_comparison_page_hinkley_settings.csv")
-    settings = read(t7_settings)
-    if settings is not None:
-        with st.expander("Settings behind this comparison"):
-            show_df(settings, t7_settings)
-    show_image(F6, "Figure 6: where each trigger fires", "experiments.produce.produce_figure_f6")
+
+    st.subheader("Figure 6: where each trigger fires")
     explain(
         "Where each trigger raises alarms through the test period, one row per group, with "
         "documented events shaded.",
-        "Alarms that have no alarm from the other group nearby are disagreements.",
+        "An alarm with no alarm from the other group within ±7 days is a disagreement.",
     )
+    show_image(F6, "Figure 6: where each trigger fires", "experiments.produce.produce_figure_f6")
+    alarms = read(FIGURES / "figure6" / "group_b_team42_alarms.csv")
+    if alarms is not None:
+        with st.expander("Team 42's accepted alarms"):
+            show_df(alarms, FIGURES / "figure6" / "group_b_team42_alarms.csv")
 
 
 def main() -> None:
@@ -818,13 +893,13 @@ def main() -> None:
     st.title("Detecting and adapting to concept drift")
     st.caption("Team PG-S2-41 | AEMO electricity demand, SA1 and NSW1")
     tabs = st.tabs([
-        "Overview", "Method and settings", "Baselines", "Detection",
-        "Adaptation", "Uncertainty", "Escalation",
+        "Overview", "Data", "Forecast", "Detection",
+        "Adaptation", "Uncertainty", "Escalation", "Comparison",
     ])
     for tab, fn in zip(
         tabs,
-        (tab_overview, tab_method, tab_forecasting, tab_detection,
-         tab_adaptation, tab_uncertainty, tab_escalation),
+        (tab_overview, tab_data, tab_forecasting, tab_detection,
+         tab_adaptation, tab_uncertainty, tab_escalation, tab_comparison),
     ):
         with tab:
             fn()

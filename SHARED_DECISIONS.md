@@ -124,8 +124,10 @@ Team 42 must freeze its own causal error preprocessing before final calibration.
 | Decision | Agreed value |
 |---|---|
 | Detectors | ADWIN, KSWIN and Page-Hinkley |
+| Detector parameters | Each team tunes and freezes its own; parameters need not match across teams |
 | Detector state | One continuous detector instance per independent run |
 | Test boundary | Do not recreate the detector on 1 March 2020 |
+| Warm-up | TRAIN + Calibration, for both teams |
 | Warm-up alarms | Ignore all pre-test alarms |
 | Recorded alarms | Test-period alarms only |
 | Refractory processing | Apply before event matching and before adaptation |
@@ -135,19 +137,15 @@ Team 42 must freeze its own causal error preprocessing before final calibration.
 | Adaptation input | The same accepted alarms used in T2 |
 | AEMO terminology | Use `unmatched`, not `false positive`, when no documented event is matched |
 
-The final warm-up period is still pending agreement in Section 15.
-
 ## 7. Refractory period
 
-| Decision | Current value |
+| Decision | Agreed value |
 |---|---|
-| Proposed refractory period | 14 calendar days |
+| Refractory period | 14 calendar days, for both teams |
 | Start | Time of an accepted alarm |
 | Rule | Suppress later accepted alarms during the following 14 days |
 | Matching dependency | Refractory filtering does not depend on whether an alarm matches an event |
 | Retraining dependency | Only accepted alarms can trigger retraining |
-
-The 14-day value must be confirmed jointly with Team 42 before the final experiments.
 
 ## 8. AEMO event catalogue
 
@@ -159,7 +157,7 @@ The 14-day value must be confirmed jointly with Team 42 before the final experim
 | Positive-event tiers | Tier 1 and Tier 2 |
 | Tier reporting | Report Tier 1 and Tier 2 separately |
 | Five-Minute Settlement | Exclude from positive Tier 1 targets; retain as a negative control |
-| COVID | Replace the 1 April start if an authoritative source confirms a late-March demand change |
+| COVID | 16 March – 17 May 2020 (`EVT-2020-02`, NEM-wide, Tier 1), following AEMO Quarterly Energy Dynamics Q2 2020 |
 | Catalogue freeze | Freeze dates and classifications before the final AEMO run |
 
 ## 9. Event-matching rules
@@ -176,8 +174,7 @@ The 14-day value must be confirmed jointly with Team 42 before the final experim
 | Remaining detections | Label `unmatched` |
 | Remaining positive events | Label `missed` |
 | Negative controls | Report separately; they do not increase positive-event coverage |
-
-The priority rule for overlapping event windows must be frozen before the final run.
+| Overlapping event windows | Same rule for both teams: Tier 1 events are matched first, then Tier 2, each in chronological order; each event takes the first unused accepted detection in its window |
 
 ### Regime attribution
 
@@ -273,7 +270,6 @@ Calculate the chance baseline separately for every detector × region × input-s
 
 | Decision | Agreed value |
 |---|---|
-| Shared advanced forecaster | NHITS |
 | Forecast horizon | 48 half-hourly steps |
 | Input size | 336 half-hourly steps |
 | Training steps | 500 |
@@ -288,7 +284,9 @@ Calculate the chance baseline separately for every detector × region × input-s
 | A | Never retrain |
 | B | Retrain every 30 days |
 | C | Accepted drift alarm → retrain using all available history |
-| D | Accepted drift alarm → retrain using the most recent 3 months |
+| D | Accepted drift alarm → retrain using only the most recent window |
+
+Arm D's window is swept over 30, 60, 120 and 180 days. The best window per model × region has the lowest drift-regime MAE and is selected on the TEST period; 180 days is the window carried forward to T7.
 
 ### Retraining boundary
 
@@ -297,6 +295,8 @@ For an accepted alarm on day `d`:
 - the old model forecasts through the end of day `d`;
 - retraining uses observations available through day `d`;
 - the new model begins forecasting on day `d + 1`.
+
+Retraining budget: at most 8 retrains per year for the drift-triggered arms (C and D), the same limit for both teams. Arms A and B are control arms with a fixed schedule, so the budget does not apply to them.
 
 Record for every arm:
 
@@ -309,24 +309,36 @@ Record for every arm:
 
 Do not run final Arms C and D until the detector configuration and accepted-alarm stream are frozen.
 
-## 15. Decisions still requiring confirmation
+### Adaptation regimes
 
-These items are not final and must be agreed before the final experiments.
-
-| Decision needed | Current options |
+| Decision | Agreed value |
 |---|---|
-| Detector warm-up | Supervisor requested TRAIN warm-up; Team 42 proposed January–February 2020 Calibration errors. Team 41 has implemented the supervisor's requested TRAIN + Calibration warm-up |
-| Team 42 TRAIN errors | Use causal out-of-fold TRAIN errors, or fit error scaling on Calibration |
-| Refractory period | Confirm the proposed 14 calendar days |
-| Tier-specific precision formula | Confirm the pooled-denominator definition in Section 11 (Team 41 reverted to this from the isolated-denominator version; each tier's matched count is now divided by all accepted detections, the same denominator as the overall `detection precision`) |
-| Overlapping event windows | Freeze one deterministic event-priority rule |
-| COVID start | Confirm the cited late-March date/window |
-| Final detector parameters | Insert the exact frozen ADWIN, KSWIN and Page-Hinkley settings selected by T1 |
-| Team 42 error preprocessing | Freeze aggregation, autocorrelation treatment and standardisation |
-| Maximum retraining budget | Agree the same limit for both teams |
-| UQ method | Freeze the same 90% interval and escalation method for both teams |
+| Primary regime | Global: every TEST timestamp gets one regime. `pre_drift` before the first event; `drift` inside an event window `[drift_start, drift_end + 7 days)`; `post_drift` after that window until the next event |
+| Comparison regime | Event-local, an extra experiment: 7 days before the event (`pre_drift`), the event itself (`drift`), 7 days after it (`post_drift`), with no drift-end buffer; timestamps outside every window are left out |
+| Overlaps | `drift > pre_drift > post_drift`; earliest event for `drift` and `pre_drift`, most recently started event for `post_drift` |
+| Reporting | Headline results use the global regime; event-local results are reported alongside for comparison |
 
-## 16. Results and reproducibility
+## 15. Uncertainty quantification
+
+| Decision | Agreed value |
+|---|---|
+| Methods | Fixed split conformal and AgACI, both run by both teams |
+| Target | 90% prediction interval (`alpha = 0.10`) |
+| Calibration | Absolute Calibration-window residuals `|actual - forecast|` |
+| Fixed split conformal | One radius from the conformal quantile of the Calibration residuals; never updated on TEST. The non-adaptive baseline |
+| AgACI | Online aggregation of ACI candidates; updates after each observed outcome; one instance per forecaster × region × arm × seed, not reset on retraining |
+| Results | Coverage and width by regime; worst rolling 24-hour coverage |
+
+## 16. Escalation
+
+| Decision | Agreed value |
+|---|---|
+| Method | Threshold sweep: escalate a forecast for human review when its signal is strictly above threshold `τ`; every distinct signal value is tried as `τ` |
+| Signals | Both teams sweep the same two signals: the 90% interval width (`upper - lower`), and the 30-minute nonconformity score (the previous half-hour's `|actual - forecast|`, known before the forecast is issued) |
+| UQ methods swept | Both fixed split conformal and AgACI. Under width, fixed split conformal's constant width only allows 0% or 100% review |
+| Results | Review rate needed for 0.90 and 0.95 retained coverage (`unreachable` if no threshold reaches it), and retained coverage at 5%, 10% and 20% review, by regime |
+
+## 17. Results and reproducibility
 
 | Decision | Agreed value |
 |---|---|
@@ -340,7 +352,7 @@ These items are not final and must be agreed before the final experiments.
 | Ledger policy | Append-only; never manually edit historical results |
 | Duplicate rows | Producers select the latest matching completed run |
 
-## 17. Final cross-team comparison
+## 18. Final cross-team comparison
 
 For T7, both teams must use the same:
 

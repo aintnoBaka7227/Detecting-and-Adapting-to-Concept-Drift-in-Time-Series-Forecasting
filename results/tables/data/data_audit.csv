@@ -1,0 +1,17 @@
+step,check,action,SA1,NSW1
+Read,Rows read,"Monthly AEMO CSVs, joined in time order","302,448","302,448"
+Clean,Required columns present,Stop if any is missing,yes,yes
+Clean,Non-numeric demand / price,Coerced to NaN so they show up as missing,0,0
+Clean,Invalid timestamps,Dropped (cannot be placed in time),0,0
+Clean,Out-of-order timestamps,"Counted, then the series is sorted by time",138,429
+Clean,Exact duplicate rows,Dropped,0,0
+Clean,"Same timestamp, different values",First row kept,0,0
+Clean,Missing demand / price,Reported,0 / 0,0 / 0
+Clean,Sampling gaps (30-min before Oct 2021 / 5-min after),Reported,0 / 0,0 / 0
+Clean,Period type,Reported,"TRADE (302,448)","TRADE (302,448)"
+Clean,Negative demand intervals,"Reported, kept (values never altered)",87,0
+Clean,Demand range (MW),"Reported, kept","-46.4 to 3,141.7","3,664.3 to 13,700.9"
+Clean,"Price range ($/MWh, not studied)","Reported, kept","-1,000 to 16,600","-1,000 to 16,600"
+Clean,Rows after cleaning,Final sort check,"302,448","302,448"
+Standardise,Half-hours on the 30-minute grid,"5-minute data averaged to 30 minutes, interval-end label","105,168","105,168"
+Standardise,"Empty half-hours (NaN, not imputed)",Gaps left as NaN,0,0
