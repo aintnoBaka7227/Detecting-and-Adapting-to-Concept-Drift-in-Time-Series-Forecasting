@@ -161,6 +161,28 @@ there is no download step.
 
 ---
 
+
+## Results page (Streamlit)
+
+An interactive page for every table and figure, from data to escalation. It is
+read-only: it shows what the `produce_*` scripts already saved in `results/`
+and never runs a model.
+
+```bash
+uv sync --extra dev          # or: pip install -e ".[dev]"  (Python 3.11+)
+python3 -m streamlit run app/streamlit_app.py
+```
+
+It opens at http://localhost:8501. No R or pipeline run is needed. The results
+it reads are committed in `results/`.
+
+The tabs follow the pipeline: Baselines, Detection, Adaptation, Uncertainty,
+Escalation. Page-Hinkley is selected by default. Every table has a **Filter and
+choose columns** box to hide columns or filter rows. To refresh the page after
+rerunning a stage, rerun the later stages and reload the page.
+
+---
+
 ## Repository layout
 
 ```
