@@ -12,8 +12,9 @@ which is instant. Every table and figure has a short "what this shows" note.
 Tabs follow the pipeline, in the order the report presents it, so tables
 T1-T7 and figures F1-F6 appear in sequence: Data -> Forecast -> Detection ->
 Adaptation -> Uncertainty -> Escalation, then the shared comparison with
-Team 42. Pickers default to the reported setup (Page-Hinkley, NHITS, global
-regimes); ADWIN stays selectable wherever a table depends on the detector.
+Team 42. From Table 3 on, every table and figure opens on the reported setup
+(NHITS forecasts, Page-Hinkley trigger); the other forecasters and ADWIN stay
+selectable. The shared comparison keeps its own setup.
 
 A missing file shows a hint about which script creates it instead of
 crashing the page. Rerun the pipeline (python -m experiments.run_pipeline)
@@ -37,9 +38,16 @@ RESULTS = ROOT / "results"
 TABLES = RESULTS / "tables"
 FIGURES = RESULTS / "figures"
 
-MODELS =("nhits", "xgboost", "dhr_arima")
 REGIONS = ("SA1", "NSW1")
+MODELS = ("nhits", "xgboost", "dhr_arima")
 DETECTORS = {"adwin": "ADWIN", "page_hinkley": "Page-Hinkley"}
+# From Table 3 on, every table and figure opens on the reported setup (NHITS
+# forecasts, Page-Hinkley trigger); the other models and ADWIN stay selectable.
+# The shared comparison (T7, F6) keeps its own setup.
+DET = "page_hinkley"
+DET_LABEL = DETECTORS[DET]
+MODEL = "nhits"
+MODEL_LABEL = "NHITS"
 SIGNALS = {
     "width": "Interval width",
     "nonconformity_30min": "Nonconformity, 30 minutes",
@@ -162,12 +170,18 @@ def pick_detector(key: str) -> str:
     return st.radio(
         "Trigger detector",
         list(DETECTORS),
-        index=list(DETECTORS).index("page_hinkley"),  # the chosen detector
+        index=list(DETECTORS).index(DET),
         format_func=DETECTORS.get,
         horizontal=True,
         key=f"det-{key}",
         help="The detector whose accepted alarms trigger arms C and D. Arms A and B use no detector.",
     )
+
+
+def pick_models(df: pd.DataFrame, box, key: str) -> list[str]:
+    """Model filter that opens on the reported forecaster only."""
+    options = sorted(df["model"].unique())
+    return box.multiselect("Model", options, default=[m for m in options if m == MODEL], key=key)
 
 
 def pick_version(key: str) -> bool:
@@ -213,6 +227,7 @@ SELECTION = TABLES / "forecaster_selection" / "forecaster_selection.csv"
 WINNERS = TABLES / "fine_tune_on_synthetic_winners.csv"
 DATA_AUDIT = TABLES / "data" / "data_audit.csv"
 DATA_SPLITS = TABLES / "data" / "data_splits.csv"
+EVENTS = ROOT / "src" / "drift_lab" / "aemo" / "events.csv"
 # The synthetic benchmark's four series (drift_lab/synthetic/generator.py, n = 20,000).
 SYNTHETIC_KINDS = pd.DataFrame(
     [
@@ -232,39 +247,29 @@ def arm_family(arm: str) -> str:
     return str(arm)[0]
 
 
-def adaptation_findings(det: str) -> list[str]:
-    """Plain-language findings computed from the committed Table 4 and Table 5,
-    so they stay true when the tables are regenerated."""
+def adaptation_findings() -> list[str]:
+    """Plain-language findings for NHITS with the Page-Hinkley trigger, computed
+    from the committed Table 4 and Table 5 so they stay true when the tables
+    are regenerated."""
     out: list[str] = []
-    t4 = read(t4_path(det, False))
+    t4 = read(t4_path(DET, False))
     if t4 is not None and "drift MAE gain vs arm A (MW)" in t4.columns:
-        t4 = t4.assign(gain=t4["drift MAE gain vs arm A (MW)"].map(num), fam=t4["arm"].map(arm_family))
-        cells = t4[["model", "region"]].drop_duplicates()
-        n = len(cells)
-        wins = {
-            fam: int((t4[(t4["fam"] == fam)].set_index(["model", "region"])["gain"] < 0).sum())
-            for fam in ("B", "C", "D")
-        }
-        names = {"B": "retraining every 30 days (B)", "C": "retraining on a drift alarm with full history (C)",
-                 "D": "retraining on a drift alarm with a 180-day window (D)"}
-        for fam in ("C", "B", "D"):
-            out.append(f"{names[fam][0].upper() + names[fam][1:]} beat never retraining (A) on drift-period error "
-                       f"in **{wins[fam]} of {n}** model and region combinations.")
-        best = (
-            t4.sort_values("gain").groupby(["model", "region"], as_index=False).first()
-        )
-        per_model = {}
-        for model, grp in best.groupby("model"):
-            per_model[model] = ", ".join(f"{r}: {ARM_NAMES[arm_family(a)].split('  ')[0]}"
-                                         for r, a in zip(grp["region"], grp["arm"]))
-        out.append("Best arm on drift-period error, by model: "
-                   + "; ".join(f"**{m}** ({v})" for m, v in per_model.items()) + ".")
-    t5 = read(t5_path(det))
+        t4 = t4[t4["model"] == MODEL].assign(gain=t4["drift MAE gain vs arm A (MW)"].map(num))
+        for region, grp in t4.groupby("region", sort=False):
+            gains = ", ".join(
+                f"{arm_family(arm)} {gain:+.0f} MW"
+                for arm, gain in zip(grp["arm"], grp["gain"])
+                if arm_family(arm) != "A"
+            )
+            out.append(f"{region}, drift-period MAE change vs never retraining (A): {gains} "
+                       "(negative is better).")
+    t5 = read(t5_path(DET))
     if t5 is not None and {"regime", "coverage", "UQ method"} <= set(t5.columns):
-        drift = t5[t5["regime"] == "drift"].assign(cov=lambda d: d["coverage"].map(num))
+        drift = t5[(t5["model"] == MODEL) & (t5["regime"] == "drift")]
+        drift = drift.assign(cov=drift["coverage"].map(num))
         for method, grp in drift.groupby("UQ method"):
             out.append(f"During drift, **{method}** intervals covered {grp['cov'].min():.2f} to "
-                       f"{grp['cov'].max():.2f} of actual demand (target 0.90).")
+                       f"{grp['cov'].max():.2f} of actual demand across the four arms (target 0.90).")
     return out
 
 
@@ -315,16 +320,12 @@ Data -> Forecast -> Detect -> Adapt -> Uncertainty -> Escalation -> Comparison
     chosen = selected_forecaster()
     if chosen:
         st.markdown(f"- Forecaster selected on the Calibration window: **{chosen}**.")
-    for det, label in DETECTORS.items():
-        lines = adaptation_findings(det)
-        if lines:
-            with st.expander(f"Trigger detector: {label}", expanded=det == "page_hinkley"):
-                for line in lines:
-                    st.markdown(f"- {line}")
+    for line in adaptation_findings():
+        st.markdown(f"- {line}")
     st.caption(
-        "These lines are computed from the committed tables, so they change when the tables are "
-        "regenerated. Arm D is read at its 180-day window. DHR+ARIMA is deterministic, so it has "
-        "one run per region; NHITS and XGBoost have five seeds."
+        f"{MODEL_LABEL} forecasts with the {DET_LABEL} trigger, mean of five seeds. These lines are "
+        "computed from the committed tables, so they change when the tables are regenerated. Arm D "
+        "is read at its 180-day window."
     )
 
     with st.expander("Metrics glossary"):
@@ -462,7 +463,7 @@ Read -> Audit and clean -> 30-minute grid -> Split -> Deseasonalise
 
 
 def tab_forecasting() -> None:
-    st.header("Forecast: frozen baselines (Figure 1)")
+    st.header("Forecast")
     method(
         "**Models** (all forecast half-hourly demand in MW, from the 30-minute grid):\n"
         "- **NHITS:** a neural network. 7 days of input (336 half-hours), forecasts 1 day "
@@ -479,6 +480,31 @@ def tab_forecasting() -> None:
         "same model wins in every region. The selected forecaster is the one carried through "
         "Adaptation, Uncertainty and Escalation."
     )
+    st.subheader("Documented events")
+    explain(
+        "The shared event catalogue both teams use: 33 events from January 2020 to December 2023. "
+        "*Date type* is a single date or a date range. Every event also has a region, a public "
+        "source (mostly AEMO Quarterly Energy Dynamics, plus AEMO market notices and AER reports) "
+        "and the reason for its tier; those are in the downloaded CSV.",
+        "**Tier 1** events are well documented with a clear, NEM-wide effect on demand (COVID-19, "
+        "the December 2020 solar shift, the June 2022 market suspension, the late-2023 "
+        "system-security directions). **Tier 2** events are real but smaller or more local, mostly "
+        "minimum-demand records. NEM events count for both regions. These are reference events, "
+        "not complete ground truth; F1 marks them, and T2 matches alarms against them.",
+    )
+    events = read(EVENTS)
+    if events is None:
+        st.info(f"{EVENTS.name} not found.")
+    else:
+        events = events.assign(tier="Tier " + events["tier"].astype(str))[
+            ["event_name", "tier", "date_precision", "start_date", "end_date"]
+        ].rename(columns={
+            "event_name": "event", "date_precision": "date type",
+            "start_date": "start", "end_date": "end",
+        })
+        show_df(events, EVENTS)
+
+    st.subheader("Figure 1: frozen baselines")
     explain(
         "Forecasters fitted once on the Train period and never updated, then run through the "
         "whole Test period. The line is the 7-day rolling MAE.",
@@ -609,7 +635,7 @@ def tab_detection() -> None:
 
 def adaptation_filters(df: pd.DataFrame, key: str) -> pd.DataFrame:
     c1, c2, c3 = st.columns(3)
-    models = c1.multiselect("Model", sorted(df["model"].unique()), default=sorted(df["model"].unique()), key=f"m-{key}")
+    models = pick_models(df, c1, f"m-{key}")
     regions = c2.multiselect("Region", list(REGIONS), default=list(REGIONS), key=f"r-{key}")
     arms = c3.multiselect("Arm", list(ARM_NAMES), default=list(ARM_NAMES), format_func=ARM_NAMES.get, key=f"a-{key}")
     out = df[df["model"].isin(models) & df["region"].isin(regions)]
@@ -644,7 +670,8 @@ def tab_adaptation() -> None:
     det = pick_detector("adapt")
     local = pick_version("adapt")
     st.caption(
-        f"Arms C and D are triggered by **{DETECTORS[det]}** alarms. Arms A and B use no detector "
+        f"Opens on **{MODEL_LABEL}** forecasts. Arms C and D are triggered by **{DETECTORS[det]}** "
+        "alarms. Arms A and B use no detector "
         "and are the same in both views."
     )
 
@@ -660,7 +687,8 @@ def tab_adaptation() -> None:
     if df is None:
         st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_arm_d_sweep`.")
     else:
-        show_df(df, sweep_path(det, local))
+        models = pick_models(df, st, "m-sweep")
+        show_df(df[df["model"].isin(models)], sweep_path(det, local))
 
     st.subheader("Table 3: forecast accuracy by regime")
     explain(
@@ -698,7 +726,7 @@ def tab_adaptation() -> None:
         "that do not lower the line were wasted effort.",
     )
     c1, c2 = st.columns(2)
-    model = c1.selectbox("Model (Figure 3)", list(MODELS), key="f3-model")
+    model = c1.selectbox("Model (Figure 3)", list(MODELS), index=MODELS.index(MODEL), key="f3-model")
     region = c2.selectbox("Region (Figure 3)", list(REGIONS), key="f3-region")
     show_image(
         FIGURES / "figure3" / det / model / f"f3_four_arm_comparison_{det}_{model}_{region}.png",
@@ -745,7 +773,7 @@ def tab_uncertainty() -> None:
         st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t5`.")
     else:
         c1, c2, c3, c4 = st.columns(4)
-        models = c1.multiselect("Model", sorted(df["model"].unique()), default=sorted(df["model"].unique()), key="t5m")
+        models = pick_models(df, c1, "t5m")
         regions = c2.multiselect("Region", sorted(df["region"].unique()), default=sorted(df["region"].unique()), key="t5r")
         methods = c3.multiselect("UQ method", sorted(df["UQ method"].unique()), default=sorted(df["UQ method"].unique()), key="t5u")
         regimes = c4.multiselect("Regime", ["pre-drift", "drift", "post-drift"], default=["drift"], key="t5g")
@@ -761,7 +789,7 @@ def tab_uncertainty() -> None:
         "calibration failed. The shaded bands mark the drift regime.",
     )
     c1, c2 = st.columns(2)
-    model = c1.selectbox("Model (Figure 4)", list(MODELS), key="f4-model")
+    model = c1.selectbox("Model (Figure 4)", list(MODELS), index=MODELS.index(MODEL), key="f4-model")
     region = c2.selectbox("Region (Figure 4)", list(REGIONS), key="f4-region")
     show_image(
         FIGURES / "figure4" / det / model / f"f4_coverage_trajectory_{det}_{model}_{region}.png",
@@ -821,7 +849,7 @@ def tab_escalation() -> None:
         st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t6`.")
     else:
         c1, c2, c3, c4 = st.columns(4)
-        models = c1.multiselect("Model", sorted(df["model"].unique()), default=sorted(df["model"].unique()), key="t6m")
+        models = pick_models(df, c1, "t6m")
         regions = c2.multiselect("Region", sorted(df["region"].unique()), default=sorted(df["region"].unique()), key="t6r")
         methods = c3.multiselect("UQ method", sorted(df["UQ method"].unique()), default=sorted(df["UQ method"].unique()), key="t6u")
         regimes = c4.multiselect("Regime", ["pre-drift", "drift", "post-drift"], default=["drift"], key="t6g")
@@ -838,7 +866,7 @@ def tab_escalation() -> None:
         "conformal has a constant width.",
     )
     c1, c2 = st.columns(2)
-    model = c1.selectbox("Model (Figure 5)", list(MODELS), key="f5-model")
+    model = c1.selectbox("Model (Figure 5)", list(MODELS), index=MODELS.index(MODEL), key="f5-model")
     region = c2.selectbox("Region (Figure 5)", list(REGIONS), key="f5-region")
     show_image(
         FIGURES / "figure5" / det / model / signal / f"f5_escalation_curve_{det}_{signal}_{model}_{region}.png",
