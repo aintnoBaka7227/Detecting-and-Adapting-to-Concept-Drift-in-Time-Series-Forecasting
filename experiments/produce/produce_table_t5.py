@@ -57,7 +57,7 @@ from experiments.produce.table_adaptation_common import (
     official_d_arms,
 )
 from experiments.produce.table_image import save_table_image
-from experiments.run.adaptation.run_aemo_adaptation_arms import TARGET_COLUMN
+from experiments.run.adaptation.run_aemo_adaptation_arms import MODELS, TARGET_COLUMN
 
 UQ_METHOD = "split conformal (90%)"
 REGIME_ORDER = ("pre_drift", "drift", "post_drift")
@@ -118,9 +118,15 @@ def uq_by_run(latest: pd.DataFrame, rule: str = "global") -> tuple[pd.DataFrame,
 
 
 def build_table(
-    latest: pd.DataFrame | None = None, rule: str = "global", min_windows: int = 1
+    latest: pd.DataFrame | None = None,
+    rule: str = "global",
+    min_windows: int = 1,
+    models: tuple[str, ...] | None = None,
 ) -> tuple[pd.DataFrame, int]:
+    """`models` limits the table to those forecasters (None: every model)."""
     latest = latest_adaptation_rows() if latest is None else latest
+    if models:
+        latest = latest[latest["model"].isin(models)]
     per_run, skipped = uq_by_run(latest, rule)
     if per_run.empty:
         return per_run, skipped
@@ -167,16 +173,31 @@ def main() -> None:
         default=1,
         help="fewest complete 24h windows a regime needs to report a worst 24h coverage",
     )
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        choices=MODELS,
+        default=None,
+        help="only these forecasters, e.g. --models xgboost (default: every model)",
+    )
     args = parser.parse_args()
 
     results_io.TABLE5_DIR.mkdir(parents=True, exist_ok=True)
-    table, skipped = build_table(rule=args.regimes, min_windows=args.min_windows)
+    table, skipped = build_table(
+        rule=args.regimes,
+        min_windows=args.min_windows,
+        models=tuple(args.models) if args.models else None,
+    )
     if table.empty:
         raise SystemExit(
             "no run has interval columns -- run run_aemo_calibration_forecasts.py "
             "then rescore_adaptation_runs.py first"
         )
-    stem = "table_t5_coverage_width" + ("_event_local" if args.regimes == "event_local" else "")
+    stem = (
+        "table_t5_coverage_width"
+        + ("_event_local" if args.regimes == "event_local" else "")
+        + (f"_{'_'.join(args.models)}" if args.models else "")
+    )
     out = results_io.TABLE5_DIR / f"{stem}.csv"
     table.to_csv(out, index=False)
     scope = (
