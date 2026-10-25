@@ -1,0 +1,7 @@
+Outcome,Team 41 · SA1,Team 41 · NSW1,Team 42 · SA1,Team 42 · NSW1
+MAE during drift,281.3 ± 15.6 MW,906.9 ± 36.3 MW,186.48 ± 0.05 MW,430.59 ± 0.65 MW
+Worst 24h coverage,0.713 ± 0.027,0.733 ± 0.017,0.675 ± 0.032,0.658 ± 0.011
+Review rate for 0.90 coverage (interval width),0.0%,0.0%,0.0%,0.0%
+"Review rate for 0.90 coverage (nonconformity, 30 min)",0.0%,0.0%,0.0%,0.0%
+Detections raised,15,18,5,5
+Retrains triggered,15,18,5,5
