@@ -88,8 +88,42 @@ def explain(what: str, how: str | None = None) -> None:
             st.markdown(how)
 
 
+def _is_category(col: pd.Series) -> bool:
+    """A text column with a short list of repeated values (model, region, arm,
+    regime, metric...). Result cells such as '659.0 ± 3.1' are not categories."""
+    if not pd.api.types.is_string_dtype(col):
+        return False
+    values = col.dropna().astype(str)
+    if not 2 <= values.nunique() <= 30:
+        return False
+    return not values.str.contains("±").any() and values.str.match(r"\s*-?\d").mean() < 0.5
+
+
+def filter_columns(df: pd.DataFrame, key: str) -> pd.DataFrame:
+    """Let the viewer pick which columns to show and filter rows by any
+    category column. Nothing selected means no filter, so the table starts
+    unchanged. Used by every table, so each one is easy to filter live."""
+    with st.expander("Filter and choose columns"):
+        shown = st.multiselect(
+            "Columns to show", list(df.columns), default=list(df.columns), key=f"cols-{key}"
+        )
+        cats = [c for c in df.columns if _is_category(df[c])]
+        if cats:
+            st.caption("Filter rows (leave empty to keep all)")
+            for start in range(0, len(cats), 4):
+                row = st.columns(4)
+                for box, col in zip(row, cats[start : start + 4]):
+                    wanted = box.multiselect(
+                        col, sorted(df[col].dropna().astype(str).unique()), key=f"flt-{key}-{col}"
+                    )
+                    if wanted:
+                        df = df[df[col].astype(str).isin(wanted)]
+    return df[shown] if shown else df
+
+
 def show_df(df: pd.DataFrame, path: Path | None = None) -> None:
-    _stretch(st.dataframe, df, hide_index=True)
+    key = f"{path.parent.name}-{path.name}" if path is not None else "nopath-" + "|".join(map(str, df.columns))
+    _stretch(st.dataframe, filter_columns(df, key), hide_index=True)
     if path is not None:
         st.download_button(
             "Download CSV",
@@ -123,6 +157,7 @@ def pick_detector(key: str) -> str:
     return st.radio(
         "Trigger detector",
         list(DETECTORS),
+        index=list(DETECTORS).index("page_hinkley"),  # the chosen detector
         format_func=DETECTORS.get,
         horizontal=True,
         key=f"det-{key}",
@@ -404,7 +439,8 @@ def tab_forecasting() -> None:
         st.info("No figures yet. Create them with `python -m experiments.produce.produce_figure_f1`.")
     else:
         labels = {p.stem.removeprefix("f1_degradation_"): p for p in figs}
-        choice = st.selectbox("Period", list(labels), index=len(labels) - 1)
+        default = list(labels).index("2020_2023") if "2020_2023" in labels else len(labels) - 1
+        choice = st.selectbox("Period (per-year figures are the backup)", list(labels), index=default)
         show_image(labels[choice], f"Figure 1: {choice}", "experiments.produce.produce_figure_f1")
 
     st.subheader("Forecaster selection")
@@ -419,9 +455,40 @@ def tab_forecasting() -> None:
     else:
         show_df(sel, SELECTION)
 
+    st.subheader("Forecaster selection: held-out Nov-Dec 2019")
+    explain(
+        "The same selection repeated on a period the models were not fitted or calibrated on, "
+        "as a check that the calibration-window pick holds up.",
+    )
+    holdout = TABLES / "forecaster_selection" / "forecaster_selection_holdout_nov_dec_2019.csv"
+    hold = read(holdout)
+    if hold is None:
+        st.info("Not generated yet. Create it with `python -m experiments.run.forecasting.run_aemo_holdout_selection`.")
+    else:
+        show_df(hold, holdout)
+
 
 def tab_detection() -> None:
     st.header("Drift detection")
+
+    st.subheader("Detector decision: tuning on synthetic data")
+    explain(
+        "Each detector's parameters are tuned on the synthetic benchmark, where the true change "
+        "points are known. The winners are frozen and used for every later result.",
+        "Winners is the short list that is carried forward. The full tuning table and the "
+        "calibration summary show everything that was tried.",
+    )
+    for label, name in (
+        ("Winners (frozen settings)", "fine_tune_on_synthetic_winners.csv"),
+        ("Full tuning table", "fine_tune_on_synthetic.csv"),
+        ("Calibration summary", "fine_tune_calibration_summary.csv"),
+    ):
+        with st.expander(label, expanded=name.endswith("winners.csv")):
+            tuning = read(TABLES / name)
+            if tuning is None:
+                st.info(f"{name} not generated yet. Create it with `python -m experiments.run.detection.run_fine_tune_on_synthetic`.")
+            else:
+                show_df(tuning, TABLES / name)
 
     st.subheader("Table 1: detection on the synthetic benchmark")
     explain(
@@ -725,20 +792,24 @@ def tab_escalation() -> None:
         "A headline comparison of Group A (this team's distribution-shift trigger, Page-Hinkley) "
         "and Group B (Team 42's error-based trigger) on the same forecaster, arm, UQ method and "
         "escalation signal.",
-        "Group B reads 'awaiting Team 42' until their results are provided. The comparison is only "
-        "fair once both groups share the same setup.",
+        "Group B is Team 42's error-based trigger. The comparison is only fair when both groups "
+        "share the same setup, so check the settings below the table.",
     )
     df = read(T7)
     if df is None:
         st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t7`.")
     else:
         show_df(df, T7)
+    t7_settings = T7.with_name("table_t7_trigger_comparison_page_hinkley_settings.csv")
+    settings = read(t7_settings)
+    if settings is not None:
+        with st.expander("Settings behind this comparison"):
+            show_df(settings, t7_settings)
     show_image(F6, "Figure 6: where each trigger fires", "experiments.produce.produce_figure_f6")
     explain(
         "Where each trigger raises alarms through the test period, one row per group, with "
         "documented events shaded.",
-        "Alarms that have no alarm from the other group nearby are disagreements. The Group B row "
-        "stays empty until Team 42's alarms are provided.",
+        "Alarms that have no alarm from the other group nearby are disagreements.",
     )
 
 
