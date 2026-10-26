@@ -49,7 +49,7 @@ tables and figures.
 |---|---|---|---|---|
 | 1 | Data | `experiments.run.detection.check_seasonal_residuals` | — | `results/figures/qc_*_half_hourly.png` |
 | 2 | Data | `experiments.run.detection.check_residual_generalisation` | — | `results/tables/qc_residual_generalisation_half_hourly.{csv,png}` |
-| 3 | Detection | `experiments.run.detection.run_fine_tune_on_synthetic` | — | `results/tables/fine_tune_on_synthetic_winners.csv` (the frozen detector configs, read by every later detection script) |
+| 3 | Detection | `experiments.run.detection.run_fine_tune_on_synthetic` | `produce_fine_tune_calibration_summary` | `results/tables/fine_tune_on_synthetic_winners.csv` (the frozen detector configs, read by every later detection script); `fine_tune_calibration_summary.csv` (one row per swept config) |
 | 4 | Detection | `experiments.run.detection.run_post_tune_on_synthetic` | `produce_table_t1_post_tune`, `produce_figure_f2_synthetic_post_tune` | **T1**, **F2** (synthetic) |
 | 5 | Detection | `experiments.run.detection.run_aemo_detectors_standard_half_hourly_post_tune` | `produce_table_t2_standard_half_hourly_post_tune`, `produce_figure_f2_aemo_standard_half_hourly_post_tune` | **T2**, **F2** (AEMO) |
 | 6 | Detection | `experiments.run.detection.run_detector_changepoints` | — | `results/runs/changepoints/<detector>_standard_half_hourly_post_tune_<region>.csv` |
@@ -77,6 +77,7 @@ python -m experiments.run.detection.check_residual_generalisation
 
 # 2. Detection
 python -m experiments.run.detection.run_fine_tune_on_synthetic
+python -m experiments.produce.produce_fine_tune_calibration_summary
 python -m experiments.run.detection.run_post_tune_on_synthetic
 python -m experiments.run.detection.run_aemo_detectors_standard_half_hourly_post_tune
 python -m experiments.run.detection.run_detector_changepoints
@@ -253,6 +254,7 @@ rerunning a stage, rerun the later stages and reload the page.
 │       ├── produce_table_t1_post_tune.py ... produce_table_t7.py
 │       ├── produce_figure_f1.py ... produce_figure_f6.py   (F2 has a synthetic and an AEMO producer)
 │       ├── produce_table_forecaster_selection.py
+│       ├── produce_fine_tune_calibration_summary.py   one row per swept detector config
 │       ├── table_t1_common.py, table_t2_common.py, table_adaptation_common.py,
 │       │   figure_f2_*_common.py, chance_baseline.py        shared logic
 │       ├── table_image.py, figure_text.py                    shared rendering / text wrapping

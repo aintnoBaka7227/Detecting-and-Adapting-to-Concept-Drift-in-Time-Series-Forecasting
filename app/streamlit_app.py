@@ -563,15 +563,15 @@ def tab_detection() -> None:
         "Winners is the short list that is carried forward. The full tuning table and the "
         "calibration summary show everything that was tried.",
     )
-    for label, name in (
-        ("Winners (frozen settings)", "fine_tune_on_synthetic_winners.csv"),
-        ("Full tuning table", "fine_tune_on_synthetic.csv"),
-        ("Calibration summary", "fine_tune_calibration_summary.csv"),
+    for label, name, module in (
+        ("Winners (frozen settings)", "fine_tune_on_synthetic_winners.csv", "run.detection.run_fine_tune_on_synthetic"),
+        ("Full tuning table", "fine_tune_on_synthetic.csv", "run.detection.run_fine_tune_on_synthetic"),
+        ("Calibration summary", "fine_tune_calibration_summary.csv", "produce.produce_fine_tune_calibration_summary"),
     ):
         with st.expander(label, expanded=name.endswith("winners.csv")):
             tuning = read(TABLES / name)
             if tuning is None:
-                st.info(f"{name} not generated yet. Create it with `python -m experiments.run.detection.run_fine_tune_on_synthetic`.")
+                st.info(f"{name} not generated yet. Create it with `python -m experiments.{module}`.")
             else:
                 show_df(tuning, TABLES / name)
 
