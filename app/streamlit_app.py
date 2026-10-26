@@ -269,7 +269,8 @@ def adaptation_findings() -> list[str]:
         drift = drift.assign(cov=drift["coverage"].map(num))
         for method, grp in drift.groupby("UQ method"):
             out.append(f"During drift, **{method}** intervals covered {grp['cov'].min():.2f} to "
-                       f"{grp['cov'].max():.2f} of actual demand across the four arms (target 0.90).")
+                       f"{grp['cov'].max():.2f} of actual demand across the four arms and both "
+                       "regions (target 0.90).")
     return out
 
 
@@ -412,8 +413,9 @@ Read -> Audit and clean -> 30-minute grid -> Split -> Deseasonalise
     st.markdown("**3. Split by time**")
     explain(
         "The frozen Train / Calibration / Test split and how many half-hours each holds.",
-        "Everything is fitted on Train only. Test starts in March 2020, so every documented drift "
-        "event falls in Test.",
+        "Everything is fitted on Train only. Test starts in March 2020, so every Tier 1 event and "
+        "all but one Tier 2 event fall in Test; the exception, EVT-2020-01 (NSW bushfire demand, "
+        "4 Jan 2020), is in Calibration, where no alarm is scored.",
     )
     splits = read(DATA_SPLITS)
     if splits is None:
@@ -922,7 +924,7 @@ def tab_comparison() -> None:
     st.subheader("Figure 6: where each trigger fires")
     explain(
         "Where each trigger raises alarms through the test period, one row per group, with "
-        "documented events shaded.",
+        "Tier 1 documented events shaded.",
         "An alarm with no alarm from the other group within ±7 days is a disagreement.",
     )
     show_image(F6, "Figure 6: where each trigger fires", "experiments.produce.produce_figure_f6")

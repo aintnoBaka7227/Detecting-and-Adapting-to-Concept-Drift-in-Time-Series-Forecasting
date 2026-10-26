@@ -115,7 +115,7 @@ def splits_table() -> pd.DataFrame:
     roles = {
         "train": "Fit forecasters and the seasonal profile; tune",
         "calibration": "Select the forecaster; calibrate the conformal intervals",
-        "test": "All evaluation; every documented drift event falls here",
+        "test": "All evaluation; every Tier 1 and all but one Tier 2 event fall here",
     }
     frames = {region: loader.load(region) for region in REGIONS}
     for i, name in enumerate(("train", "calibration", "test")):

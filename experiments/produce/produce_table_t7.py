@@ -94,6 +94,19 @@ SETTINGS = pd.DataFrame(
     columns=["Setting", "Team 41 (Group A)", "Team 42 (Group B)", "Comparison status"],
 )
 PENDING = "awaiting Team 42"
+# One precision per metric for both groups, as in T3 (MAE) and T5 (coverage);
+# Team 42's "mean ± sd" strings are re-printed at it.
+FORMATS = {"MAE during drift (MW)": ".1f", "Worst 24h coverage": ".3f"}
+
+
+def reformat(value: str, fmt: str) -> str:
+    """Re-print a "mean" or "mean ± sd" string at `fmt`; anything else as is."""
+    parts = [p.strip() for p in str(value).split("±")]
+    try:
+        numbers = [float(p) for p in parts]
+    except ValueError:
+        return str(value)
+    return " ± ".join(format(n, fmt) for n in numbers)
 
 
 def mean_sd(values: pd.Series, fmt: str) -> str:
@@ -133,8 +146,8 @@ def group_a(region: str) -> dict[str, str]:
     ].sort_values("timestamp")["metric_value"]
 
     values = {
-        "MAE during drift (MW)": mean_sd(arm["drift"], ".0f"),
-        "Worst 24h coverage": mean_sd(worst, ".2f"),
+        "MAE during drift (MW)": mean_sd(arm["drift"], FORMATS["MAE during drift (MW)"]),
+        "Worst 24h coverage": mean_sd(worst, FORMATS["Worst 24h coverage"]),
     }
     for signal, label in SIGNALS.items():
         esc = latest_escalation_rows(TRIGGER, signal)
@@ -161,7 +174,8 @@ def group_b(region: str, metrics: list[str]) -> dict[str, str]:
         return dict.fromkeys(metrics, PENDING)
     team42 = pd.read_csv(GROUP_B_CSV)
     team42 = team42[team42["region"] == region].set_index("metric")["value"]
-    return {m: str(team42.get(m, PENDING)) for m in metrics}
+    values = {m: str(team42.get(m, PENDING)) for m in metrics}
+    return {m: reformat(v, FORMATS[m]) if m in FORMATS else v for m, v in values.items()}
 
 
 def build_table() -> pd.DataFrame:

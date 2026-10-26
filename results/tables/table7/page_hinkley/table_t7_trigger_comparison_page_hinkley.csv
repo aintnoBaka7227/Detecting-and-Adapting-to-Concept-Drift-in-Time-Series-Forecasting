@@ -1,6 +1,6 @@
 metric,Group A (Page-Hinkley) SA1,Group A (Page-Hinkley) NSW1,Group B (Team 42) SA1,Group B (Team 42) NSW1
-MAE during drift (MW),281 ± 16,907 ± 36,186.48 ± 0.05,430.59 ± 0.65
-Worst 24h coverage,0.71 ± 0.03,0.73 ± 0.02,0.675 ± 0.032,0.658 ± 0.011
+MAE during drift (MW),281.3 ± 15.6,906.9 ± 36.3,186.5 ± 0.1,430.6 ± 0.7
+Worst 24h coverage,0.713 ± 0.027,0.733 ± 0.017,0.675 ± 0.032,0.658 ± 0.011
 Review rate for 0.90 coverage (interval width),0.0%,0.0%,0.0%,0.0%
 "Review rate for 0.90 coverage (nonconformity, 30 min)",0.0%,0.0%,0.0%,0.0%
 Detections raised,15,18,5,5
