@@ -572,6 +572,22 @@ def tab_detection() -> None:
             tuning = read(TABLES / name)
             if tuning is None:
                 st.info(f"{name} not generated yet. Create it with `python -m experiments.{module}`.")
+            elif name == "fine_tune_calibration_summary.csv":
+                # One tab per detector, without the other detectors' (empty)
+                # parameter columns.
+                st.caption(
+                    "A blank cell means that value was not reached: the sweep stops a config at "
+                    "its first failure, and the all-row averages are given for eligible configs only."
+                )
+                tuning = tuning.assign(fail_reason=tuning["fail_reason"].fillna(""))
+                detectors = list(dict.fromkeys(tuning["detector"]))
+                for tab, detector in zip(st.tabs(detectors), detectors):
+                    with tab:
+                        show_df(tuning[tuning["detector"] == detector].dropna(axis=1, how="all"))
+                st.download_button(
+                    "Download CSV", (TABLES / name).read_bytes(), file_name=name, mime="text/csv",
+                    key=f"dl-{name}",
+                )
             else:
                 show_df(tuning, TABLES / name)
 
