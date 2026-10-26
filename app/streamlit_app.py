@@ -184,6 +184,20 @@ def pick_models(df: pd.DataFrame, box, key: str) -> list[str]:
     return box.multiselect("Model", options, default=[m for m in options if m == MODEL], key=key)
 
 
+def pick_signal(key: str) -> str:
+    """Escalation signal, chosen separately for T6 and F5."""
+    return st.radio(
+        "Escalation signal",
+        list(SIGNALS),
+        format_func=SIGNALS.get,
+        horizontal=True,
+        key=f"sig-{key}",
+        help="What decides that a forecast needs review: the interval width, or the recent error. "
+        "Width and the 30-minute nonconformity are the reported signals; 1 day and 7 days are "
+        "backup, to show why the shortest look-back was kept.",
+    )
+
+
 def pick_version(key: str) -> bool:
     """True for the event-local version of T3 / T4 / the arm D sweep."""
     choice = st.radio(
@@ -838,15 +852,6 @@ def tab_escalation() -> None:
         "are reviewed."
     )
     det = pick_detector("esc")
-    signal = st.radio(
-        "Escalation signal",
-        list(SIGNALS),
-        format_func=SIGNALS.get,
-        horizontal=True,
-        help="What decides that a forecast needs review: the interval width, or the recent error. "
-        "Width and the 30-minute nonconformity are the reported signals; 1 day and 7 days are "
-        "backup, to show why the shortest look-back was kept.",
-    )
     st.caption(
         "Each operating point is found by sweeping the threshold on the same test data it is scored "
         "on, so it is the best trade-off available in hindsight, not a threshold fixed in advance."
@@ -861,6 +866,7 @@ def tab_escalation() -> None:
         "attainable* means that review budget cannot be met (for example, a constant-width "
         "interval can only review 0% or 100% by width).",
     )
+    signal = pick_signal("t6")
     path = t6_path(det, signal)
     df = read(path)
     if df is None:
@@ -883,6 +889,7 @@ def tab_escalation() -> None:
         "is where the curve crosses 0.90. Width figures show AgACI only, because fixed split "
         "conformal has a constant width.",
     )
+    signal = pick_signal("f5")
     c1, c2 = st.columns(2)
     model = c1.selectbox("Model (Figure 5)", list(MODELS), index=MODELS.index(MODEL), key="f5-model")
     region = c2.selectbox("Region (Figure 5)", list(REGIONS), key="f5-region")
