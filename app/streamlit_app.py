@@ -530,12 +530,12 @@ def tab_forecasting() -> None:
     )
     figs = sorted((FIGURES / "figure1").glob("f1_degradation_*.png")) if FIGURES.exists() else []
     if not figs:
-        st.info("No figures yet. Create them with `python -m experiments.produce.produce_figure_f1`.")
+        st.info("No figures yet. Create them with `python -m experiments.produce.forecasting.produce_figure_f1`.")
     else:
         labels = {p.stem.removeprefix("f1_degradation_"): p for p in figs}
         default = list(labels).index("2020_2023") if "2020_2023" in labels else len(labels) - 1
         choice = st.selectbox("Period (per-year figures are the backup)", list(labels), index=default)
-        show_image(labels[choice], f"Figure 1: {choice}", "experiments.produce.produce_figure_f1")
+        show_image(labels[choice], f"Figure 1: {choice}", "experiments.produce.forecasting.produce_figure_f1")
 
     st.subheader("Forecaster selection")
     explain(
@@ -545,7 +545,7 @@ def tab_forecasting() -> None:
     )
     sel = read(SELECTION)
     if sel is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_forecaster_selection`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.forecasting.produce_table_forecaster_selection`.")
     else:
         show_df(sel, SELECTION)
 
@@ -568,7 +568,7 @@ def tab_detection() -> None:
         "starts never match it; one alarm matches at most one event, and each event is credited "
         "once. Events are not complete ground truth, so an alarm outside every window is "
         "*unmatched*, not a false alarm. Tier 1 and Tier 2 events are scored separately, and a "
-        "chance baseline (the same number of alarms placed at random, at least 1,000 times) shows "
+        "chance baseline (the matches expected if the same number of alarms fell at random) shows "
         "what matching by luck looks like."
     )
 
@@ -618,7 +618,7 @@ def tab_detection() -> None:
     t1 = TABLES / "table1" / "table_t1_post_tune_synthetic_detection.csv"
     df = read(t1)
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t1_post_tune`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.detection.produce_table_t1_post_tune`.")
     else:
         show_df(df, t1)
 
@@ -626,7 +626,7 @@ def tab_detection() -> None:
     show_image(
         FIGURES / "figure2" / f"f2_synthetic_post_tune_{kind}.png",
         f"Figure 2, synthetic: {kind}",
-        "experiments.produce.produce_figure_f2_synthetic_post_tune",
+        "experiments.produce.detection.produce_figure_f2_synthetic_post_tune",
     )
     explain(
         "One synthetic series with the true change point marked and each detector's alarms on it.",
@@ -646,7 +646,7 @@ def tab_detection() -> None:
     df = read(t2)
     if df is None:
         st.info("Not generated yet. Create it with "
-                "`python -m experiments.produce.produce_table_t2_standard_half_hourly_post_tune`.")
+                "`python -m experiments.produce.detection.produce_table_t2_standard_half_hourly_post_tune`.")
     else:
         c1, c2 = st.columns(2)
         if "region" in df.columns and "detector" in df.columns:
@@ -661,7 +661,7 @@ def tab_detection() -> None:
     show_image(
         FIGURES / "figure2" / f"f2_detection_standard_half_hourly_post_tune_{det}_{reg}.png",
         f"Figure 2, AEMO: {det}, {reg}",
-        "experiments.produce.produce_figure_f2_aemo_standard_half_hourly_post_tune",
+        "experiments.produce.detection.produce_figure_f2_aemo_standard_half_hourly_post_tune",
     )
 
 
@@ -717,7 +717,7 @@ def tab_adaptation() -> None:
     )
     df = read(sweep_path(det, local))
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_arm_d_sweep`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.adaptation.produce_table_arm_d_sweep`.")
     else:
         models = pick_models(df, st, "m-sweep")
         show_df(df[df["model"].isin(models)], sweep_path(det, local))
@@ -732,7 +732,7 @@ def tab_adaptation() -> None:
     )
     df = read(t3_path(det, local))
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t3`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.adaptation.produce_table_t3`.")
     else:
         show_df(adaptation_filters(df, "t3"), t3_path(det, local))
 
@@ -745,7 +745,7 @@ def tab_adaptation() -> None:
     )
     df = read(t4_path(det, local))
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t4`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.adaptation.produce_table_t4`.")
     else:
         show_df(adaptation_filters(df, "t4"), t4_path(det, local))
 
@@ -763,7 +763,7 @@ def tab_adaptation() -> None:
     show_image(
         FIGURES / "figure3" / det / model / f"f3_four_arm_comparison_{det}_{model}_{region}.png",
         f"Figure 3: {model}, {region}, {DETECTORS[det]}",
-        "experiments.produce.produce_figure_f3",
+        "experiments.produce.adaptation.produce_figure_f3",
     )
 
 
@@ -802,7 +802,7 @@ def tab_uncertainty() -> None:
     path = t5_path(det)
     df = read(path)
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t5`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.uncertainty.produce_table_t5`.")
     else:
         c1, c2, c3, c4 = st.columns(4)
         models = pick_models(df, c1, "t5m")
@@ -826,7 +826,7 @@ def tab_uncertainty() -> None:
     show_image(
         FIGURES / "figure4" / det / model / f"f4_coverage_trajectory_{det}_{model}_{region}.png",
         f"Figure 4: {model}, {region}, {DETECTORS[det]}",
-        "experiments.produce.produce_figure_f4",
+        "experiments.produce.uncertainty.produce_figure_f4",
     )
 
 
@@ -870,7 +870,7 @@ def tab_escalation() -> None:
     path = t6_path(det, signal)
     df = read(path)
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t6`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.escalation.produce_table_t6`.")
     else:
         c1, c2, c3, c4 = st.columns(4)
         models = pick_models(df, c1, "t6m")
@@ -896,7 +896,7 @@ def tab_escalation() -> None:
     show_image(
         FIGURES / "figure5" / det / model / signal / f"f5_escalation_curve_{det}_{signal}_{model}_{region}.png",
         f"Figure 5: {model}, {region}, {DETECTORS[det]}, {SIGNALS[signal]}",
-        "experiments.produce.produce_figure_f5",
+        "experiments.produce.escalation.produce_figure_f5",
     )
 
 
@@ -924,7 +924,7 @@ def tab_comparison() -> None:
     )
     df = read(T7)
     if df is None:
-        st.info("Not generated yet. Create it with `python -m experiments.produce.produce_table_t7`.")
+        st.info("Not generated yet. Create it with `python -m experiments.produce.comparison.produce_table_t7`.")
     else:
         show_df(df, T7)
 
@@ -934,7 +934,7 @@ def tab_comparison() -> None:
         "Tier 1 documented events shaded.",
         "An alarm with no alarm from the other group within ±7 days is a disagreement.",
     )
-    show_image(F6, "Figure 6: where each trigger fires", "experiments.produce.produce_figure_f6")
+    show_image(F6, "Figure 6: where each trigger fires", "experiments.produce.comparison.produce_figure_f6")
     alarms = read(FIGURES / "figure6" / "group_b_team42_alarms.csv")
     if alarms is not None:
         with st.expander("Team 42's accepted alarms"):

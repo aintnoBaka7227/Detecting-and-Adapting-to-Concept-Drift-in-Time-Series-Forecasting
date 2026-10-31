@@ -15,7 +15,7 @@ import pandas as pd
 from drift_lab.aemo import loader
 from drift_lab.aemo.deseasonalise import apply_seasonal_profile, fit_seasonal_profile
 from drift_lab.config import REGIONS
-from experiments.produce.table_image import save_table_image
+from experiments.produce.shared.table_image import save_table_image
 from experiments.results_io import TABLES_DIR
 
 TARGET_COLUMN = "TOTALDEMAND"

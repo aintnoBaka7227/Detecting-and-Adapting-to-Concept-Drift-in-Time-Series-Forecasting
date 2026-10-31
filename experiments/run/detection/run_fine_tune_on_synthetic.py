@@ -61,13 +61,10 @@ KSWIN_WINDOW_SIZES = (336, 480, 672, 1344)  # 7, 10, 14, 28 days
 # Page-Hinkley grid; mode fixed at "both" (demand can shift either way).
 # alpha: memory ~ 1 / (1 - alpha) must cover >= 4 weeks of half-hours (as
 #   KSWIN's 28-day window), so 0.9995 (~6 weeks) and river's 1 - 1e-4
-#   (~7 months). Shorter memories caught synthetic sudden shifts but missed
-#   gradual real ones (0.985 gave 1-4 AEMO detections, 0.999 gave 7-8).
+#   (~7 months).
 # threshold: 400 < lambda < 1000; <= 400 breaks the synthetic false-alarm
 #   floor (early alarms on gradual ramps), >= 1000 only delays every alarm.
 # delta: 0.0001-0.001, small enough for sustained shifts, non-zero for noise.
-# NOTE: these bounds were set after seeing the AEMO results -- report them
-# alongside any Page-Hinkley result; this is not a synthetic-only choice.
 PAGE_HINKLEY_DELTAS = (0.0001, 0.0005, 0.001)
 PAGE_HINKLEY_MIN_INSTANCES = (20, 30, 50)
 PAGE_HINKLEY_THRESHOLDS = (

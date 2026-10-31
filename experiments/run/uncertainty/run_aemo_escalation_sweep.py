@@ -41,7 +41,7 @@ from drift_lab.evaluation.evaluation import (
     ESCALATION_WIDTH_DECIMALS,
 )
 from experiments import results_io
-from experiments.produce.produce_table_t5 import latest_uq_rows
+from experiments.produce.uncertainty.produce_table_t5 import latest_uq_rows
 from experiments.run_harness import build_row
 from experiments.trigger_detectors import (
     CONTROL_ARMS,

@@ -63,7 +63,7 @@ tables and figures.
 | 14 | Escalation | `experiments.run.uncertainty.run_aemo_escalation_sweep` | `produce_table_t6`, `produce_figure_f5` | **T6**, **F5** |
 | 15 | Comparison | — | `produce_table_t7`, `produce_figure_f6` | **T7**, **F6** |
 
-All producers are `experiments.produce.<name>`.
+All producers are `experiments.produce.<stage>.<name>`; the `Then produce` column above gives each name, under the stage in its row.
 
 Steps 1–3 sit in `experiments/run/detection/` because they check the data
 and the seasonal residual stream the detectors read. Steps 11–14 loop over both
@@ -79,23 +79,23 @@ python -m experiments.run.detection.check_residual_generalisation
 
 # 2. Detection
 python -m experiments.run.detection.run_fine_tune_on_synthetic
-python -m experiments.produce.produce_fine_tune_calibration_summary
+python -m experiments.produce.detection.produce_fine_tune_calibration_summary
 python -m experiments.run.detection.run_post_tune_on_synthetic
 python -m experiments.run.detection.run_aemo_detectors_standard_half_hourly_post_tune
 python -m experiments.run.detection.run_detector_changepoints
 python -m experiments.run.detection.check_detection_periodicity
-python -m experiments.produce.produce_table_t1_post_tune
-python -m experiments.produce.produce_figure_f2_synthetic_post_tune
-python -m experiments.produce.produce_table_t2_standard_half_hourly_post_tune
-python -m experiments.produce.produce_figure_f2_aemo_standard_half_hourly_post_tune
+python -m experiments.produce.detection.produce_table_t1_post_tune
+python -m experiments.produce.detection.produce_figure_f2_synthetic_post_tune
+python -m experiments.produce.detection.produce_table_t2_standard_half_hourly_post_tune
+python -m experiments.produce.detection.produce_figure_f2_aemo_standard_half_hourly_post_tune
 
 # 3. Forecasting
 python -m experiments.run.forecasting.run_aemo_baselines
 python -m experiments.run.forecasting.run_aemo_nhits
 python -m experiments.run.forecasting.run_aemo_holdout_selection
 python -m experiments.run.forecasting.run_aemo_calibration_forecasts
-python -m experiments.produce.produce_figure_f1
-python -m experiments.produce.produce_table_forecaster_selection
+python -m experiments.produce.forecasting.produce_figure_f1
+python -m experiments.produce.forecasting.produce_table_forecaster_selection
 
 # 4. Adaptation -- one run per detector x model x region x seed
 #    ADWIN runs all arms (A, B, C, D); other detectors run C and D only (A and B use no detector)
@@ -110,24 +110,24 @@ for detector in adwin page_hinkley; do
   done
 done
 python -m experiments.run.adaptation.rescore_adaptation_runs
-python -m experiments.produce.produce_table_t3
-python -m experiments.produce.produce_table_t4
-python -m experiments.produce.produce_figure_f3
-python -m experiments.produce.produce_table_arm_d_sweep
+python -m experiments.produce.adaptation.produce_table_t3
+python -m experiments.produce.adaptation.produce_table_t4
+python -m experiments.produce.adaptation.produce_figure_f3
+python -m experiments.produce.adaptation.produce_table_arm_d_sweep
 
 # 5. Uncertainty (needs R + opera, see Setup)
 python -m experiments.run.uncertainty.run_aemo_uq_replay
-python -m experiments.produce.produce_table_t5
-python -m experiments.produce.produce_figure_f4
+python -m experiments.produce.uncertainty.produce_table_t5
+python -m experiments.produce.uncertainty.produce_figure_f4
 
 # 6. Escalation
 python -m experiments.run.uncertainty.run_aemo_escalation_sweep
-python -m experiments.produce.produce_table_t6
-python -m experiments.produce.produce_figure_f5
+python -m experiments.produce.escalation.produce_table_t6
+python -m experiments.produce.escalation.produce_figure_f5
 
 # Comparison with Team 42
-python -m experiments.produce.produce_table_t7
-python -m experiments.produce.produce_figure_f6
+python -m experiments.produce.comparison.produce_table_t7
+python -m experiments.produce.comparison.produce_figure_f6
 ```
 
 **NHITS runs in parallel.** Each parallel NHITS job writes to
@@ -179,8 +179,8 @@ python3 -m streamlit run app/streamlit_app.py
 It opens at http://localhost:8501. No R or pipeline run is needed. The results
 it reads are committed in `results/`.
 
-The tabs follow the pipeline: Baselines, Detection, Adaptation, Uncertainty,
-Escalation. Page-Hinkley is selected by default. Every table has a **Filter and
+The tabs follow the pipeline: Overview, Data, Forecast, Detection, Adaptation,
+Uncertainty, Escalation, Comparison. Page-Hinkley is selected by default. Every table has a **Filter and
 choose columns** box to hide columns or filter rows. To refresh the page after
 rerunning a stage, rerun the later stages and reload the page.
 
@@ -226,6 +226,7 @@ rerunning a stage, rerun the later stages and reload the page.
 │   ├── run_harness.py                  record_run(): arrays -> runs.csv rows (metrics via evaluation.py)
 │   ├── results_io.py                   runs.csv, hash folders, output paths, calibration_path()
 │   ├── trigger_detectors.py            trigger detectors (ADWIN, Page-Hinkley) and their split_ids
+│   ├── run_pipeline.py                 teammate's stage runner; the commands above are the reference order
 │   ├── run/
 │   │   ├── detection/                  stages 1-2
 │   │   │   ├── check_data_audit.py                audit and split tables (results/tables/data/)
@@ -237,32 +238,29 @@ rerunning a stage, rerun the later stages and reload the page.
 │   │   │   ├── run_detector_changepoints.py       accepted change points for the arms
 │   │   │   ├── check_detection_periodicity.py     do alarms follow the clock/calendar?
 │   │   │   ├── standard_stream_common.py, detection_artifacts.py   shared helpers
-│   │   │   └── ⚠ run_pre_tune_on_synthetic.py, run_aemo_detectors_{raw,standard_daily}_*.py,
-│   │   │       run_aemo_detectors_standard_half_hourly_pre_tune.py, run_synthetic_generator.py
+│   │   │   └── ⚠ run_aemo_detectors_{raw,standard_daily}_post_tune.py, run_synthetic_generator.py
 │   │   │                                          not in the report pipeline (retired comparisons / visual check)
 │   │   ├── forecasting/                stage 3
 │   │   │   ├── run_aemo_baselines.py              seasonal naive, XGBoost, DHR + ARIMA -> F1
 │   │   │   ├── run_aemo_nhits.py                  NHITS -> F1
 │   │   │   ├── run_aemo_holdout_selection.py      forecaster selection on Nov–Dec 2019 held out from TRAIN
-│   │   │   ├── run_aemo_calibration_forecasts.py  calibration residuals (+ selection on the Calibration window)
-│   │   │   └── ⚠ run_aemo_nhits_retrain3mo_kswin_{nsw,sa}.py   commented out, superseded by arm D
+│   │   │   └── run_aemo_calibration_forecasts.py  calibration residuals (+ selection on the Calibration window)
 │   │   ├── adaptation/                 stage 4
 │   │   │   ├── run_aemo_adaptation_arms.py        arms A-D -> T3, T4, F3
 │   │   │   └── rescore_adaptation_runs.py         regimes + pinball loss from saved forecasts
 │   │   └── uncertainty/                stages 5-6
 │   │       ├── run_aemo_uq_replay.py              intervals -> T5, F4
-│   │       ├── add_rolling_coverage.py            one-off back-fill of F4's rolling coverage
 │   │       └── run_aemo_escalation_sweep.py       threshold sweep -> T6, F5
 │   └── produce/                        one script per deliverable, reads runs.csv + saved files only
-│       ├── produce_table_t1_post_tune.py ... produce_table_t7.py
-│       ├── produce_figure_f1.py ... produce_figure_f6.py   (F2 has a synthetic and an AEMO producer)
-│       ├── produce_table_forecaster_selection.py
-│       ├── produce_fine_tune_calibration_summary.py   one row per swept detector config
-│       ├── table_t1_common.py, table_t2_common.py, table_adaptation_common.py,
-│       │   figure_f2_*_common.py, chance_baseline.py        shared logic
-│       ├── table_image.py, figure_text.py                    shared rendering / text wrapping
-│       └── ⚠ produce_adwin_results.py, produce_kswin_results.py, produce_aemo_clock_diagnostics.py,
-│           produce_agaci_width_diagnostic.py                 pre-refactor summaries / diagnostics, not deliverables
+│       ├── shared/                     table_image.py, figure_text.py (rendering used by every stage)
+│       ├── detection/                  T1, F2 (synthetic and AEMO), T2, tuning summary, chance_baseline.py,
+│       │                               table_t1_common.py, table_t2_common.py, figure_f2_*_common.py
+│       ├── forecasting/                F1, forecaster selection
+│       ├── adaptation/                 T3, T4, F3, arm D sweep, table_adaptation_common.py
+│       ├── uncertainty/                T5, F4
+│       │                               ⚠ produce_agaci_width_diagnostic.py (not a deliverable)
+│       ├── escalation/                 T6, F5
+│       └── comparison/                 T7, F6
 │
 ├── results/
 │   ├── runs.csv                        the ledger (append-only, tracked)
@@ -273,6 +271,7 @@ rerunning a stage, rerun the later stages and reload the page.
 │
 ├── tests/                            # pytest
 ├── data/raw/{SA1,NSW1}/              # committed source CSVs
+├── data/archive/baseline/            # early baseline outputs, not read by the pipeline
 ├── notebooks/                        # research scratch, not imported anywhere
 ├── TEAM_DECISIONS.md, SHARED_DECISIONS.md   # recorded decisions (team / shared with Team 42)
 └── pyproject.toml
@@ -408,7 +407,7 @@ RUN_BASELINE_REPRO=1 uv run python -m pytest tests/test_xgboost_forecaster.py   
 | A UQ method | `src/drift_lab/uncertainty/<method>.py` (subclass `UncertaintyQuantifier`) |
 | A metric | `src/drift_lab/evaluation/evaluation.py`, re-exported from `evaluation/__init__.py` |
 | An experiment | `experiments/run/<stage>/run_<name>.py`, logging through `record_run` |
-| A table or figure | `experiments/produce/produce_<name>.py`, reading `runs.csv` and saved files only |
+| A table or figure | `experiments/produce/<stage>/produce_<name>.py`, reading `runs.csv` and saved files only |
 
 **Rules:**
 - **One implementation per file.**
@@ -428,3 +427,6 @@ RUN_BASELINE_REPRO=1 uv run python -m pytest tests/test_xgboost_forecaster.py   
 - [`TEAM_DECISIONS.md`](TEAM_DECISIONS.md),
   [`SHARED_DECISIONS.md`](SHARED_DECISIONS.md): why the codebase looks like
   this.
+- [`docs/DATA_QUALITY.md`](docs/DATA_QUALITY.md),
+  [`docs/EVENT_TIERING_CRITERIA.md`](docs/EVENT_TIERING_CRITERIA.md): data
+  checks and event tiers, kept in step by `tests/test_docs_in_sync.py`.

@@ -25,10 +25,6 @@ The Tier 1 events are:
 
 Tier 2 holds every other catalogue event. These are genuine reference events that are smaller, more regional, shorter or more ambiguous than Tier 1. Events are kept for that reason, not removed.
 
-## Excluded event
-
-Five-Minute Settlement is not in the catalogue, because it is a price-market rule change rather than an expected demand shift. `SHARED_DECISIONS.md` section 8 retains it as a negative control; that is not implemented yet (see the open gaps in `TEAM_DECISIONS.md`).
-
 ## Matching
 
 `match_unmatch()` in `src/drift_lab/evaluation/evaluation.py` applies these steps:

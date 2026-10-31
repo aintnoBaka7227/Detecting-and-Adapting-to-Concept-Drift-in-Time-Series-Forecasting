@@ -22,7 +22,9 @@ import pandas as pd
 
 from drift_lab.uncertainty import FixedSplitConformal
 from experiments import results_io
-from experiments.produce.table_adaptation_common import latest_adaptation_rows
+from experiments.produce.adaptation.table_adaptation_common import (
+    latest_adaptation_rows,
+)
 from experiments.run.adaptation.run_aemo_adaptation_arms import regime_labels
 from experiments.run_harness import record_run
 from experiments.trigger_detectors import (

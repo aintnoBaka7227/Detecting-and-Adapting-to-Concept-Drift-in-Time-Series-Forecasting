@@ -38,7 +38,10 @@ from drift_lab import evaluation
 from drift_lab.aemo import loader
 from drift_lab.uncertainty import AgACI, FixedSplitConformal, UncertaintyQuantifier
 from experiments import results_io
-from experiments.produce.table_adaptation_common import D_PREFIX, latest_adaptation_rows
+from experiments.produce.adaptation.table_adaptation_common import (
+    D_PREFIX,
+    latest_adaptation_rows,
+)
 from experiments.run.adaptation.run_aemo_adaptation_arms import arm_d
 from experiments.run_harness import build_row
 from experiments.trigger_detectors import (

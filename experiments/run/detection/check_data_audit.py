@@ -23,7 +23,7 @@ import pandas as pd
 
 from drift_lab.aemo import loader
 from drift_lab.config import REGIONS, SPLIT
-from experiments.produce.table_image import save_table_image
+from experiments.produce.shared.table_image import save_table_image
 from experiments.results_io import TABLES_DIR
 
 DATA_DIR = TABLES_DIR / "data"

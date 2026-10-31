@@ -39,7 +39,7 @@ from drift_lab import evaluation
 from drift_lab.aemo import loader
 from drift_lab.config import REGIONS
 from drift_lab.evaluation.evaluation import REFRACTORY_PERIOD
-from experiments.produce.table_image import save_table_image
+from experiments.produce.shared.table_image import save_table_image
 from experiments.results_io import RUNS_CSV, TABLES_DIR, output_path
 from experiments.run.detection.detection_artifacts import (
     accepted_detections_path,

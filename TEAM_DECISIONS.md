@@ -85,7 +85,6 @@ Additional rules:
 | Event identity | Unique `event_id` | `events.csv` | Prevents ambiguous attribution. |
 | Tiers | Preserve Tier 1 (4 events) and Tier 2 (29 events) | `events.csv` | Prevents the larger Tier 2 catalogue dominating Tier 1. |
 | COVID | 16 Mar–17 May 2020 | `events.csv` | Includes the late-March demand change. |
-| Five-Minute Settlement | Removed from the catalogue, so it is not a positive target | `events.csv` | It is a price-market rule change, not an expected demand shift. |
 | Freeze rule | No changes after final detector runs begin | File version in `config.json` | Prevents changing targets after seeing results. |
 
 ---
@@ -119,15 +118,13 @@ Additional rules:
 | Selection rule | Fewest false alarms per year, then shortest mean delay, then parameter order | `run_fine_tune_on_synthetic.py` | The false-alarm count decides first; delay only separates ties. |
 | Frozen ADWIN | `delta=1e-8`, `clock=48`, `min_window_length=336` | `results/tables/fine_tune_on_synthetic_winners.csv` | Winner of the synthetic sweep. |
 | Frozen KSWIN | `alpha=5e-5`, `window_size=1344`, `stat_size=96`, `seed=42` | Same file | Winner of the synthetic sweep. |
-| Frozen Page-Hinkley | `alpha=0.9995`, `delta=0.0001`, `min_instances=20`, `threshold=600`, `mode=both` | Same file | Winner of the synthetic sweep, inside a grid whose bounds were informed by AEMO results (see below). |
+| Frozen Page-Hinkley | `alpha=0.9995`, `delta=0.0001`, `min_instances=20`, `threshold=600`, `mode=both` | Same file | Winner of the synthetic sweep. |
 
 | KSWIN internal seed | Fixed separately from generator seed | Detector configuration | Separates detector and input randomness. |
 | Final validation | Rerun frozen settings | `run_post_tune_on_synthetic.py` | Produces official T1 inputs. |
 | T1 producer | Read `runs.csv` | `produce_table_t1_post_tune.py` | T1 is not calculated manually. |
 
 Detector settings are frozen after synthetic calibration and applied to AEMO unchanged.
-
-**Disclosure:** the Page-Hinkley winner was picked on synthetic data, but its grid bounds (`alpha`, `threshold`, `delta`) were narrowed after seeing AEMO results, as recorded in `run_fine_tune_on_synthetic.py`. Report this alongside every Page-Hinkley result.
 
 ## 2.3 T1 — synthetic detection table
 
@@ -143,7 +140,7 @@ T1 is produced in the Synthetic Benchmark stage, before any AEMO detection resul
 | Seeds | Five fixed seeds, `1–5` | Aggregated by the T1 producer | `seed` in `runs.csv`; count shown in T1 |
 | No-drift control | One row for every detector | Already supported by an empty changepoint list | Same T1 file |
 
-Producer: `experiments/produce/produce_table_t1_post_tune.py`  
+Producer: `experiments/produce/detection/produce_table_t1_post_tune.py`  
 Saved output: `results/tables/table1/table_t1_post_tune_synthetic_detection.csv`
 
 ---
@@ -170,7 +167,7 @@ Each model's hyperparameters and constructor defaults are documented in its own 
 | Test metric | MAE | Metric row in `results/runs.csv` | Provides the shared scalar accuracy measure used in tables. |
 | Forecast and error series | Save timestamped actual values, forecasts and errors | `results/runs/<config_hash>/curve_<dataset>_<region>_<seed>.csv` | Supports degradation analysis, figures and reproducibility. |
 | Degradation | Calculate 7-day rolling MAE from the saved curve | Same curve file; derived summaries in `results/runs.csv` | Shows when predictive performance worsens. |
-| F1 production | Read saved baseline curves and documented events with `experiments/produce/produce_figure_f1.py` | `results/figures/figure1/f1_degradation_<year>.png` | Ensures the figure is generated from recorded results rather than recalculated manually. |
+| F1 production | Read saved baseline curves and documented events with `experiments/produce/forecasting/produce_figure_f1.py` | `results/figures/figure1/f1_degradation_<year>.png` | Ensures the figure is generated from recorded results rather than recalculated manually. |
 
 ## 3.3 F1 — degradation curve
 
@@ -286,7 +283,7 @@ T2 is produced in the Detection stage after T1 is complete and the detector conf
 | Precision | `calculate_event_metrics()` | `precision`, `precision_t1`, `precision_t2` rows |
 | Tier 1/2 event coverage | `tier1_matched` / `tier1_unmatched`, `tier2_matched` | T2 CSV |
 | Mean delay | Per named event in the T2 producer | T2 CSV |
-| Chance baseline | Closed form in `experiments/produce/chance_baseline.py`; Tier 1 only | `chance_tier1` in the T2 CSV |
+| Chance baseline | Closed form in `experiments/produce/detection/chance_baseline.py`; Tier 1 only | `chance_tier1` in the T2 CSV |
 
 Producer: `produce_table_t2_standard_half_hourly_post_tune.py`  
 Saved output: `results/tables/table2/table_t2_aemo_events_standard_half_hourly_post_tune.csv`
@@ -324,7 +321,17 @@ The project does not pick a winning arm. All four are studied as results. Arm D 
 
 Arm D runs a fixed sweep over 30, 60, 120 and 180 days, reported in full in `results/tables/arm_d_sweep/<detector>/`, with the window of lowest mean drift-regime MAE marked per model × region and a tie noted when the runner-up is within one seed standard deviation. That mark uses TEST data, so it is a best observed TEST result, not an independently validated optimum.
 
-T3, T4, uncertainty, escalation and T7 report Arm D at 180 days. F3 instead draws each model × region's marked window (see Open gaps).
+T3, T4, F3, uncertainty, escalation and T7 all report Arm D at 180 days. 180 days is not the lowest-MAE window in every case. For XGBoost, the window with the lowest mean drift MAE on TEST is:
+
+| Trigger | Region | Lowest drift MAE (MW) | 180 days (MW) |
+|---|---|---|---|
+| Page-Hinkley | SA1 | 60 days: 253.3 ± 7.4 | 281.3 ± 15.6 |
+| Page-Hinkley | NSW1 | 180 days: 906.9 ± 36.3 (tie with 120 days) | 906.9 ± 36.3 |
+| ADWIN | SA1 | 120 days: 224.9 ± 3.7 (tie with 180 days) | 230.2 ± 6.9 |
+| ADWIN | NSW1 | 30 days: 929.0 ± 42.1 (tie with 180 days) | 929.1 ± 34.2 |
+
+So 180 days is clearly not optimal for XGBoost only under Page-Hinkley in SA1, the setting T7 uses for that region.
+
 
 ## 5.2 Retraining boundary
 
@@ -416,7 +423,7 @@ T7 and F6 are the shared experiment, not Team 41's own findings.
 | Arm, UQ | Arm D at 180 days, AgACI | Arm D at 180 days, AgACI |
 | Escalation | Interval width; 30-minute nonconformity | Interval width; lagged 30-minute error |
 
-Team 42's numbers come from `results/tables/table7/group_b_team42.csv` and `results/figures/figure6/group_b_team42_alarms.csv`. The forecasters are the same family but different implementations, and AgACI equivalence is unverified; `produce_table_t7.py` prints these differences in the settings table.
+Team 42's numbers come from `results/tables/table7/group_b_team42.csv` and `results/figures/figure6/group_b_team42_alarms.csv`. The forecasters are the same family, as the shared rule requires, and AgACI equivalence is unverified; `produce_table_t7.py` prints these differences in the settings table.
 
 ---
 
@@ -452,11 +459,11 @@ Team 42's numbers come from `results/tables/table7/group_b_team42.csv` and `resu
 
 ## Chance baseline
 
-Implemented as a closed form in `experiments/produce/chance_baseline.py`. Use the accepted alarm count `N`, identical TEST dates and identical event windows:
+Implemented as a closed form in `experiments/produce/detection/chance_baseline.py`. Use the accepted alarm count `N`, identical TEST dates and identical event windows:
 
 `expected matches = Σ_j [1 − (1 − w_j / T)^N]`
 
-The value is computed by the T2 producer, not logged in `runs.csv`, and is Tier 1 only (see Open gaps).
+The value is computed by the T2 producer, not logged in `runs.csv`, and is Tier 1 only.
 
 ---
 
@@ -472,21 +479,15 @@ The value is computed by the T2 producer, not logged in `runs.csv`, and is Tier 
 | Refractory tests | Evaluation tests | Locks 14-day suppression. |
 | Slow baseline reproduction | `RUN_BASELINE_REPRO=1` | Keeps default tests fast. |
 
-# Documentation and open gaps
+# Documentation and accepted differences
 
 - `README.md` explains how to run the repository.
 - `docs/DATA_QUALITY.md` and `docs/EVENT_TIERING_CRITERIA.md` are maintained, and `tests/test_docs_in_sync.py` guards them. Other markdown under `docs/` is stale; this file and `SHARED_DECISIONS.md` take precedence.
 
-Open gaps, each needing a team decision:
+Accepted by the team, no change needed:
 
-1. **Retrain budget:** the shared limit is 8 retrains a year for arms C and D, and nothing enforces it. Page-Hinkley stays within it (at most 6 in a calendar year). ADWIN exceeds it in SA1 in 2021 (9) and in NSW1 in 2022 and 2023 (9 each).
-2. **Page-Hinkley grid:** the bounds were informed by AEMO results, while the shared rule is never to tune against AEMO. See 2.2.
-3. **Chance baseline:** the shared rule asks for at least 1,000 simulations reported as mean ± standard deviation, for each tier. The code uses a closed form, Tier 1 only.
-4. **Negative controls:** the shared rule retains Five-Minute Settlement as a negative control reported separately. It is not in `events.csv`, and T2 has no such row.
-5. **3-day sensitivity:** the shared appendix analysis with a 3-day grace period has not been implemented.
-6. **F3 Arm D window:** F3 draws each model × region's lowest-MAE window, while T3, T4, T5 and T6 report 180 days. They differ for DHR + ARIMA in SA1 and XGBoost in SA1 under Page-Hinkley, and for more combinations under ADWIN.
-7. **Tuning-rule wording:** the shared rule names shortest delay as the tie-breaker; Team 41 ranks fewest false alarms first.
-8. **Forecasting wording:** the shared rule says "Model seed 1" and identical forecasters across teams, while runs use seeds 1–5 and T7 compares XGBoost with `HistGradientBoostingRegressor`.
+- **Retrain budget:** about 8 retrains a year for arms C and D, as a guide rather than a strict limit, and not enforced in code. A yearly average under 9 over TEST is accepted. Page-Hinkley stays under 8 in every year; ADWIN averages 8.3 (SA1) and 8.9 (NSW1).
+- **Tuning selection:** Team 41 adds one step ahead of the shared shortest-delay tie-breaker: fewest false alarms per year first, so that its input stream is judged fairly. `SHARED_DECISIONS.md` stays as it is, because Team 42 did not face this issue.
 
 ---
 

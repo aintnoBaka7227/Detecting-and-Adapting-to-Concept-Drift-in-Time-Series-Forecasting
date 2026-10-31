@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from experiments.produce.chance_baseline import expected_matches_closed_form
+from experiments.produce.detection.chance_baseline import expected_matches_closed_form
 from experiments.results_io import RUN_COLUMNS
 
 
@@ -200,7 +200,7 @@ def test_expected_matches_closed_form_is_deterministic():
 
 
 def test_t2_tier1_match_windows_follow_match_unmatch():
-    from experiments.produce.table_t2_common import match_window_days, tier1_events
+    from experiments.produce.detection.table_t2_common import match_window_days, tier1_events
 
     # COVID 16 Mar - 17 May 2020: [16 Mar 00:00, 18 May 00:00) + 7-day grace
     assert match_window_days(tier1_events())[0] == 70.0

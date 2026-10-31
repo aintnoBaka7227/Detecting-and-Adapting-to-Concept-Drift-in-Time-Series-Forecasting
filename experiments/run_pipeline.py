@@ -151,22 +151,22 @@ def per_detector_steps(stage, module, detectors, models, regions) -> list[Step]:
 
 
 PRODUCERS = (
-    "produce_table_t1_post_tune",
-    "produce_figure_f2_synthetic_post_tune",
-    "produce_table_t2_standard_half_hourly_post_tune",
-    "produce_figure_f2_aemo_standard_half_hourly_post_tune",
-    "produce_figure_f1",
-    "produce_table_forecaster_selection",
-    "produce_table_t3",
-    "produce_table_t4",
-    "produce_figure_f3",
-    "produce_table_arm_d_sweep",
-    "produce_table_t5",
-    "produce_figure_f4",
-    "produce_table_t6",
-    "produce_figure_f5",
-    "produce_table_t7",
-    "produce_figure_f6",
+    "detection.produce_table_t1_post_tune",
+    "detection.produce_figure_f2_synthetic_post_tune",
+    "detection.produce_table_t2_standard_half_hourly_post_tune",
+    "detection.produce_figure_f2_aemo_standard_half_hourly_post_tune",
+    "forecasting.produce_figure_f1",
+    "forecasting.produce_table_forecaster_selection",
+    "adaptation.produce_table_t3",
+    "adaptation.produce_table_t4",
+    "adaptation.produce_figure_f3",
+    "adaptation.produce_table_arm_d_sweep",
+    "uncertainty.produce_table_t5",
+    "uncertainty.produce_figure_f4",
+    "escalation.produce_table_t6",
+    "escalation.produce_figure_f5",
+    "comparison.produce_table_t7",
+    "comparison.produce_figure_f6",
 )
 
 

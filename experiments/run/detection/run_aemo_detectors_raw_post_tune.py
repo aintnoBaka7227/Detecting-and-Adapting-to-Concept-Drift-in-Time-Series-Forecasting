@@ -1,10 +1,9 @@
 """AEMO detection on the full raw half-hourly stream, post-tuning (frozen)
 configs.
 
-Sibling of run_aemo_detectors_raw_pre_tune.py: identical raw half-hourly
-input, warm-up-then-test-window scoring, and both-tier (Tier 1 and Tier 2)
-matching, but post_tune_detector_configs.make_post_tune_detectors() instead
-of plain class defaults.
+Raw half-hourly input, warm-up-then-test-window scoring, and both-tier
+(Tier 1 and Tier 2) matching, with
+post_tune_detector_configs.make_post_tune_detectors().
 
 Filled a real gap: an earlier `run_post_tune_input_comparison_on_aemo.py`
 ran post-tuning detectors on raw demand, but matched against Tier 1
@@ -18,9 +17,7 @@ comparable. Its T2 table (and the combined all-streams T2) were retired:
 the report uses the standard-half-hourly stream only; the rows remain in
 runs.csv.
 
-split_id "aemo_detect_raw_post_tune_v1": its own id, distinct from
-run_aemo_detectors_raw_pre_tune.py's "aemo_detect_raw_pre_tune_v1"
-(same input, pre-tuning configs instead).
+split_id "aemo_detect_raw_post_tune_v1".
 """
 
 from __future__ import annotations
@@ -31,10 +28,16 @@ import pandas as pd
 
 from drift_lab.aemo import loader
 from drift_lab.config import DOCUMENTED_EVENTS_CSV, REGIONS, SPLIT
-from drift_lab.evaluation.evaluation import INTERVAL_GRACE, POINT_WINDOW, REFRACTORY_PERIOD
+from drift_lab.evaluation.evaluation import (
+    INTERVAL_GRACE,
+    POINT_WINDOW,
+    REFRACTORY_PERIOD,
+)
 from experiments import results_io
 from experiments.run.detection.detection_artifacts import match_and_persist
-from experiments.run.detection.post_tune_detector_configs import make_post_tune_detectors
+from experiments.run.detection.post_tune_detector_configs import (
+    make_post_tune_detectors,
+)
 from experiments.run_harness import config_of, record_run
 
 SPLIT_ID = "aemo_detect_raw_post_tune_v1"

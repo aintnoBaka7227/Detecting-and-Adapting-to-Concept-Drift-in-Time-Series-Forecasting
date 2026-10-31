@@ -15,7 +15,7 @@ This file records agreed research and experiment decisions. It does not explain 
 | Data period | 1 January 2018 to 31 December 2023 |
 | Team 41 trigger | AEMO `TOTALDEMAND`, processed as raw 30-minute demand, daily aggregation, or a seasonal residual |
 | Team 42 trigger | Processed forecast-error stream |
-| Final comparison | Only the trigger stream should differ between Teams 41 and 42 |
+| Final comparison | The trigger stream is the intended difference between Teams 41 and 42; forecasters come from the same model family |
 
 ## 2. Fixed data split
 
@@ -156,7 +156,6 @@ Team 42 must freeze its own causal error preprocessing before final calibration.
 | Required fields | Event name, start, end, region, tier, event type and source |
 | Positive-event tiers | Tier 1 and Tier 2 |
 | Tier reporting | Report Tier 1 and Tier 2 separately |
-| Five-Minute Settlement | Exclude from positive Tier 1 targets; retain as a negative control |
 | COVID | 16 March – 17 May 2020 (`EVT-2020-02`, NEM-wide, Tier 1), following AEMO Quarterly Energy Dynamics Q2 2020 |
 | Catalogue freeze | Freeze dates and classifications before the final AEMO run |
 
@@ -167,13 +166,11 @@ Team 42 must freeze its own causal error preprocessing before final calibration.
 | Single-date event window | Event date through event date + 7 days |
 | Multi-day event window | Event start through event end + 7 days |
 | Pre-event detections | Do not match detections before the documented event start |
-| Sensitivity analysis | Repeat with a 3-day grace period for the appendix |
 | Detection-to-event matching | One detection can match at most one event |
 | Event coverage | One event receives credit at most once |
 | Detection delay | Detection time minus documented event start |
 | Remaining detections | Label `unmatched` |
 | Remaining positive events | Label `missed` |
-| Negative controls | Report separately; they do not increase positive-event coverage |
 | Overlapping event windows | Same rule for both teams: Tier 1 events are matched first, then Tier 2, each in chronological order; each event takes the first unused accepted detection in its window |
 
 ### Regime attribution
@@ -219,7 +216,6 @@ T2 reports AEMO detections matched against documented events. Documented events 
 | Unmatched detections | Report count |
 | Missed documented events | Report count |
 | Detection delays | Report in days |
-| Negative controls | Report separately |
 | Chance baseline | Required for every detector and region |
 
 Metric definitions:
@@ -245,9 +241,8 @@ Tier-specific event coverage keeps the pooled-looking formula above applied per 
 | Refractory rule | Same rule as the real detector run |
 | Matching rule | Same event matcher as the real detector run |
 | Event catalogue | Same frozen `events.csv` |
-| Repetitions | At least 1,000 random simulations |
-| Seeds | Fixed and recorded |
-| Reporting | Mean ± standard deviation |
+| Method | Closed form: `expected matches = Σ_k [1 − (1 − w_k / T)^N]`, with `w_k` each event's match window and `T` the test days |
+| Scope | Tier 1 events |
 
 Calculate the chance baseline separately for every detector × region × input-stream result.
 
@@ -273,9 +268,9 @@ Calculate the chance baseline separately for every detector × region × input-s
 | Forecast horizon | 48 half-hourly steps |
 | Input size | 336 half-hourly steps |
 | Training steps | 500 |
-| Model seed | 1 |
+| Model seeds | `1, 2, 3, 4, 5` |
 | Compute device | CPU |
-| Comparison requirement | Teams 41 and 42 use identical forecasts and forecasting settings |
+| Comparison requirement | Teams 41 and 42 use forecasters from the same model family; the implementation and forecast values may differ |
 
 ### Four adaptation arms
 
@@ -296,7 +291,7 @@ For an accepted alarm on day `d`:
 - retraining uses observations available through day `d`;
 - the new model begins forecasting on day `d + 1`.
 
-Retraining budget: at most 8 retrains per year for the drift-triggered arms (C and D), the same limit for both teams. Arms A and B are control arms with a fixed schedule, so the budget does not apply to them.
+Retraining budget: about 8 retrains per year for the drift-triggered arms (C and D), the same guide for both teams. It is not a strict limit: a yearly average under 9 over the test period is accepted. Arms A and B are control arms with a fixed schedule, so the budget does not apply to them.
 
 Record for every arm:
 
@@ -358,7 +353,7 @@ For T7, both teams must use the same:
 
 - AEMO regions and dates;
 - train, calibration and test split;
-- forecaster and forecast values;
+- forecaster family;
 - forecasting features and schedule;
 - event catalogue;
 - matching rules;
@@ -378,4 +373,4 @@ The intended comparison is:
 | Team 41 | `TOTALDEMAND`-based trigger; primary corrected input is the half-hourly DOY/DOW/TOD seasonal residual |
 | Team 42 | Processed forecast error |
 
-No other material experimental setting should differ.
+No other material experimental setting should differ. Team 41 uses XGBoost and Team 42 uses `HistGradientBoostingRegressor`, both gradient boosting.

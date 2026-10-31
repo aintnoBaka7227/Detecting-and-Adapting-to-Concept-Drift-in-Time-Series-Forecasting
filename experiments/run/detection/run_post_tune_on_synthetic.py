@@ -16,7 +16,9 @@ from drift_lab.config import SEEDS
 from drift_lab.evaluation.evaluation import evaluate_detections
 from drift_lab.synthetic.generator import make_series
 from experiments import results_io
-from experiments.run.detection.post_tune_detector_configs import make_post_tune_detectors
+from experiments.run.detection.post_tune_detector_configs import (
+    make_post_tune_detectors,
+)
 from experiments.run_harness import config_of, record_run
 
 KINDS = ("none", "sudden", "gradual", "recurring")
