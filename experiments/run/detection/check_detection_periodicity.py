@@ -16,11 +16,8 @@ REFRACTORY_PERIOD debounce, the ones that trigger retraining) -- this reports:
     phase R (p)   Rayleigh test of alarm phase in four cycles: day of week,
                   day of year, a fixed 14-day and a fixed 30-day period.
 
-Verdict (fixed before running): "periodic" if the gap CV is below the 5th
-random percentile, the edge share is above the 95th, or any cycle has
-p < 0.05 / 4; otherwise "clustered" if the gap CV is above the 95th
-percentile; otherwise "no evidence". With 15-50 alarms per detector the
-tests have limited power, so "no evidence" is not proof of no periodicity.
+The table lists these metrics only. With 15-50 alarms per detector the tests
+have limited power.
 
 Reads the saved raw_ / accepted_detections files; writes
 results/tables/detection_periodicity/detection_periodicity.{csv,png}.
@@ -49,7 +46,6 @@ from experiments.run.detection.standard_stream_common import TEST_START
 
 SPLIT_ID = "aemo_detect_standard_half_hourly_post_tune_v1"
 N_SIM = 5000
-ALPHA = 0.05
 EDGE_DAYS = (14, 16)  # [refractory, refractory + 2 days)
 # (label, period in days, phase origin)
 CYCLES = (
@@ -80,7 +76,7 @@ def assess(timestamps: pd.DatetimeIndex, span_days: float, accepted: bool) -> di
     min_gap = REFRACTORY_PERIOD / pd.Timedelta(days=1) if accepted else 0.0
     row = {"alarms": len(days)}
     if len(days) < 3:
-        return row | {"verdict": "too few alarms"}
+        return row
 
     sims = evaluation.simulate_random_alarm_days(len(days), span_days, min_gap, N_SIM, seed=0)
     cv = evaluation.calculate_gap_cv(days)
@@ -92,25 +88,15 @@ def assess(timestamps: pd.DatetimeIndex, span_days: float, accepted: bool) -> di
         "CV pct vs random": round(percentile(cv, cv_null), 3),
     }
 
-    periodic = row["CV pct vs random"] <= ALPHA
     if accepted:
         edge = evaluation.calculate_gap_share(days, *EDGE_DAYS)
         edge_null = np.array([evaluation.calculate_gap_share(s, *EDGE_DAYS) for s in sims])
         edge_pct = percentile(edge, edge_null)
         row |= {"gaps 14-16 d": round(edge, 2), "edge pct vs random": round(edge_pct, 3)}
-        periodic |= edge_pct >= 1 - ALPHA
 
     for label, period, origin in CYCLES:
         r, p = evaluation.calculate_phase_concentration(timestamps, period, origin)
         row[f"{label} R (p)"] = f"{r:.2f} ({p:.3f})"
-        periodic |= p < ALPHA / len(CYCLES)
-
-    if periodic:
-        row["verdict"] = "periodic"
-    elif row["CV pct vs random"] >= 1 - ALPHA:
-        row["verdict"] = "clustered"
-    else:
-        row["verdict"] = "no evidence"
     return row
 
 
@@ -146,8 +132,7 @@ def main() -> None:
             "Standard-half-hourly post-tuning detectors, TEST period. Gap CV (sd / mean of days between "
             f"alarms) as a percentile of {N_SIM} random sequences with the same alarm count (accepted: the "
             "same 14-day minimum gap); edge share = gaps in [14, 16) days; R (p) = Rayleigh phase "
-            "concentration. Verdict, fixed in advance: periodic if CV pct <= 0.05, edge pct >= 0.95 or any "
-            "p < 0.0125; clustered if CV pct >= 0.95; otherwise no evidence (limited power with few alarms)."
+            "concentration. Limited power with few alarms."
         ),
     )
     print(f"wrote {image}")

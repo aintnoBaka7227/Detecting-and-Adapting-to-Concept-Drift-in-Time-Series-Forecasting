@@ -188,6 +188,7 @@ def replay_one(
     for uq_method, (lower, upper, description, seconds) in methods.items():
         config = {
             "source_config_hash": source_hash,
+            "calibration_config_hash": calibration.parent.name,
             "issuance_step": ISSUANCE_STEP,
             "worst_coverage_window": WORST_COVERAGE_WINDOW,
             "uq": description,
