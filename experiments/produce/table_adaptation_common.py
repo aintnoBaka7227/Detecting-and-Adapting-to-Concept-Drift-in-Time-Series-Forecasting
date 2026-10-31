@@ -2,8 +2,8 @@
 
 Reads run_aemo_adaptation_arms.py's rows from runs.csv (method is
 "<model>/<arm>") and keeps the latest record_run batch per (model, arm,
-region, seed). Arm D is reported at the 180-day window only
-(REPORTED_D_ARM) until the full sweep is run.
+region, seed). T3 and T4 report Arm D at the 180-day window only
+(REPORTED_D_ARM); produce_table_arm_d_sweep.py reports all four windows.
 
 Two regime rules (TEAM_DECISIONS.md 5.3):
     global       every TEST timestamp, logged in runs.csv by the run /

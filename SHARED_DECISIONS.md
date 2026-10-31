@@ -21,8 +21,8 @@ This file records agreed research and experiment decisions. It does not explain 
 
 | Split | Dates | Use |
 |---|---|---|
-| Training | 1 January 2018 to 31 December 2019 | Fit forecasting models and preprocessing parameters |
-| Calibration | 1 January 2020 to 29 February 2020 | Calibration, pre-test observations and detector warm-up subject to the final shared rule |
+| Training | 1 January 2018 to 31 December 2019 | Fit forecasting models and preprocessing parameters; detector warm-up |
+| Calibration | 1 January 2020 to 29 February 2020 | Calibration, pre-test observations and detector warm-up |
 | Test | 1 March 2020 onward | Record and evaluate forecasts and detections |
 
 The split is fixed for all experiments and must not be changed between methods.

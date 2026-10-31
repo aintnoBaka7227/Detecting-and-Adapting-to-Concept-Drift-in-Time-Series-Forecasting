@@ -18,7 +18,7 @@ data -> detection -> forecasting -> adaptation -> uncertainty -> escalation
 
 | Stage | Question it answers | Deliverables |
 |---|---|---|
-| **1. Data** | Is the demand series clean, and does the TRAIN-fitted seasonal profile generalise to later splits? | QC figures and table |
+| **1. Data** | Is the demand series clean, and does the TRAIN-fitted seasonal profile generalise to later splits? | Data audit and split tables, QC figures and table |
 | **2. Detection** | Which detector finds real changes without false alarms, and when does it fire on AEMO? | T1, F2 (synthetic), T2, F2 (AEMO), change-point files, periodicity check |
 | **3. Forecasting** | How fast do frozen forecasters degrade, and which forecaster is selected? | F1, forecaster-selection table, calibration residuals |
 | **4. Adaptation** | Does retraining on drift alarms beat never or scheduled retraining, and at what cost? | T3, T4, F3 |
@@ -47,31 +47,33 @@ tables and figures.
 
 | # | Stage | Run | Then produce | Deliverable |
 |---|---|---|---|---|
-| 1 | Data | `experiments.run.detection.check_seasonal_residuals` | — | `results/figures/qc_*_half_hourly.png` |
-| 2 | Data | `experiments.run.detection.check_residual_generalisation` | — | `results/tables/qc_residual_generalisation_half_hourly.{csv,png}` |
-| 3 | Detection | `experiments.run.detection.run_fine_tune_on_synthetic` | `produce_fine_tune_calibration_summary` | `results/tables/fine_tune_on_synthetic_winners.csv` (the frozen detector configs, read by every later detection script); `fine_tune_calibration_summary.csv` (one row per swept config) |
-| 4 | Detection | `experiments.run.detection.run_post_tune_on_synthetic` | `produce_table_t1_post_tune`, `produce_figure_f2_synthetic_post_tune` | **T1**, **F2** (synthetic) |
-| 5 | Detection | `experiments.run.detection.run_aemo_detectors_standard_half_hourly_post_tune` | `produce_table_t2_standard_half_hourly_post_tune`, `produce_figure_f2_aemo_standard_half_hourly_post_tune` | **T2**, **F2** (AEMO) |
-| 6 | Detection | `experiments.run.detection.run_detector_changepoints` | — | `results/runs/changepoints/<detector>_standard_half_hourly_post_tune_<region>.csv` |
-| 7 | Detection | `experiments.run.detection.check_detection_periodicity` | — | `results/tables/detection_periodicity/` |
-| 8 | Forecasting | `experiments.run.forecasting.run_aemo_baselines`, `experiments.run.forecasting.run_aemo_nhits` | `produce_figure_f1` | **F1** |
-| 9 | Forecasting | `experiments.run.forecasting.run_aemo_holdout_selection`, `experiments.run.forecasting.run_aemo_calibration_forecasts` | `produce_table_forecaster_selection` | forecaster-selection tables (held-out Nov–Dec 2019 from TRAIN; Calibration window); `calibration_forecast_aemo_<region>_<seed>.csv` residuals |
-| 10 | Adaptation | `experiments.run.adaptation.run_aemo_adaptation_arms` (once per detector × model × region × seed) | — | adaptation forecasts per run |
-| 11 | Adaptation | `experiments.run.adaptation.rescore_adaptation_runs` | `produce_table_t3`, `produce_table_t4`, `produce_figure_f3`, `produce_table_arm_d_sweep` | **T3**, **T4**, **F3**, arm D sweep table (all four windows, winner per model × region) |
-| 12 | Uncertainty | `experiments.run.uncertainty.run_aemo_uq_replay` | `produce_table_t5`, `produce_figure_f4` | **T5**, **F4** |
-| 13 | Escalation | `experiments.run.uncertainty.run_aemo_escalation_sweep` | `produce_table_t6`, `produce_figure_f5` | **T6**, **F5** |
-| 14 | Comparison | — | `produce_table_t7`, `produce_figure_f6` | **T7**, **F6** |
+| 1 | Data | `experiments.run.detection.check_data_audit` | — | `results/tables/data/data_audit.{csv,png}`, `data_splits.{csv,png}` |
+| 2 | Data | `experiments.run.detection.check_seasonal_residuals` | — | `results/figures/qc_*_half_hourly.png` |
+| 3 | Data | `experiments.run.detection.check_residual_generalisation` | — | `results/tables/qc_residual_generalisation_half_hourly.{csv,png}` |
+| 4 | Detection | `experiments.run.detection.run_fine_tune_on_synthetic` | `produce_fine_tune_calibration_summary` | `results/tables/fine_tune_on_synthetic_winners.csv` (the frozen detector configs, read by every later detection script); `fine_tune_calibration_summary.csv` (one row per swept config) |
+| 5 | Detection | `experiments.run.detection.run_post_tune_on_synthetic` | `produce_table_t1_post_tune`, `produce_figure_f2_synthetic_post_tune` | **T1**, **F2** (synthetic) |
+| 6 | Detection | `experiments.run.detection.run_aemo_detectors_standard_half_hourly_post_tune` | `produce_table_t2_standard_half_hourly_post_tune`, `produce_figure_f2_aemo_standard_half_hourly_post_tune` | **T2**, **F2** (AEMO) |
+| 7 | Detection | `experiments.run.detection.run_detector_changepoints` | — | `results/runs/changepoints/<detector>_standard_half_hourly_post_tune_<region>.csv` |
+| 8 | Detection | `experiments.run.detection.check_detection_periodicity` | — | `results/tables/detection_periodicity/` |
+| 9 | Forecasting | `experiments.run.forecasting.run_aemo_baselines`, `experiments.run.forecasting.run_aemo_nhits` | `produce_figure_f1` | **F1** |
+| 10 | Forecasting | `experiments.run.forecasting.run_aemo_holdout_selection`, `experiments.run.forecasting.run_aemo_calibration_forecasts` | `produce_table_forecaster_selection` | forecaster-selection tables (held-out Nov–Dec 2019 from TRAIN; Calibration window); `calibration_forecast_aemo_<region>_<seed>.csv` residuals |
+| 11 | Adaptation | `experiments.run.adaptation.run_aemo_adaptation_arms` (once per detector × model × region × seed) | — | adaptation forecasts per run |
+| 12 | Adaptation | `experiments.run.adaptation.rescore_adaptation_runs` | `produce_table_t3`, `produce_table_t4`, `produce_figure_f3`, `produce_table_arm_d_sweep` | **T3**, **T4**, **F3**, arm D sweep table (all four windows, winner per model × region) |
+| 13 | Uncertainty | `experiments.run.uncertainty.run_aemo_uq_replay` | `produce_table_t5`, `produce_figure_f4` | **T5**, **F4** |
+| 14 | Escalation | `experiments.run.uncertainty.run_aemo_escalation_sweep` | `produce_table_t6`, `produce_figure_f5` | **T6**, **F5** |
+| 15 | Comparison | — | `produce_table_t7`, `produce_figure_f6` | **T7**, **F6** |
 
 All producers are `experiments.produce.<name>`.
 
-Steps 1–2 sit in `experiments/run/detection/` because they validate the
-seasonal residual stream the detectors read. Steps 10–13 loop over both
+Steps 1–3 sit in `experiments/run/detection/` because they check the data
+and the seasonal residual stream the detectors read. Steps 11–14 loop over both
 trigger detectors (ADWIN, Page-Hinkley) unless `--detector` is given.
 
 ### Full run
 
 ```bash
 # 1. Data
+python -m experiments.run.detection.check_data_audit
 python -m experiments.run.detection.check_seasonal_residuals
 python -m experiments.run.detection.check_residual_generalisation
 
@@ -226,6 +228,7 @@ rerunning a stage, rerun the later stages and reload the page.
 │   ├── trigger_detectors.py            trigger detectors (ADWIN, Page-Hinkley) and their split_ids
 │   ├── run/
 │   │   ├── detection/                  stages 1-2
+│   │   │   ├── check_data_audit.py                audit and split tables (results/tables/data/)
 │   │   │   ├── check_seasonal_residuals.py, check_residual_generalisation.py   data QC
 │   │   │   ├── run_fine_tune_on_synthetic.py      detector config sweep (synthetic only)
 │   │   │   ├── post_tune_detector_configs.py      reads the sweep winners
