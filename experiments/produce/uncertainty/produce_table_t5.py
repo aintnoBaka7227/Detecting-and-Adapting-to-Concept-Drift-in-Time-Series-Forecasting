@@ -116,20 +116,38 @@ def write_tables(detector: str) -> None:
     print(table.to_string(index=False))
     print(f"\nnormalised width denominators (mean TRAIN demand): {denominators}")
     print(f"wrote {out}")
+    subtitle = (
+        "90% intervals issued one half-hour ahead; global regimes; coverage and width "
+        "pooled within each regime; worst 24h = lowest window of 48 consecutive "
+        "half-hours inside the regime (windows overlap; count shown); "
+        f"normalised width = MW / mean TRAIN demand ({denominators}); "
+        "mean ± sd across seeds (dhr_arima is deterministic: 1 seed)."
+    )
     for model, rows in table.groupby("model"):
         image = save_table_image(
             rows.reset_index(drop=True),
             output_path(TABLE5_DIR, detector, model, name=f"table_t5_coverage_and_width_{detector}_{model}.png"),
             title=f"T5 — Coverage and interval width by regime, {model}, {DETECTOR_LABELS[detector]} trigger",
-            subtitle=(
-                "90% intervals issued one half-hour ahead; global regimes; coverage and width "
-                "pooled within each regime; worst 24h = lowest window of 48 consecutive "
-                "half-hours inside the regime (windows overlap; count shown); "
-                f"normalised width = MW / mean TRAIN demand ({denominators}); "
-                "mean ± sd across seeds (dhr_arima is deterministic: 1 seed)."
-            ),
+            subtitle=subtitle,
         )
         print(f"wrote {image}")
+        # One image per region (same rows, model/region moved to the title) for slides.
+        for region, region_rows in rows.groupby("region"):
+            image = save_table_image(
+                region_rows.drop(columns=["model", "region"]).reset_index(drop=True),
+                output_path(
+                    TABLE5_DIR,
+                    detector,
+                    model,
+                    name=f"table_t5_coverage_and_width_{detector}_{model}_{region}.png",
+                ),
+                title=(
+                    f"T5 — Coverage and interval width by regime, {model}, {region}, "
+                    f"{DETECTOR_LABELS[detector]} trigger"
+                ),
+                subtitle=subtitle,
+            )
+            print(f"wrote {image}")
 
 
 if __name__ == "__main__":
