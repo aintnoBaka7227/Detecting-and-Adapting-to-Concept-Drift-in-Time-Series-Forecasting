@@ -1,0 +1,13 @@
+﻿detector,drift type,delay (mean ± sd),false alarms / 10k,false alarms / year (17520),missed,config,seeds
+ADWIN,sudden,7.0 ± 0.0,0.00,0.00,0,"clock=16, delta=1e-06, min_window_length=5",5
+ADWIN,gradual,138.2 ± 13.4,1.60,2.80,0,"clock=16, delta=1e-06, min_window_length=5",5
+ADWIN,recurring,7.5 ± 0.0,0.00,0.00,0,"clock=16, delta=1e-06, min_window_length=5",5
+ADWIN,none,—,0.00,0.00,0,"clock=16, delta=1e-06, min_window_length=5",5
+KSWIN,sudden,20.6 ± 1.1,0.40,0.70,0,"alpha=5e-05, stat_size=50, window_size=400",5
+KSWIN,gradual,116.6 ± 25.3,1.40,2.45,0,"alpha=5e-05, stat_size=50, window_size=400",5
+KSWIN,recurring,20.2 ± 1.1,0.10,0.18,0,"alpha=5e-05, stat_size=50, window_size=400",5
+KSWIN,none,—,0.30,0.53,0,"alpha=5e-05, stat_size=50, window_size=400",5
+Page-Hinkley,sudden,31.2 ± 5.2,0.00,0.00,0,"alpha=0.9995, delta=0.0001, min_instances=20, threshold=300",5
+Page-Hinkley,gradual,256.4 ± 29.3,1.00,1.75,0,"alpha=0.9995, delta=0.0001, min_instances=20, threshold=300",5
+Page-Hinkley,recurring,31.7 ± 2.7,0.00,0.00,0,"alpha=0.9995, delta=0.0001, min_instances=20, threshold=300",5
+Page-Hinkley,none,—,0.00,0.00,0,"alpha=0.9995, delta=0.0001, min_instances=20, threshold=300",5

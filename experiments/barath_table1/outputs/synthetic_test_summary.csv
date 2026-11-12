@@ -1,0 +1,13 @@
+detector,drift_type,mean_delay,mean_delay_sd,false_alarms_per_10k,total_missed,total_matched,datasets
+ADWIN,gradual,138.2,13.38656042454521,1.5999999999999999,0,5,5
+ADWIN,none,,,0.0,0,0,5
+ADWIN,recurring,7.5,0.0,0.0,0,10,5
+ADWIN,sudden,7.0,0.0,0.0,0,5,5
+KSWIN,gradual,116.6,25.33377192602791,1.4,0,5,5
+KSWIN,none,,,0.3,0,0,5
+KSWIN,recurring,20.2,1.0954451150103321,0.1,0,10,5
+KSWIN,sudden,20.6,1.1401754250991385,0.4,0,5,5
+Page-Hinkley,gradual,256.4,29.296757499764375,1.0,0,5,5
+Page-Hinkley,none,,,0.0,0,0,5
+Page-Hinkley,recurring,31.7,2.7294688127912363,0.0,0,10,5
+Page-Hinkley,sudden,31.2,5.215361924162119,0.0,0,5,5

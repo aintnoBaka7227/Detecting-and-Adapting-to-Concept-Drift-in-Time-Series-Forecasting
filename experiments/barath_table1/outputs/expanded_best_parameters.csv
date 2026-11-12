@@ -1,0 +1,4 @@
+detector,config_id,parameters,mean_delay,false_alarms_per_10k,total_missed,score
+ADWIN,28,"{""delta"": 1e-06, ""clock"": 16, ""min_window_length"": 5}",40.85,0.5,0,0.9085
+KSWIN,31,"{""alpha"": 5e-05, ""window_size"": 400, ""stat_size"": 50}",41.65,0.4375,0,0.854
+Page-Hinkley,29,"{""threshold"": 300, ""delta"": 0.0001, ""alpha"": 0.9995, ""min_instances"": 20}",86.55,0.3125,0,1.178
