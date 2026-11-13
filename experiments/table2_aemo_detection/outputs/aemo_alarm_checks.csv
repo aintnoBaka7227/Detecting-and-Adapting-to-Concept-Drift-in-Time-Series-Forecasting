@@ -1,0 +1,7 @@
+region,detector,accepted_alarms,alarms_per_year,within_budget,negative_control_alarms
+NSW1,ADWIN,65,16.95,False,1
+NSW1,KSWIN,73,19.03,False,0
+NSW1,Page-Hinkley,36,9.39,False,0
+SA1,ADWIN,71,18.51,False,0
+SA1,KSWIN,71,18.51,False,0
+SA1,Page-Hinkley,37,9.65,False,0

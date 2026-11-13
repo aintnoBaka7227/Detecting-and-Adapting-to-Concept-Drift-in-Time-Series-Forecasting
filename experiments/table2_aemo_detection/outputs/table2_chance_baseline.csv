@@ -1,0 +1,7 @@
+region,detector,accepted_alarms,tier1_events,tier1_matched,chance_tier1
+NSW1,ADWIN,68,4,3,3.18
+NSW1,KSWIN,72,4,4,3.24
+NSW1,Page-Hinkley,38,4,4,2.43
+SA1,ADWIN,72,4,4,3.24
+SA1,KSWIN,70,4,4,3.21
+SA1,Page-Hinkley,37,4,3,2.4
