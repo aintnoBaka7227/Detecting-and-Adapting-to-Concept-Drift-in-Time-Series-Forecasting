@@ -49,3 +49,37 @@ Generated Table 2 results to compare drift detection performance across NSW1 and
 - Organised the Python scripts, datasets, and results in the GitHub branch.
 
 **Status:** Completed independently and uploaded to the branch, but not merged into final main.
+
+---
+
+### `feature/table5-fixed-conformal-barath`
+
+**Stage:** Uncertainty Quantification / Coverage and Interval Width Evaluation
+
+Independently implemented Fixed Split Conformal Prediction for Table 5 to evaluate the reliability of prediction intervals under concept drift. The work included preparing forecast data, calculating conformal prediction intervals, evaluating coverage and interval widths, and summarising the results.
+
+Used XGBoost forecasts from the AEMO NSW1 and SA1 datasets with Page-Hinkley drift detection. The evaluation included four adaptation arms (A, B, C, and D), five random seeds, and three drift regimes (pre-drift, drift, and post-drift).
+
+Calculated the conformal radius using absolute calibration residuals with a target coverage of 90%. The radius was calculated separately for each region and seed and applied consistently across all four adaptation arms.
+
+Implemented four evaluation metrics: coverage, mean interval width, normalised interval width, and worst 24-hour coverage. For worst 24-hour coverage, used rolling windows of 48 consecutive half-hourly observations within each drift regime.
+
+Processed 40 adaptation forecast files and 10 calibration files. Generated 120 seed-level evaluation results and summarised them into 24 final rows using mean and standard deviation across five seeds.
+
+Compared the results with the team's Table 5 and observed similar overall patterns. Also performed separate verification of the conformal radius, interval widths, coverage, worst 24-hour coverage, window counts, and final summary calculations.
+
+**Work completed:**
+- Implemented Fixed Split Conformal Prediction with 90% target coverage.
+- Prepared and validated XGBoost forecasts for NSW1 and SA1.
+- Used Page-Hinkley drift regimes for the evaluation.
+- Calculated conformal radii using calibration residuals.
+- Generated prediction intervals for adaptation arms A, B, C, and D.
+- Implemented coverage, mean interval width, and normalised interval width calculations.
+- Implemented worst 24-hour coverage using 48 consecutive half-hourly observations.
+- Evaluated results separately for pre-drift, drift, and post-drift regimes.
+- Generated 120 seed-level results and 24 final summary rows.
+- Calculated mean and standard deviation across five random seeds.
+- Independently verified the evaluation calculations and compared the results with the team's Table 5.
+- Uploaded the Python scripts, input datasets, evaluation results, and README documentation to the GitHub branch.
+
+**Status:** Completed independently and uploaded to the branch, but not merged into final main.
