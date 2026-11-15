@@ -1,13 +1,48 @@
-# Contribution — Antony
+Contribution — Antony Murithi
+Documentation PR: #42 — docs: add Antony completed contributions
+Scope: Only completed work, with original commit references and an explicit distinction between commits in main history and final accepted artefacts.
+1. Completed work incorporated into main history
+feature/page-hinkley-gradual (commit included in PR #26) → Stage 3: gradual drift detection
+- 64f2d68 — Merged via PR #26. Implemented the first Page–Hinkley drift-detector wrapper (src/drift_forecasting/detection/page_hinkley.py) and its detection tests (tests/test_detection.py). This established the early gradual-drift detection implementation; the final project subsequently uses the refactored src/drift_lab/detection/page_hinkley.py.
+feature/additional-drift-detectors → Stage 3: detector implementations and synthetic validation
+Verified merged technical PR: #26 — Feature/additional drift detectors, merged 13 September 2026, merge commit f480b56. The GitHub PR #26 commit list explicitly includes all seven substantive Antony commits described in Section 1, including the original Page–Hinkley commit 64f2d68.
+- 4fb993b — Added initial ADWIN/KSWIN detector modules, compare_detectors.py, and expanded detector tests.
+- f427d70 — Extended the synthetic generator, gradual-drift comparison and validation tests (compare_detectors.py, synthetic/generator.py, tests/test_detection.py, tests/test_synthetic.py).
+- 3fdd560 — Updated compare_detectors.py to benchmark detector behaviour over five fixed seeds, rather than reporting only a single random run.
+feature/additional-drift-detectors → Stage 3: AEMO inputs, tuning and experimental outputs
+- 0b660cc — Built ADWIN/KSWIN experiment runners, detector tuning and AEMO-input processing experiments. Produced results/detector_tuning_summary.csv, results/aemo_processing_summary.csv, results/tables/adwin_results.csv, and results/tables/kswin_results.csv; added detector/AEMO processing method notes and tests.
+- 8211df4 — Built run_synthetic_detector_experiments.py, run_detector_budget_tuning.py, run_detector_input_experiments.py, and produce_detector_diagnostic_plots.py. Produced results/tables/frozen_synthetic_detector_results.csv, results/tables/detector_budget_tuning.csv, and results/tables/aemo_detector_input_comparison.csv; saved changepoint CSVs for three detectors × four synthetic drift scenarios × five seeds, plus SA1/NSW1 × three detector inputs × three detectors.
+- c337262 — Integrated the AEMO detector-input comparison into the shared results harness and updated results/tables/aemo_detector_input_comparison.csv and the run ledger.
+Final-use distinction: The commits above are reachable from origin/main, but several early scripts and CSV outputs were later replaced or removed. The final repository retains the refactored Page–Hinkley, ADWIN and KSWIN detectors and tests, but the historical compare_detectors.py, frozen_synthetic_detector_results.csv, detector_budget_tuning.csv, and aemo_detector_input_comparison.csv are not final artefacts in the inspected main snapshot. Do not attribute the final Table 1, Table 2 or Figure 2 to those historical files without a traceable final production run/PR. Earlier fine-tuning that generated approximately 100 AEMO alarms was unsuitable for the project's alarm/retraining budget; it is not claimed as an accepted result.
+2. Completed work not merged into main
+feature/additional-drift-detectors → experimental preprocessing
+- 046d175 — Added training-only seasonal adjustment and standardisation to the deseasonalised AEMO detector experiment, with corresponding tests. (not merge into main)
+feature/additional-drift-detectors → forecasting/adaptation cross-check infrastructure
+- 18ab87b — Built DHR–ARIMA/XGBoost cross-check modules, adaptation-arm experiments and evaluation support; added preliminary scripts for Table 3, Table 4 and Figure 3 and corresponding tests. These are independent cross-checks, not the production scripts or final reported Table 3/Table 4/Figure 3. (not merge into main)
+feature/split-adaptive-conformal → Stage 5/6 independent uncertainty and escalation checks
+- 5b976d2 — Extended conformal evaluation metrics/tests; produced initial SA1 rolling-coverage Figure 4 CSV/PNG and retained-coverage-versus-review-rate Figure 5 CSV/PNG. These were independently generated, not the accepted final figures. (not merge into main)
+- 318f1f7 — Added generate_sa1_conformal_figures.py, generate_nsw1_conformal_figures.py, compare_aci_agaci.py, and compare_aci_agaci_v2.py; produced independent SA1/NSW1 model-level ACI gamma validation, coverage/width summaries, rolling-coverage plots, retained-coverage plots, and AgACI descriptive cross-check CSVs/notes under results/figures/independent_aci/. These were not the final official Table 5, Figure 4 or Figure 5. (not merge into main)
+3. Verified commit/PR traceability
+- Technical PR #26 — Feature/additional drift detectors: MERGED on 13 September 2026 (GitHub timestamp 2026-09-13T10:48:17Z), merge commit f480b56cf850c48a846e1cc22c5e839c87389ab7. Head branch: feature/additional-drift-detectors.
+- Seven substantive authored commits explicitly listed on merged PR #26: 64f2d68, 4fb993b, f427d70, 3fdd560, 0b660cc, 8211df4, and c337262. This is verified commit membership, not merely an inferred branch association.
+- Additional maintenance commits in PR #26: 81f2414 removed stale detector experiment artefacts; 9ad9a33 excluded tuning sweeps from official run results. Three other PR commits (0fd2614, 5558ae5, 08a7b90) merged main into the feature branch, not distinct deliverables.
+- Documentation PR #42: branch docs/S6-contribution-Antony; this documents the work and is not the original technical integration PR.
+- Not-in-main commits: 046d175, 18ab87b, 5b976d2 and 318f1f7 are not in the verified PR #26 commit list and are not ancestors of the checked origin/main history. Their original technical PRs, if any, have not been verified; do not represent their independent outputs as merged final results.
+- Meaning of “merged”: GitHub confirms the PR/commits were merged; this does not mean all preliminary CSVs, experiments, or tuning configurations became accepted final results.
+4. Final tables/figures: production trail versus Antony's earlier experiments
+The following paths were inspected in the supplied final main ZIP snapshot. They identify the final project's output-producing pipeline, not proof that Antony authored or ran those final scripts. The original git blame, PR details, or saved run ledger are required for attribution.
+Final artefact in main	Final producer / experiment input	Relation to Antony's documented work	Attribution status
+Table 1 results/tables/table1/table_t1_post_tune_synthetic_detection.csv and .png	experiments/produce/detection/produce_table_t1_post_tune.py, reading runs from experiments/run/detection/run_post_tune_on_synthetic.py (frozen settings in post_tune_detector_configs.py)	Antony's five-seed synthetic benchmarks and frozen_synthetic_detector_results.csv were earlier independent work (3fdd560, 8211df4), not this final production table	Final production script history identifies Tran Do Phong (8f697f1); producer PR not verified
+Table 2 results/tables/table2/table_t2_aemo_events_standard_half_hourly_post_tune.csv and .png	experiments/produce/detection/produce_table_t2_standard_half_hourly_post_tune.py, reading experiments/run/detection/run_aemo_detectors_standard_half_hourly_post_tune.py; experiment split_id: aemo_detect_standard_half_hourly_post_tune_v1	Antony's aemo_detector_input_comparison.csv and tuning scripts (0b660cc, 8211df4, c337262) documented input comparisons, not this accepted Table 2 producer	Final production script history identifies Tran Do Phong (8f697f1); producer PR not verified
+Figure 2, AEMO detector traces (SA1/NSW1, three detectors)	experiments/produce/detection/produce_figure_f2_aemo_standard_half_hourly_post_tune.py, consuming the same post-tuned AEMO experiment split_id	Antony's initial detector implementations and comparisons informed Stage 3 (64f2d68, 4fb993b, etc.); this does not prove he generated the accepted Figure 2	Final production script history identifies Tran Do Phong (8f697f1); producer PR not verified
+Figure 2, synthetic companion	experiments/produce/detection/produce_figure_f2_synthetic_post_tune.py, reading post-tune synthetic run artefacts	Earlier synthetic experiments were Antony's; final plotted dataset and producer are separate	Final production script history identifies Tran Do Phong (8f697f1); producer PR not verified
+Table 3, Table 4, Figure 3	Final experiments/produce/adaptation/ scripts	Antony's 18ab87b introduced earlier, differently located scripts. His commit is not in main history and is not claimed as the final production implementation	Not Antony's verified final deliverables
+Figure 4, Figure 5, Table 5	Final experiments/produce/uncertainty/ and escalation outputs	Antony's 5b976d2/`318f1f7` independent SA1/NSW1 files and cross-checks are not the final official outputs	Not Antony's verified final deliverables
 
-## Completed Contributions
 
-- `feature/page-hinkley-gradual` -> Implemented the Page-Hinkley gradual drift detector for the project's drift detection stage.
-
-- `feature/additional-drift-detectors` -> Developed ADWIN and KSWIN comparisons, detector benchmarking across five fixed seeds, AEMO preprocessing experiments, and drift detection evaluation infrastructure for the detection stage.
-
-- `feature/split-adaptive-conformal` -> Developed conformal evaluation metrics, SA1/NSW1 uncertainty figures, and AgACI cross-checks for the uncertainty quantification stage.
-
-## Merge Status
-
-The final main branch contains the relevant detection and uncertainty components. Exact branch-level merge attribution requires verification against the final implementations.
+Detector tuning qualification. A preliminary tuning configuration reportedly gave approximately 100 AEMO detections, exceeding the team's practical alarm/retraining budget. It must not be described as an accepted final tuning result. In the final pipeline the detector settings are frozen based on a synthetic-only sweep; the AEMO evaluation is performed afterward with those frozen settings. The exact failed configuration, its numerical output, and the final tuning author's PR are not established by the evidence provided.
+5. Remaining provenance checks (not claims of Antony's authorship)
+1. Original final-output PRs: The final Stage 3 Table 1, Table 2 and Figure 2 producer scripts are associated with commits by Phong (not Antony) in Antony-Final-Production-History.txt. Their respective producing PR numbers and saved run-ledger/configuration references are not yet verified. They should not be added as Antony's personal outputs.
+2. Preliminary excessive-alarm tuning: Approximately 100 AEMO detections was reported by the team leader for an earlier tuning version. The exact CSV/run ID and configuration behind that number remain unverified; it is clearly marked as an unusable preliminary outcome rather than a final accepted result.
+3. Independent unmerged work: PR numbers for 046d175, 18ab87b, 5b976d2, and 318f1f7 have not been established, but the original commit links are provided above. Do not suggest they were included through PR #26.
+Primary verification sources: Antony-PR26-Verified.json (GitHub PR #26 details and complete per-commit list); Antony-Contribution-Evidence.txt (authorship and changed files); Antony-Final-Production-History.txt (final Stage 3 script history); final main repository snapshot (accepted file paths).
