@@ -420,6 +420,56 @@ RUN_BASELINE_REPRO=1 uv run python -m pytest tests/test_xgboost_forecaster.py   
 
 ---
 
+## Contribution
+
+Who produced each file or folder on `main`, from `git blame -w -M -C`. Where a
+file is shared, the second name has the line count shown; edits under 10 lines
+are not listed. Work on branches not merged into `main` is in each
+`CONTRIBUTION_<NAME>.md`.
+
+| File / folder | Produced by |
+|---|---|
+| `README.md` | Phong; Ishan (20 lines) |
+| `TEAM_DECISIONS.md`, `SHARED_DECISIONS.md` | Phong |
+| `LICENSE`, `.gitignore`, `pyproject.toml` | Phong |
+| `CONTRIBUTION_<NAME>.md` | The member named in the file |
+| `docs/DATA_QUALITY.md`, `docs/EVENT_TIERING_CRITERIA.md` | Phong |
+| `docs/methods/adwin.md`, `docs/methods/kswin.md` | Antony |
+| `data/raw/` | Phong |
+| `data/archive/baseline/dhr_arima/` | Ishan |
+| `data/archive/baseline/` (`seasonal_naive/`, `xgboost/`, `comparison/`) | Phong |
+| `src/drift_lab/config.py`, `src/drift_lab/*/base.py` | Phong |
+| `src/drift_lab/aemo/loader.py`, `src/drift_lab/aemo/events.csv` | Phong |
+| `src/drift_lab/aemo/deseasonalise.py` | Phong, Antony (`aggregate_daily_demand`) |
+| `src/drift_lab/aemo/README.md`, `src/drift_lab/synthetic/README.md` | Ishan |
+| `src/drift_lab/synthetic/generator.py` | Phong, Ishan (11 of 60 lines) |
+| `src/drift_lab/detection/` | Phong, Barathkumar |
+| `src/drift_lab/forecasting/seasonal_naive.py`, `nhits_forecaster.py`, `nixtla_common.py` | Phong |
+| `src/drift_lab/forecasting/dhr_arima.py` | Phong, Ishan (10 of 73 lines) |
+| `src/drift_lab/forecasting/xgboost_forecaster.py` | Aditya, Phong (19 of 305 lines) |
+| `src/drift_lab/evaluation/` | Phong, Aditya (202 of 2,193 lines) |
+| `src/drift_lab/adaptation/` | Phong |
+| `src/drift_lab/uncertainty/` | Phong |
+| `experiments/run_harness.py`, `experiments/trigger_detectors.py` | Phong |
+| `experiments/results_io.py` | Phong, Bingqi (63 of 316 lines) |
+| `experiments/run_pipeline.py` | Ishan, Phong (16 of 414 lines) |
+| `experiments/run/detection/` | Phong, Antony (74 lines in `run_fine_tune_on_synthetic.py`, `run_post_tune_on_synthetic.py`) |
+| `experiments/run/forecasting/`, `experiments/run/adaptation/`, `experiments/run/uncertainty/` | Phong |
+| `experiments/produce/` | Phong |
+| `app/streamlit_app.py` | Ishan (567 of 961 lines), Phong (394 of 961 lines) |
+| `notebooks/research/gradient_boosting.ipynb` | Aditya |
+| `notebooks/research/nhits.ipynb` | Phong |
+| `tests/test_run_pipeline.py` | Ishan |
+| `tests/test_forecasting.py` | Aditya |
+| `tests/test_adwin.py`, `tests/test_kswin.py`, `tests/test_detection.py` | Antony |
+| `tests/test_evaluation.py` | Phong, Aditya (434 of 1,052 lines) |
+| `tests/` (all other files) | Phong |
+| `results/runs.csv` | Phong, Antony (35 of 80,187 rows) |
+| `results/tables/`, `results/figures/` | Phong |
+| `results/tables/table7/group_b_team42.csv`, `results/figures/figure6/group_b_team42_alarms.csv` | Team 42 (numbers), added by Phong |
+
+---
+
 ## Further reading
 
 - `docs/requirements/`: project briefing, required outputs (T1–T7, F1–F6)
